@@ -14,4 +14,4 @@
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
   </ItemGroup>
-<ItemGroup><ClCompile Include="main.cpp"><Filter>ソース ファイル</Filter></ClCompile></ItemGroup></Project>
+<ItemGroup><ClCompile Include="main.cpp"><Filter>ソース ファイル</Filter></ClCompile></ItemGroup><ItemGroup><ClCompile Include="MetadataModel.cpp"><Filter>ソース ファイル</Filter></ClCompile><ClInclude Include="MetadataModel.h"><Filter>ヘッダー ファイル</Filter></ClInclude></ItemGroup><ItemGroup><ClCompile Include="MetadataTests.cpp"><Filter>ソース ファイル</Filter></ClCompile><ClInclude Include="MetadataTests.h"><Filter>ヘッダー ファイル</Filter></ClInclude></ItemGroup><ItemGroup><ClCompile Include="WebPImage.cpp"><Filter>ソース ファイル</Filter></ClCompile><ClCompile Include="WebPTests.cpp"><Filter>ソース ファイル</Filter></ClCompile><ClInclude Include="WebPImage.h"><Filter>ヘッダー ファイル</Filter></ClInclude><ClInclude Include="WebPTests.h"><Filter>ヘッダー ファイル</Filter></ClInclude><ClInclude Include="WebPFixtures.h"><Filter>ヘッダー ファイル</Filter></ClInclude><ClInclude Include="ThumbnailCache.h"><Filter>ヘッダー ファイル</Filter></ClInclude></ItemGroup></Project>

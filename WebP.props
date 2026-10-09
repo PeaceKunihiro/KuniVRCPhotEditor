@@ -1,0 +1,230 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\libwebp-1.6.0;$(ProjectDir)third_party\libwebp-1.6.0\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\alpha_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_0.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\buffer_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_1.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\frame_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_2.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\idec_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_3.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\io_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_4.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\quant_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_5.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\tree_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_6.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\vp8_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_7.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\vp8l_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_8.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dec\webp_dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_9.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\demux\anim_decode.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_10.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\demux\demux.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_11.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\alpha_processing.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_12.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\cpu.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_13.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\dec.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_14.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\dec_clip_tables.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_15.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\filters.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_16.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\lossless.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_17.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\rescaler.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_18.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\upsampling.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_19.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\yuv.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_20.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\alpha_processing_sse41.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_21.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\dec_sse41.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_22.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\lossless_sse41.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_23.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\upsampling_sse41.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_24.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\yuv_sse41.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_25.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\alpha_processing_sse2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_26.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\dec_sse2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_27.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\filters_sse2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_28.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\lossless_sse2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_29.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\rescaler_sse2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_30.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\upsampling_sse2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_31.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\yuv_sse2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_32.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\bit_reader_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_33.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\color_cache_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_34.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\filters_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_35.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\huffman_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_36.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\palette.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_37.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\quant_levels_dec_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_38.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\rescaler_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_39.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\random_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_40.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\thread_utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_41.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\utils\utils.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ObjectFileName>$(IntDir)webp_42.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="third_party\libwebp-1.6.0\src\dsp\lossless_avx2.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <AdditionalOptions>/arch:AVX2 %(AdditionalOptions)</AdditionalOptions>
+      <ObjectFileName>$(IntDir)webp_avx2.obj</ObjectFileName>
+    </ClCompile>
+  </ItemGroup>
+</Project>

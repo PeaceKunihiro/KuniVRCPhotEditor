@@ -1,12 +1,22 @@
 #define NOMINMAX
+#include "MetadataModel.h"
+#include "MetadataTests.h"
+#include "WebPImage.h"
+#include "ThumbnailCache.h"
+#include "WebPTests.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <shobjidl.h>
+#include <shlobj.h>
+#include <propkey.h>
 #include <wincodec.h>
 #include <propvarutil.h>
 #include <wrl/client.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Storage.h>
+#include <winrt/Windows.System.h>
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
@@ -25,19 +35,32 @@ namespace fs = std::filesystem;
 using namespace winrt::Windows::Data::Json;
 constexpr UINT WM_RESULTS = WM_APP + 1;
 constexpr size_t HistoryLimit = 10;
-enum { PathEdit = 101, OpenPath, Browse, History, Reload, Placement, Images, Details };
-struct Pixels { UINT width = 0, height = 0; std::vector<BYTE> data; };
-struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; };
-struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; };
+constexpr int ThumbnailMin = 64, ThumbnailMax = 256, ThumbnailStep = 32;
+constexpr UINT_PTR ZoomTimer = 1;
+constexpr UINT_PTR ThumbnailTimer = 2;
+constexpr int ThumbnailSlots = 512;
+enum { PathEdit = 101, OpenPath, Browse, History, Reload, Placement, Images, Details, MetadataTabs };
+struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; };
+struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; };
 struct State {
     HWND window{}, path{}, history{}, list{}, preview{}, details{}, status{}, placement{};
+    HWND metadataTabs{}, simple{}, simpleNote{};
+    std::array<HWND, 8> simpleLabels{}, simpleValues{};
+    int simpleScroll = 0, simpleWheel = 0, simpleContentHeight = 0;
+    PhotoSummary summary;
     HIMAGELIST thumbs{};
     std::vector<std::wstring> files, recent;
     std::vector<bool> thumbnailDone;
+    std::vector<bool> thumbnailRequested;
+    std::vector<int> itemSlots, slotOwners;
+    int wantedFirst = 0, wantedLast = -1;
     std::wstring folder, last, layout = L"right", settingsError;
     fs::path settings;
     bool settingsProtected = false, closing = false;
     unsigned generation = 0, selection = 0;
+    unsigned thumbnailGeneration = 0;
+    int thumbnailWidth = 128, activeThumbnailWidth = 128, zoomWheel = 0;
+    bool folderPending = false;
     int selected = -1, wheel = 0, loaded = 0;
     Pixels previewPixels;
     std::mutex mutex;
@@ -45,9 +68,19 @@ struct State {
     std::deque<Job> jobs;
     std::deque<Result> results;
     std::thread worker;
+    std::array<std::thread, 2> thumbnailWorkers;
+    ThumbnailCache cache;
     std::atomic<unsigned> currentGeneration{0}, currentSelection{0};
+    std::atomic<unsigned> currentThumbnailGeneration{0};
     std::atomic<bool> stopping{false};
 } app;
+void LayoutSimple();
+void ScheduleThumbnails();
+void ShowSummary(const PhotoSummary& summary, const std::wstring& message = L"") {
+    app.summary = summary; app.simpleScroll = 0;
+    for (size_t i = 0; i < summary.values.size(); ++i) SetWindowTextW(app.simpleValues[i], summary.values[i].c_str());
+    SetWindowTextW(app.simpleNote, (message + summary.notes).c_str()); LayoutSimple();
+}
 
 std::wstring ErrorText(HRESULT hr) {
     wchar_t* message = nullptr;
@@ -80,6 +113,12 @@ void RefreshHistory() {
     SendMessageW(app.history, CB_RESETCONTENT, 0, 0);
     for (auto& p : app.recent) SendMessageW(app.history, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(p.c_str()));
 }
+int ReadThumbnailWidth(const JsonObject& object) {
+    auto number = object.GetNamedNumber(L"thumbnailWidth", 128);
+    if (!std::isfinite(number) || number < ThumbnailMin || number > ThumbnailMax || std::fmod(number - ThumbnailMin, ThumbnailStep) != 0)
+        throw std::runtime_error("thumbnail width");
+    return static_cast<int>(number);
+}
 void LoadSettings() {
     wchar_t executable[32768]; GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
     app.settings = fs::path(executable).parent_path() / L"settings.json";
@@ -93,6 +132,7 @@ void LoadSettings() {
         if (object.GetNamedNumber(L"version") != 1) throw std::runtime_error("version");
         std::wstring last(object.GetNamedString(L"lastFolder"));
         std::wstring layout(object.GetNamedString(L"sideView"));
+        int thumbnailWidth = ReadThumbnailWidth(object);
         if (layout != L"left" && layout != L"right" && layout != L"bottom") throw std::runtime_error("layout");
         std::vector<std::wstring> recent;
         for (auto item : object.GetNamedArray(L"history")) {
@@ -100,6 +140,7 @@ void LoadSettings() {
             if (std::none_of(recent.begin(), recent.end(), [&](auto& p) { return Same(p, path); }) && recent.size() < HistoryLimit) recent.push_back(path);
         }
         app.last = last; app.layout = layout; app.recent = std::move(recent);
+        app.thumbnailWidth = app.activeThumbnailWidth = thumbnailWidth;
     } catch (...) {
         app.settingsProtected = true;
         app.settingsError = L"設定の読込みに失敗しました。元のsettings.jsonを保全し、今回は設定を保存しません。";
@@ -111,6 +152,7 @@ void SaveSettings() {
         JsonObject object; object.Insert(L"version", JsonValue::CreateNumberValue(1));
         object.Insert(L"lastFolder", JsonValue::CreateStringValue(app.last));
         object.Insert(L"sideView", JsonValue::CreateStringValue(app.layout));
+        object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(app.thumbnailWidth));
         JsonArray history; for (auto& path : app.recent) history.Append(JsonValue::CreateStringValue(path));
         object.Insert(L"history", history);
         auto bytes = winrt::to_string(object.Stringify());
@@ -124,7 +166,7 @@ void SaveSettings() {
 
 Pixels Decode(IWICImagingFactory* factory, IWICBitmapFrameDecode* frame, UINT maxWidth, UINT maxHeight) {
     UINT width = 0, height = 0; winrt::check_hresult(frame->GetSize(&width, &height));
-    if (!width || !height) throw std::runtime_error("invalid dimensions");
+    if (!width || !height || uint64_t(width) * height > 64ULL * 1024 * 1024) throw std::runtime_error("invalid dimensions or pixel limit");
     double scale = std::min({ 1.0, double(maxWidth) / width, double(maxHeight) / height });
     Pixels result; result.width = std::max(1U, UINT(width * scale)); result.height = std::max(1U, UINT(height * scale));
     ComPtr<IWICBitmapScaler> scaler; winrt::check_hresult(factory->CreateBitmapScaler(&scaler));
@@ -192,53 +234,136 @@ std::wstring Info(IWICBitmapDecoder* decoder, IWICBitmapFrameDecode* frame, cons
 }
 void Queue(Job job, bool priority = false) {
     { std::lock_guard<std::mutex> lock(app.mutex); if (priority) app.jobs.push_front(std::move(job)); else app.jobs.push_back(std::move(job)); }
-    app.wake.notify_one();
+    app.wake.notify_all();
 }
-void Worker() {
-    auto init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+bool IsPhotosId(const std::wstring& id) {
+    const std::wstring family = L"Microsoft.Windows.Photos_8wekyb3d8bbwe!";
+    return id.size() > family.size() && _wcsnicmp(id.c_str(), family.c_str(), family.size()) == 0;
+}
+HRESULT FindPhotosAppId(std::wstring& id) {
+    ComPtr<IShellItem> apps;
+    auto hr = SHCreateItemInKnownFolder(FOLDERID_AppsFolder, 0, nullptr, IID_PPV_ARGS(&apps));
+    if (FAILED(hr)) return hr;
+    ComPtr<IEnumShellItems> items;
+    hr = apps->BindToHandler(nullptr, BHID_EnumItems, IID_PPV_ARGS(&items));
+    if (FAILED(hr)) return hr;
+    for (;;) {
+        ComPtr<IShellItem> item; ULONG fetched = 0;
+        hr = items->Next(1, &item, &fetched);
+        if (hr != S_OK) return FAILED(hr) ? hr : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        ComPtr<IShellItem2> properties;
+        if (FAILED(item.As(&properties))) continue;
+        PWSTR value = nullptr;
+        if (SUCCEEDED(properties->GetString(PKEY_AppUserModel_ID, &value))) {
+            std::wstring candidate(value); CoTaskMemFree(value);
+            if (IsPhotosId(candidate)) { id = candidate; return S_OK; }
+        }
+    }
+}
+HRESULT ActivatePhotos(const std::wstring& path, std::wstring& detail, HRESULT (*findApp)(std::wstring&) = FindPhotosAppId) {
+    DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) return HRESULT_FROM_WIN32(GetLastError());
+    if (attributes & FILE_ATTRIBUTE_DIRECTORY) return E_INVALIDARG;
+    std::wstring id;
+    auto hr = findApp(id);
+    if (FAILED(hr)) { detail = L"Windowsフォトを検出できません。Microsoftフォトのインストール状態を確認してください。\r\n"; return hr; }
+    try {
+        // Await on the MTA worker. The package target does not change associations.
+        auto file = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(path).get();
+        winrt::Windows::System::LauncherOptions options;
+        options.TargetApplicationPackageFamilyName(id.substr(0, id.find(L'!')));
+        options.DisplayApplicationPicker(false);
+        return winrt::Windows::System::Launcher::LaunchFileAsync(file, options).get() ? S_OK : E_FAIL;
+    } catch (const winrt::hresult_error& error) { return error.code(); }
+}
+Job ThumbnailJob(int index) {
+    return { 1, app.generation, 0, index, app.files[index], L"", app.thumbnailGeneration, app.activeThumbnailWidth };
+}
+bool CurrentJob(const Job& job) {
+    if (job.kind == 3) return true; // A click requests this exact file even if selection changes.
+    return job.generation == app.currentGeneration &&
+        (job.kind != 1 || job.thumbnailGeneration == app.currentThumbnailGeneration) &&
+        (job.kind != 2 || job.selection == app.currentSelection);
+}
+void Worker(bool thumbnails = false) {
+    auto init = RoInitialize(RO_INIT_MULTITHREADED);
     ComPtr<IWICImagingFactory> factory;
     auto factoryHr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
     while (!app.stopping) {
         Job job;
-        { std::unique_lock<std::mutex> lock(app.mutex); app.wake.wait(lock, [] { return app.stopping || !app.jobs.empty(); });
-          if (app.stopping) break; job = std::move(app.jobs.front()); app.jobs.pop_front(); }
-        if (job.generation != app.currentGeneration || (job.kind == 2 && job.selection != app.currentSelection)) continue;
+        { std::unique_lock<std::mutex> lock(app.mutex);
+          auto next = [&] { return std::find_if(app.jobs.begin(), app.jobs.end(), [&](const Job& j) { return (j.kind == 1) == thumbnails; }); };
+          app.wake.wait(lock, [&] { return app.stopping || next() != app.jobs.end(); });
+          if (app.stopping) break; auto i = next(); job = std::move(*i); app.jobs.erase(i); }
+        if (!CurrentJob(job)) continue;
         Result result; result.job = job;
         try {
-            if (job.kind == 0) {
+            if (job.kind == 3) {
+                std::wstring detail;
+                auto hr = ActivatePhotos(job.path, detail);
+                if (FAILED(hr)) result.error = detail + ErrorText(hr);
+            } else if (job.kind == 0) {
                 if (!fs::is_directory(job.path)) throw std::runtime_error("not directory");
                 for (auto& entry : fs::directory_iterator(job.path)) {
                     if (app.stopping || job.generation != app.currentGeneration) break;
                     std::error_code error;
                     if (!entry.is_regular_file(error)) continue;
                     auto extension = entry.path().extension().wstring();
-                    if (Same(extension, L".png") || Same(extension, L".jpg") || Same(extension, L".jpeg")) result.files.push_back(entry.path().wstring());
+                    if (Same(extension, L".png") || Same(extension, L".jpg") || Same(extension, L".jpeg") || Same(extension, L".webp")) result.files.push_back(entry.path().wstring());
                 }
                 std::sort(result.files.begin(), result.files.end(), [](auto& a, auto& b) {
-                    auto left = fs::path(a).filename().wstring(), right = fs::path(b).filename().wstring();
-                    int comparison = _wcsicmp(left.c_str(), right.c_str()); return comparison ? comparison < 0 : left < right;
+                    const wchar_t* left = wcsrchr(a.c_str(), L'\\'), *right = wcsrchr(b.c_str(), L'\\');
+                    left = left ? left + 1 : a.c_str(); right = right ? right + 1 : b.c_str();
+                    int comparison = _wcsicmp(left, right); return comparison ? comparison < 0 : wcscmp(left, right) < 0;
                 });
             } else {
+                if (job.kind == 2) result.summary = ReadPhotoSummary(job.path);
+                std::wstring cacheKey;
+                auto cacheTicket = app.cache.Ticket();
+                bool cached = false;
+                if (job.kind == 1) { cacheKey = ThumbnailCache::Key(job.path); cached = app.cache.Get(cacheKey, result.pixels); }
+                if (!cached && Same(fs::path(job.path).extension().wstring(), L".webp")) {
+                    auto image = ReadWebP(job.path, job.kind == 1 ? 256 : 1200, job.kind == 1 ? 192 : 900);
+                    result.pixels = { image.width, image.height, std::move(image.pixels) };
+                    if (job.kind == 2) {
+                        result.summary.values[2] = std::to_wstring(image.sourceWidth) + L" × " + std::to_wstring(image.sourceHeight) + L" px";
+                        result.text = L"ファイル名: " + fs::path(job.path).filename().wstring() + L"\r\nフルパス: " + job.path + L"\r\n形式: WebP\r\n画像: " + result.summary.values[2];
+                        if (image.animated) result.text += L"\r\nアニメーション: 合成済み先頭フレームの静止表示";
+                        if (image.exif) result.text += L"\r\nEXIFあり（タグ展開・回転補正は未対応）";
+                        if (image.icc) result.text += L"\r\nICCあり（色プロファイル適用は未対応）";
+                        result.text += L"\r\n" + result.summary.notes + result.summary.xmpDetail;
+                    }
+                } else if (!cached) {
                 winrt::check_hresult(factoryHr);
                 ComPtr<IWICBitmapDecoder> decoder;
                 winrt::check_hresult(factory->CreateDecoderFromFilename(job.path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder));
                 ComPtr<IWICBitmapFrameDecode> frame; winrt::check_hresult(decoder->GetFrame(0, &frame));
-                result.pixels = Decode(factory.Get(), frame.Get(), job.kind == 1 ? 128 : 1200, job.kind == 1 ? 96 : 900);
-                if (job.kind == 2) result.text = Info(decoder.Get(), frame.Get(), job.path);
+                result.pixels = Decode(factory.Get(), frame.Get(), job.kind == 1 ? 256 : 1200, job.kind == 1 ? 192 : 900);
+                if (job.kind == 2) {
+                    UINT width = 0, height = 0; winrt::check_hresult(frame->GetSize(&width, &height));
+                    result.summary.values[2] = std::to_wstring(width) + L" × " + std::to_wstring(height) + L" px";
+                    result.text = Info(decoder.Get(), frame.Get(), job.path) + L"\r\n" + result.summary.notes + result.summary.xmpDetail;
+                }
+                }
+                if (job.kind == 1 && !cached && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) app.cache.Put(cacheKey, result.pixels, cacheTicket);
             }
         } catch (const winrt::hresult_error& error) { result.error = ErrorText(error.code()); }
           catch (const fs::filesystem_error& error) { result.error = ErrorText(HRESULT_FROM_WIN32(error.code().value())); }
           catch (...) { result.error = L"読込みエラー: パスまたはファイルを確認してください。"; }
-        if (app.stopping || job.generation != app.currentGeneration) continue;
-        { std::lock_guard<std::mutex> lock(app.mutex); app.results.push_back(std::move(result)); }
-        PostMessageW(app.window, WM_RESULTS, 0, 0);
+        if (app.stopping || !CurrentJob(job)) continue;
+        { std::unique_lock<std::mutex> lock(app.mutex);
+          app.wake.wait(lock, [] { return app.stopping || app.results.size() < 32; });
+          if (app.stopping) break;
+          bool notify = app.results.empty(); app.results.push_back(std::move(result));
+          if (notify) PostMessageW(app.window, WM_RESULTS, 0, 0); }
     }
-    factory.Reset(); if (SUCCEEDED(init)) CoUninitialize();
+    factory.Reset(); if (SUCCEEDED(init)) RoUninitialize();
 }
 void Select(int index) {
     app.selected = index; app.previewPixels = {}; ++app.selection; app.currentSelection = app.selection;
     InvalidateRect(app.preview, nullptr, TRUE);
-    if (index < 0) { SetWindowTextW(app.details, L"画像を選択してください。"); Counts(); return; }
+    if (index < 0) { SetWindowTextW(app.details, L"画像を選択してください。"); ShowSummary({}, L"画像を選択してください。"); Counts(); return; }
+    ShowSummary({}, L"プレビュー・メタデータを読み込んでいます…");
     SetWindowTextW(app.details, L"プレビュー・メタデータを読み込んでいます…"); Counts(L"読込み中");
     { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind == 2; }), app.jobs.end()); }
     Queue({ 2, app.generation, app.selection, index, app.files[index], L"" }, true);
@@ -247,37 +372,150 @@ void OpenFolder(const std::wstring& path, bool reload = false) {
     try {
         auto normalized = Normalize(path);
         ++app.generation; app.currentGeneration = app.generation;
-        { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.clear(); }
+        if (reload) app.cache.Clear();
+        app.folderPending = true;
+        { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind != 3; }), app.jobs.end()); }
         // The visible list is committed only after enumeration succeeds.
         auto preserve = reload && app.selected >= 0 ? app.files[app.selected] : L"";
         Queue({ 0, app.generation, 0, -1, normalized, preserve }, true); Counts(L"フォルダーを読み込んでいます…");
     } catch (...) { Counts(L"無効なフォルダーパスです。現在の一覧を保持します。"); }
 }
-HBITMAP Thumbnail(const Pixels& pixels) {
-    BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = 128; info.bmiHeader.biHeight = -96;
+HBITMAP Thumbnail(const Pixels& pixels, int width = 128) {
+    const int height = width * 3 / 4;
+    BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = width; info.bmiHeader.biHeight = -height;
     info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
     void* bits = nullptr; HBITMAP bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
     if (!bitmap) return nullptr;
-    auto target = static_cast<BYTE*>(bits); memset(target, 230, 128 * 96 * 4);
-    for (int i = 0; i < 128 * 96; ++i) target[i * 4 + 3] = 255;
-    auto x = (128 - pixels.width) / 2, y = (96 - pixels.height) / 2;
-    for (UINT row = 0; row < pixels.height; ++row) for (UINT col = 0; col < pixels.width; ++col) {
-        auto source = &pixels.data[(size_t(row) * pixels.width + col) * 4];
-        auto dest = target + ((row + y) * 128 + col + x) * 4;
-        for (int c = 0; c < 3; ++c) dest[c] = BYTE(std::min(255, int(source[c]) + (230 * (255 - source[3]) / 255)));
+    auto target = static_cast<BYTE*>(bits); memset(target, 230, width * height * 4);
+    for (int i = 0; i < width * height; ++i) target[i * 4 + 3] = 255;
+    if (!pixels.width || !pixels.height) return bitmap;
+    double scale = std::min({ 1.0, double(width) / pixels.width, double(height) / pixels.height });
+    UINT drawWidth = std::max(1U, UINT(pixels.width * scale)), drawHeight = std::max(1U, UINT(pixels.height * scale));
+    auto x = (width - drawWidth) / 2, y = (height - drawHeight) / 2;
+    for (UINT row = 0; row < drawHeight; ++row) for (UINT col = 0; col < drawWidth; ++col) {
+        double sx = std::max(0.0, (col + 0.5) * pixels.width / drawWidth - 0.5), sy = std::max(0.0, (row + 0.5) * pixels.height / drawHeight - 0.5);
+        UINT x0 = UINT(sx), y0 = UINT(sy), x1 = std::min(x0 + 1, pixels.width - 1), y1 = std::min(y0 + 1, pixels.height - 1);
+        double fx = sx - x0, fy = sy - y0; double channels[4]{};
+        for (int c = 0; c < 4; ++c) channels[c] =
+            (1 - fy) * ((1 - fx) * pixels.data[(size_t(y0) * pixels.width + x0) * 4 + c] + fx * pixels.data[(size_t(y0) * pixels.width + x1) * 4 + c]) +
+            fy * ((1 - fx) * pixels.data[(size_t(y1) * pixels.width + x0) * 4 + c] + fx * pixels.data[(size_t(y1) * pixels.width + x1) * 4 + c]);
+        auto dest = target + ((row + y) * width + col + x) * 4;
+        for (int c = 0; c < 3; ++c) dest[c] = BYTE(std::clamp(channels[c] + 230 * (255 - channels[3]) / 255, 0.0, 255.0));
     }
     return bitmap;
 }
+void ArrangeImages() {
+    ListView_Arrange(app.list, LVA_DEFAULT);
+    if (app.selected >= 0) ListView_EnsureVisible(app.list, app.selected, FALSE);
+}
+void ResetThumbnailTracking() {
+    app.thumbnailDone.assign(app.files.size(), false); app.thumbnailRequested.assign(app.files.size(), false);
+    app.itemSlots.assign(app.files.size(), -1); app.slotOwners.clear(); app.wantedFirst = 0; app.wantedLast = -1;
+}
+void ScheduleThumbnails() {
+    if (app.folderPending || app.files.empty() || app.closing) return;
+    RECT client{}; GetClientRect(app.list, &client);
+    const int count = static_cast<int>(app.files.size());
+    auto boundary = [&](bool end) {
+        int low = 0, high = count;
+        while (low < high) {
+            int mid = low + (high - low) / 2; RECT r{}; ListView_GetItemRect(app.list, mid, &r, LVIR_BOUNDS);
+            if (end ? r.top <= client.bottom : r.bottom < 0) low = mid + 1; else high = mid;
+        }
+        return low;
+    };
+    int first = boundary(false), last = boundary(true) - 1;
+    // Visible items precede a small prefetch margin. Both UI slots and queued work are bounded.
+    int margin = std::min(32, std::max(0, (ThumbnailSlots - (last - first + 1)) / 2));
+    app.wantedFirst = std::max(0, first - margin); app.wantedLast = std::min({ count - 1, last + margin, app.wantedFirst + ThumbnailSlots - 1 });
+    std::lock_guard<std::mutex> lock(app.mutex);
+    app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [&](const Job& j) {
+        if (j.kind != 1) return false;
+        if (j.index >= 0 && j.index < count) app.thumbnailRequested[j.index] = false;
+        return true;
+    }), app.jobs.end());
+    auto add = [&](int index) {
+        if (index < app.wantedFirst || index > app.wantedLast || app.thumbnailDone[index] || app.thumbnailRequested[index]) return;
+        app.thumbnailRequested[index] = true; app.jobs.push_back(ThumbnailJob(index));
+    };
+    for (int i = first; i <= std::min(last, app.wantedLast); ++i) add(i);
+    for (int i = app.wantedFirst; i < first; ++i) add(i);
+    for (int i = last + 1; i <= app.wantedLast; ++i) add(i);
+    app.wake.notify_all();
+}
+void ApplyThumbnailSize() {
+    KillTimer(app.window, ZoomTimer);
+    if (app.thumbnailWidth == app.activeThumbnailWidth) { SaveSettings(); return; }
+    auto images = ImageList_Create(app.thumbnailWidth, app.thumbnailWidth * 3 / 4, ILC_COLOR32, 1, 64);
+    auto placeholder = Thumbnail({}, app.thumbnailWidth);
+    if (!images || !placeholder || ImageList_Add(images, placeholder, nullptr) < 0) {
+        if (images) ImageList_Destroy(images); if (placeholder) DeleteObject(placeholder);
+        app.thumbnailWidth = app.activeThumbnailWidth; Counts(L"サムネイルサイズを変更できませんでした。"); return;
+    }
+    DeleteObject(placeholder);
+    ++app.thumbnailGeneration; app.currentThumbnailGeneration = app.thumbnailGeneration;
+    { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind == 1; }), app.jobs.end()); }
+    app.activeThumbnailWidth = app.thumbnailWidth;
+    auto previous = ListView_SetImageList(app.list, images, LVSIL_NORMAL); app.thumbs = images;
+    if (previous) ImageList_Destroy(previous);
+    ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 36, app.activeThumbnailWidth * 3 / 4 + 44);
+    app.loaded = 0; ResetThumbnailTracking();
+    SendMessageW(app.list, WM_SETREDRAW, FALSE, 0);
+    for (int i = 0; i < static_cast<int>(app.files.size()); ++i) {
+        LVITEMW item{}; item.mask = LVIF_IMAGE; item.iItem = i; item.iImage = 0; ListView_SetItem(app.list, &item);
+        auto name = fs::path(app.files[i]).filename().wstring(); ListView_SetItemText(app.list, i, 0, name.data());
+    }
+    SendMessageW(app.list, WM_SETREDRAW, TRUE, 0); ArrangeImages(); InvalidateRect(app.list, nullptr, TRUE);
+    ScheduleThumbnails();
+    SaveSettings(); Counts(L"サムネイル幅: " + std::to_wstring(app.activeThumbnailWidth) + L"px");
+}
+int WheelThumbnailWidth(int width, int& remainder, int delta) {
+    remainder += delta;
+    while (abs(remainder) >= WHEEL_DELTA) {
+        int direction = remainder > 0 ? 1 : -1;
+        remainder -= direction * WHEEL_DELTA;
+        width = std::clamp(width + direction * ThumbnailStep, ThumbnailMin, ThumbnailMax);
+    }
+    return width;
+}
+LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) {
+    if (message == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL)) {
+        int width = WheelThumbnailWidth(app.thumbnailWidth, app.zoomWheel, GET_WHEEL_DELTA_WPARAM(wparam));
+        if (width != app.thumbnailWidth) {
+            app.thumbnailWidth = width;
+            SetTimer(app.window, ZoomTimer, 150, nullptr);
+            Counts(L"サムネイル幅: " + std::to_wstring(width) + L"px");
+        }
+        return 0;
+    }
+    if (message == WM_MOUSEWHEEL) app.zoomWheel = 0;
+    if (message == WM_NCDESTROY) RemoveWindowSubclass(window, ImagesProc, id);
+    auto result = DefSubclassProc(window, message, wparam, lparam);
+    if (message == WM_MOUSEWHEEL || message == WM_VSCROLL || message == WM_HSCROLL || message == WM_KEYDOWN || message == WM_SIZE)
+        SetTimer(app.window, ThumbnailTimer, 30, nullptr);
+    return result;
+}
 void Results() {
     std::deque<Result> results;
-    { std::lock_guard<std::mutex> lock(app.mutex); results.swap(app.results); }
+    { std::lock_guard<std::mutex> lock(app.mutex);
+      for (int i = 0; i < 2 && !app.results.empty(); ++i) { results.push_back(std::move(app.results.front())); app.results.pop_front(); }
+      if (!app.results.empty()) PostMessageW(app.window, WM_RESULTS, 0, 0); }
+    app.wake.notify_all();
     for (auto& result : results) {
-        auto& job = result.job; if (job.generation != app.generation) continue;
+        auto& job = result.job;
+        if (job.kind == 3) {
+            if (!result.error.empty()) {
+                Counts(L"Windowsフォト起動エラー");
+                MessageBoxW(app.window, (job.path + L"\r\n\r\n" + result.error).c_str(), L"Windowsフォト起動エラー", MB_OK | MB_ICONWARNING);
+            } else Counts(L"Windowsフォトに画像を渡しました。");
+            continue;
+        }
+        if (!CurrentJob(job)) continue;
         if (job.kind == 0) {
+            app.folderPending = false;
             if (!result.error.empty()) {
                 // A failed folder change keeps the old list, including unfinished work.
-                for (int i = 0; i < static_cast<int>(app.files.size()); ++i)
-                    if (!app.thumbnailDone[i]) Queue({ 1, app.generation, 0, i, app.files[i], L"" });
+                app.thumbnailRequested.assign(app.files.size(), false); ScheduleThumbnails();
                 if (app.selected >= 0 && app.previewPixels.data.empty())
                     Queue({ 2, app.generation, app.selection, app.selected, app.files[app.selected], L"" }, true);
                 Counts(L"フォルダーを開けません: " + result.error); continue;
@@ -285,36 +523,65 @@ void Results() {
             // Clear old selection before replacing the file vector.
             ListView_DeleteAllItems(app.list); Select(-1);
             app.folder = job.path; app.last = job.path; app.files = std::move(result.files); app.loaded = 0;
-            app.thumbnailDone.assign(app.files.size(), false);
+            ResetThumbnailTracking();
             app.recent.erase(std::remove_if(app.recent.begin(), app.recent.end(), [&](auto& p) { return Same(p, app.folder); }), app.recent.end());
             app.recent.insert(app.recent.begin(), app.folder); if (app.recent.size() > HistoryLimit) app.recent.resize(HistoryLimit);
             RefreshHistory(); SetWindowTextW(app.path, app.folder.c_str()); SaveSettings();
-            ImageList_RemoveAll(app.thumbs); auto placeholder = Thumbnail({}); ImageList_Add(app.thumbs, placeholder, nullptr); DeleteObject(placeholder);
+            ImageList_RemoveAll(app.thumbs); auto placeholder = Thumbnail({}, app.activeThumbnailWidth); ImageList_Add(app.thumbs, placeholder, nullptr); DeleteObject(placeholder);
             int preserveIndex = -1;
             SendMessageW(app.list, WM_SETREDRAW, FALSE, 0);
             for (int i = 0; i < static_cast<int>(app.files.size()); ++i) {
                 auto name = fs::path(app.files[i]).filename().wstring();
                 LVITEMW item{}; item.mask = LVIF_TEXT | LVIF_IMAGE; item.iItem = i; item.iImage = 0; item.pszText = name.data(); ListView_InsertItem(app.list, &item);
-                Queue({ 1, app.generation, 0, i, app.files[i], L"" }); if (Same(app.files[i], job.preserve)) preserveIndex = i;
+                if (Same(app.files[i], job.preserve)) preserveIndex = i;
             }
-            SendMessageW(app.list, WM_SETREDRAW, TRUE, 0); InvalidateRect(app.list, nullptr, TRUE);
+            SendMessageW(app.list, WM_SETREDRAW, TRUE, 0); ArrangeImages(); InvalidateRect(app.list, nullptr, TRUE);
             Counts(app.files.empty() ? L"対応する画像がありません" : L"サムネイル読込み中");
             if (preserveIndex >= 0) { ListView_SetItemState(app.list, preserveIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED); ListView_EnsureVisible(app.list, preserveIndex, FALSE); }
+            ScheduleThumbnails();
         } else if (job.kind == 1) {
+            app.thumbnailRequested[job.index] = false;
+            if (job.index < app.wantedFirst || job.index > app.wantedLast) continue;
             if (app.thumbnailDone[job.index]) continue;
             app.thumbnailDone[job.index] = true;
             ++app.loaded;
             if (result.error.empty()) {
-                auto bitmap = Thumbnail(result.pixels); int image = ImageList_Add(app.thumbs, bitmap, nullptr); DeleteObject(bitmap);
+                int slot = -1;
+                if (app.slotOwners.size() < ThumbnailSlots) slot = static_cast<int>(app.slotOwners.size());
+                else for (int i = 0; i < ThumbnailSlots; ++i) {
+                    int owner = app.slotOwners[i];
+                    if (owner < app.wantedFirst || owner > app.wantedLast) {
+                        slot = i; break;
+                    }
+                }
+                if (slot < 0) { app.thumbnailDone[job.index] = false; continue; }
+                auto bitmap = Thumbnail(result.pixels, app.activeThumbnailWidth);
+                if (!bitmap) { Counts(L"サムネイル用メモリを確保できません。"); continue; }
+                int image = slot + 1;
+                if (image >= ImageList_GetImageCount(app.thumbs)) image = ImageList_Add(app.thumbs, bitmap, nullptr);
+                else if (!ImageList_Replace(app.thumbs, image, bitmap, nullptr)) image = -1;
+                if (bitmap) DeleteObject(bitmap);
+                if (image < 0) { Counts(L"サムネイルを画像一覧に登録できません。"); continue; }
+                if (slot == static_cast<int>(app.slotOwners.size())) app.slotOwners.push_back(job.index);
+                else {
+                    int owner = app.slotOwners[slot];
+                    LVITEMW old{}; old.mask = LVIF_IMAGE; old.iItem = owner; old.iImage = 0; ListView_SetItem(app.list, &old);
+                    app.itemSlots[owner] = -1; app.thumbnailDone[owner] = false; app.slotOwners[slot] = job.index;
+                }
+                app.itemSlots[job.index] = slot;
                 LVITEMW item{}; item.mask = LVIF_IMAGE; item.iItem = job.index; item.iImage = image; ListView_SetItem(app.list, &item);
             } else {
                 auto name = fs::path(job.path).filename().wstring() + L" [読込みエラー]";
                 ListView_SetItemText(app.list, job.index, 0, name.data());
             }
-            if (app.loaded == static_cast<int>(app.files.size())) Counts(L"サムネイル読込み完了");
+            bool ready = true;
+            for (int i = app.wantedFirst; i <= app.wantedLast; ++i) ready = ready && app.thumbnailDone[i];
+            if (ready) Counts(L"表示範囲のサムネイル読込み完了");
         } else if (job.selection == app.selection && job.index == app.selected) {
             app.previewPixels = std::move(result.pixels);
             auto text = result.error.empty() ? result.text : job.path + L"\r\n\r\n読込みエラー: " + result.error;
+            if (!result.error.empty()) text += L"\r\n" + result.summary.notes + result.summary.xmpDetail;
+            ShowSummary(result.summary, result.error.empty() ? L"" : L"画像読込みエラー。解像度を取得できません。\r\n");
             SetWindowTextW(app.details, text.c_str()); InvalidateRect(app.preview, nullptr, TRUE); Counts(result.error.empty() ? L"表示完了" : L"画像読込みエラー");
         }
     }
@@ -338,13 +605,69 @@ void Layout() {
     if (app.layout == L"bottom") {
         int previewWidth = (side.right - side.left) / 3;
         MoveWindow(app.preview, side.left, side.top, previewWidth, std::max(1L, side.bottom - side.top), TRUE);
-        MoveWindow(app.details, side.left + previewWidth + 8, side.top, std::max(1L, side.right - side.left - previewWidth - 8), std::max(1L, side.bottom - side.top), TRUE);
+        MoveWindow(app.metadataTabs, side.left + previewWidth + 8, side.top, std::max(1L, side.right - side.left - previewWidth - 8), std::max(1L, side.bottom - side.top), TRUE);
     } else {
         int previewHeight = std::max(60L, (side.bottom - side.top) / 3);
         MoveWindow(app.preview, side.left, side.top, side.right - side.left, previewHeight, TRUE);
-        MoveWindow(app.details, side.left, side.top + previewHeight + 8, side.right - side.left, std::max(1L, side.bottom - side.top - previewHeight - 8), TRUE);
+        MoveWindow(app.metadataTabs, side.left, side.top + previewHeight + 8, side.right - side.left, std::max(1L, side.bottom - side.top - previewHeight - 8), TRUE);
     }
+    RECT page{}; GetClientRect(app.metadataTabs, &page); TabCtrl_AdjustRect(app.metadataTabs, FALSE, &page);
+    MapWindowPoints(app.metadataTabs, app.window, reinterpret_cast<POINT*>(&page), 2);
+    for (HWND control : { app.details, app.simple }) MoveWindow(control, page.left, page.top, std::max(1L, page.right - page.left), std::max(1L, page.bottom - page.top), TRUE);
+    bool detailed = TabCtrl_GetCurSel(app.metadataTabs) == 1;
+    ShowWindow(app.details, detailed ? SW_SHOW : SW_HIDE); ShowWindow(app.simple, detailed ? SW_HIDE : SW_SHOW);
+    LayoutSimple();
     MoveWindow(app.status, 8, height - 28, width - 16, 24, TRUE);
+    ArrangeImages();
+}
+void LayoutSimple() {
+    if (!app.simple) return;
+    RECT area{}; GetClientRect(app.simple, &area);
+    int labelWidth = 104, valueWidth = std::max(40L, area.right - labelWidth - 24);
+    HDC dc = GetDC(app.simple); auto previous = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT)); TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics); SelectObject(dc, previous); ReleaseDC(app.simple, dc);
+    int y = 8;
+    for (size_t i = 0; i < app.simpleValues.size(); ++i) {
+        MoveWindow(app.simpleValues[i], labelWidth + 12, y - app.simpleScroll, valueWidth, 24, FALSE);
+        int lines = static_cast<int>(SendMessageW(app.simpleValues[i], EM_GETLINECOUNT, 0, 0));
+        int height = std::max(26, lines * static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading) + 8);
+        MoveWindow(app.simpleLabels[i], 8, y + 3 - app.simpleScroll, labelWidth, 24, TRUE);
+        MoveWindow(app.simpleValues[i], labelWidth + 12, y - app.simpleScroll, valueWidth, height, TRUE);
+        y += height + 8;
+    }
+    auto note = Text(app.simpleNote);
+    MoveWindow(app.simpleNote, 8, y - app.simpleScroll, std::max(40L, area.right - 16), 24, FALSE);
+    int lines = static_cast<int>(SendMessageW(app.simpleNote, EM_GETLINECOUNT, 0, 0));
+    int noteHeight = note.empty() ? 0 : std::max(26, lines * static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading) + 8);
+    MoveWindow(app.simpleNote, 8, y - app.simpleScroll, std::max(40L, area.right - 16), std::max(1, noteHeight), TRUE);
+    app.simpleContentHeight = y + noteHeight + 8;
+    int position = std::clamp(app.simpleScroll, 0, std::max(0, app.simpleContentHeight - static_cast<int>(area.bottom)));
+    SCROLLINFO scroll{ sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS }; scroll.nMax = app.simpleContentHeight - 1; scroll.nPage = area.bottom; scroll.nPos = position; SetScrollInfo(app.simple, SB_VERT, &scroll, TRUE);
+    if (position != app.simpleScroll) { app.simpleScroll = position; LayoutSimple(); return; }
+    InvalidateRect(app.simple, nullptr, TRUE);
+}
+LRESULT CALLBACK SimpleProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) {
+        RECT area{}; GetClientRect(window, &area); int position = app.simpleScroll;
+        if (message == WM_MOUSEWHEEL) {
+            app.simpleWheel += GET_WHEEL_DELTA_WPARAM(wparam);
+            while (abs(app.simpleWheel) >= WHEEL_DELTA) { int direction = app.simpleWheel > 0 ? -1 : 1; position += direction * 60; app.simpleWheel += direction * WHEEL_DELTA; }
+        } else {
+            switch (LOWORD(wparam)) {
+            case SB_LINEUP: position -= 24; break; case SB_LINEDOWN: position += 24; break;
+            case SB_PAGEUP: position -= area.bottom; break; case SB_PAGEDOWN: position += area.bottom; break;
+            case SB_TOP: position = 0; break; case SB_BOTTOM: position = app.simpleContentHeight; break;
+            case SB_THUMBTRACK: case SB_THUMBPOSITION: { SCROLLINFO scroll{ sizeof(scroll), SIF_TRACKPOS }; GetScrollInfo(window, SB_VERT, &scroll); position = scroll.nTrackPos; break; }
+            }
+        }
+        app.simpleScroll = std::clamp(position, 0, std::max(0, app.simpleContentHeight - static_cast<int>(area.bottom))); LayoutSimple(); return 0;
+    }
+    if (message == WM_SIZE) { LayoutSimple(); return 0; }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+LRESULT CALLBACK SummaryValueProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) {
+    if (message == WM_MOUSEWHEEL) return SendMessageW(app.simple, message, wparam, lparam);
+    if (message == WM_NCDESTROY) RemoveWindowSubclass(window, SummaryValueProc, id);
+    return DefSubclassProc(window, message, wparam, lparam);
 }
 LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_MOUSEWHEEL) {
@@ -388,7 +711,7 @@ HWND Control(LPCWSTR type, LPCWSTR text, DWORD style, int id) {
 }
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
-    case WM_CREATE:
+    case WM_CREATE: {
         app.window = window;
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"開く", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse); Control(L"BUTTON", L"再読込み", WS_TABSTOP, Reload);
@@ -396,18 +719,37 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.placement = Control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, Placement);
         for (auto label : { L"サイドビュー: 右", L"サイドビュー: 左", L"サイドビュー: 下" }) SendMessageW(app.placement, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
         SendMessageW(app.placement, CB_SETCURSEL, app.layout == L"left" ? 1 : app.layout == L"bottom" ? 2 : 0, 0);
-        app.list = Control(WC_LISTVIEWW, L"", LVS_ICON | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, Images);
-        ListView_SetExtendedListViewStyle(app.list, LVS_EX_DOUBLEBUFFER); ListView_SetIconSpacing(app.list, 164, 140);
-        app.thumbs = ImageList_Create(128, 96, ILC_COLOR32, 1, 64); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
+        app.list = Control(WC_LISTVIEWW, L"", LVS_ICON | LVS_AUTOARRANGE | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, Images);
+        SetWindowSubclass(app.list, ImagesProc, 1, 0);
+        ListView_SetExtendedListViewStyle(app.list, LVS_EX_DOUBLEBUFFER);
+        ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 36, app.activeThumbnailWidth * 3 / 4 + 44);
+        app.thumbs = ImageList_Create(app.activeThumbnailWidth, app.activeThumbnailWidth * 3 / 4, ILC_COLOR32, 1, 64); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
         app.preview = Control(L"KuniPreview", L"", WS_BORDER, 0);
+        app.metadataTabs = Control(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, MetadataTabs);
+        for (auto label : { L"シンプル", L"詳細" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
+        app.simple = Control(L"KuniSimple", L"", WS_VSCROLL | WS_CLIPCHILDREN, 0);
+        SetWindowLongPtrW(app.simple, GWL_EXSTYLE, GetWindowLongPtrW(app.simple, GWL_EXSTYLE) | WS_EX_CONTROLPARENT);
+        const wchar_t* labels[]{ L"ファイル名", L"容量", L"解像度", L"作成日時", L"撮影者", L"ワールド名", L"ワールドID", L"モデル" };
+        for (size_t i = 0; i < app.simpleValues.size(); ++i) {
+            app.simpleLabels[i] = Control(L"STATIC", labels[i], SS_LEFT, 0); SetParent(app.simpleLabels[i], app.simple);
+            app.simpleValues[i] = Control(L"EDIT", L"", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleValues[i], app.simple);
+            SendMessageW(app.simpleValues[i], EM_SETLIMITTEXT, 0x7ffffffe, 0); SetWindowSubclass(app.simpleValues[i], SummaryValueProc, 1, 0);
+        }
+        app.simpleNote = Control(L"EDIT", L"画像を選択してください。", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleNote, app.simple);
+        SendMessageW(app.simpleNote, EM_SETLIMITTEXT, 0x7ffffffe, 0); SetWindowSubclass(app.simpleNote, SummaryValueProc, 1, 0);
         app.details = Control(L"EDIT", L"画像を選択してください。", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER | WS_TABSTOP, Details);
         SendMessageW(app.details, EM_SETLIMITTEXT, 0x7ffffffe, 0);
         app.status = Control(L"STATIC", L"フォルダーを選択してください。", SS_LEFT, 0);
-        RefreshHistory(); Layout(); app.worker = std::thread(Worker);
+        RefreshHistory(); Layout(); app.worker = std::thread(Worker, false);
+        for (auto& worker : app.thumbnailWorkers) worker = std::thread(Worker, true);
         if (!app.settingsError.empty()) MessageBoxW(window, app.settingsError.c_str(), L"設定読込みエラー", MB_OK | MB_ICONWARNING);
         if (!app.last.empty()) { SetWindowTextW(app.path, app.last.c_str()); OpenFolder(app.last); }
         return 0;
-    case WM_SIZE: Layout(); return 0;
+    }
+    case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
+    case WM_TIMER:
+        if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
+        if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize = { 760, 520 }; return 0;
     case WM_COMMAND:
         switch (LOWORD(wparam)) {
@@ -418,18 +760,28 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case Placement: if (HIWORD(wparam) == CBN_SELCHANGE) { auto index = SendMessageW(app.placement, CB_GETCURSEL, 0, 0); app.layout = index == 1 ? L"left" : index == 2 ? L"bottom" : L"right"; Layout(); SaveSettings(); } break;
         } return 0;
     case WM_NOTIFY:
+        if (reinterpret_cast<NMHDR*>(lparam)->hwndFrom == app.metadataTabs && reinterpret_cast<NMHDR*>(lparam)->code == TCN_SELCHANGE) { Layout(); return 0; }
         if (reinterpret_cast<NMHDR*>(lparam)->hwndFrom == app.list) {
             auto header = reinterpret_cast<NMHDR*>(lparam);
             if (header->code == LVN_ITEMCHANGED) {
                 auto changed = reinterpret_cast<NMLISTVIEW*>(lparam);
                 if ((changed->uChanged & LVIF_STATE) && (changed->uNewState & LVIS_SELECTED) && !(changed->uOldState & LVIS_SELECTED)) Select(changed->iItem);
-            } else if (header->code == NM_DBLCLK && app.selected >= 0) {
-                MessageBoxW(window, L"Windowsフォトの明示起動は実機検証後に実装します。現在の版はアプリ内プレビューを使用してください。", L"未実装の機能", MB_OK | MB_ICONINFORMATION);
+            } else if (header->code == NM_DBLCLK) {
+                int index = reinterpret_cast<NMITEMACTIVATE*>(lparam)->iItem;
+                if (index >= 0 && index < static_cast<int>(app.files.size())) {
+                    Counts(L"Windowsフォトを起動しています…");
+                    Queue({ 3, app.generation, 0, index, app.files[index], L"" }, true);
+                }
             }
         } return 0;
     case WM_RESULTS: Results(); return 0;
     case WM_CLOSE:
-        app.stopping = true; app.wake.notify_all(); if (app.worker.joinable()) app.worker.join(); DestroyWindow(window); return 0;
+        KillTimer(window, ZoomTimer);
+        KillTimer(window, ThumbnailTimer); app.closing = true;
+        if (app.thumbnailWidth != app.activeThumbnailWidth) SaveSettings();
+        app.stopping = true; app.wake.notify_all(); if (app.worker.joinable()) app.worker.join();
+        for (auto& worker : app.thumbnailWorkers) if (worker.joinable()) worker.join();
+        DestroyWindow(window); return 0;
     case WM_DESTROY: ImageList_Destroy(app.thumbs); PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(window, message, wparam, lparam);
@@ -440,15 +792,26 @@ int SelfTest() {
     std::ofstream report(directory / L"result.txt");
     try {
         auto require = [&](bool ok, const char* label) { if (!ok) throw std::runtime_error(label); report << "PASS: " << label << '\n'; };
+        int wheel = 0;
+        require(WheelThumbnailWidth(128, wheel, 60) == 128 && WheelThumbnailWidth(128, wheel, 60) == 160, "high resolution zoom wheel accumulated");
+        require(WheelThumbnailWidth(256, wheel, 240) == 256 && WheelThumbnailWidth(64, wheel, -240) == 64, "thumbnail zoom limits");
+        JsonObject legacy;
+        require(ReadThumbnailWidth(legacy) == 128, "v0.1.0 settings compatibility");
+        legacy.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(257));
+        bool rejected = false; try { ReadThumbnailWidth(legacy); } catch (...) { rejected = true; }
+        require(rejected, "invalid thumbnail width rejected");
+        require(IsPhotosId(L"Microsoft.Windows.Photos_8wekyb3d8bbwe!App") && !IsPhotosId(L"Other.Photos_8wekyb3d8bbwe!App") && !IsPhotosId(L"Microsoft.Windows.Photos_8wekyb3d8bbwe!"), "Photos app identity filter");
         app.settings = directory / L"settings.json";
         app.settingsProtected = false;
-        app.last = Normalize(directory.wstring()); app.layout = L"bottom"; app.recent = { app.last };
+        app.last = Normalize(directory.wstring()); app.layout = L"bottom"; app.recent = { app.last }; app.thumbnailWidth = 192;
         SaveSettings(); app.last.clear(); app.recent.clear(); app.layout = L"right";
         // LoadSettings uses the real EXE path, so parse the isolated round-trip file directly.
         std::ifstream input(app.settings, std::ios::binary);
         std::string json((std::istreambuf_iterator<char>(input)), {});
         auto object = JsonObject::Parse(winrt::to_hstring(json));
         require(object.GetNamedNumber(L"version") == 1 && object.GetNamedString(L"sideView") == L"bottom" && object.GetNamedArray(L"history").Size() == 1, "settings JSON round trip");
+        require(ReadThumbnailWidth(object) == 192, "thumbnail width persisted");
+        app.thumbnailWidth = app.activeThumbnailWidth = 128;
         require(Same(Normalize(directory.wstring() + L"\\"), Normalize(directory.wstring())), "trailing separator normalization");
         ComPtr<IWICImagingFactory> factory;
         winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)));
@@ -469,29 +832,199 @@ int SelfTest() {
             require(pixels.width == 128 && pixels.height == 64 && pixels.data.size() == 128 * 64 * 4, "aspect-preserving thumbnail decode");
             auto info = Info(decoder.Get(), frame.Get(), path.wstring());
             require(info.find(L"320 × 160") != std::wstring::npos, "file information and metadata traversal");
+            for (int width : { 64, 192, 256 }) {
+                auto scaled = Decode(factory.Get(), frame.Get(), width, width * 3 / 4);
+                auto bitmap = Thumbnail(scaled, width); BITMAP description{};
+                require(bitmap && GetObjectW(bitmap, sizeof(description), &description) && description.bmWidth == width && description.bmHeight == width * 3 / 4, "resized thumbnail canvas");
+                DeleteObject(bitmap);
+            }
         }
         auto broken = directory / L"broken.png";
+        RunMetadataTests(directory, report);
+        RunWebPTests(directory, report);
         { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
+        std::wstring detail;
+        auto absentApp = [](std::wstring&) -> HRESULT { return HRESULT_FROM_WIN32(ERROR_NOT_FOUND); };
+        require(ActivatePhotos((directory / L"sample-日本語.png").wstring(), detail, absentApp) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) && !detail.empty(), "Photos unavailable failure reported");
+        require(FAILED(ActivatePhotos((directory / L"does-not-exist.png").wstring(), detail, absentApp)), "Photos missing file rejected");
+        std::wstring photos;
+        auto photosHr = FindPhotosAppId(photos);
+        report << "INFO: Photos discovery HRESULT=" << static_cast<unsigned>(photosHr) << " app=" << winrt::to_string(photos) << '\n';
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
       catch (const winrt::hresult_error& error) { report << "FAIL HRESULT: " << static_cast<unsigned>(error.code()) << '\n'; }
     return 1;
 }
+int PhotosTest() {
+    auto directory = app.settings.parent_path() / L"self-test-data";
+    fs::create_directories(directory);
+    std::ofstream report(directory / L"photos-result.txt");
+    try {
+        std::wstring id;
+        auto hr = FindPhotosAppId(id);
+        if (hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND)) { report << "SKIP: Microsoft Photos is not installed for this user.\n"; return 0; }
+        if (FAILED(hr)) { report << "FAIL discovery HRESULT=" << static_cast<unsigned>(hr) << '\n'; return 1; }
+        report << "APP: " << winrt::to_string(id) << '\n';
+        auto path = directory / L"写真 test & # 100%.png";
+        fs::copy_file(directory / L"sample-日本語.png", path, fs::copy_options::overwrite_existing);
+        std::wstring detail;
+        std::thread launch([&] {
+            auto init = RoInitialize(RO_INIT_MULTITHREADED);
+            hr = FAILED(init) ? init : ActivatePhotos(path.wstring(), detail);
+            if (SUCCEEDED(init)) RoUninitialize();
+        });
+        launch.join();
+        if (FAILED(hr)) { report << "FAIL activation HRESULT=" << static_cast<unsigned>(hr) << '\n'; return 1; }
+        report << "PASS: LaunchFileAsync with explicit Photos package accepted Japanese, spaces and special characters.\nVisual confirmation of the opened image remains necessary.\n";
+        return 0;
+    } catch (...) { report << "FAIL: test fixture or activation error\n"; return 1; }
+}
+bool ThumbnailsReady() { if (app.folderPending || app.wantedLast < app.wantedFirst) return false; for (int i=app.wantedFirst; i<=app.wantedLast; ++i) if (!app.thumbnailDone[i]) return false; return true; }
+int UiTest() {
+    auto directory = app.settings.parent_path();
+    std::ofstream report(directory / L"ui-result.txt");
+    auto require = [&](bool ok, const char* label) { if (!ok) throw std::runtime_error(label); report << "PASS: " << label << '\n'; };
+    auto wait = [&](auto complete) {
+        auto deadline = GetTickCount64() + 15000;
+        while (!complete()) {
+            if (GetTickCount64() > deadline) throw std::runtime_error("async UI timeout");
+            MsgWaitForMultipleObjectsEx(0, nullptr, 20, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+            MSG message{};
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+        }
+    };
+    try {
+        auto source = directory / L"sample.jpg";
+        for (int i = 0; i < 650; ++i) fs::copy_file(source, directory / (L"grid-" + std::to_wstring(i) + L".jpg"), fs::copy_options::overwrite_existing);
+        OpenFolder(directory.wstring());
+        wait([] { return !app.folderPending && !app.files.empty() && ThumbnailsReady(); });
+        require(ListView_GetItemCount(app.list) >= 20, "async folder and thumbnail loading");
+        require(app.files.size() > 650 && app.loaded < static_cast<int>(app.files.size()) && app.wantedLast - app.wantedFirst < ThumbnailSlots, "large folder loads viewport before offscreen images");
+        ListView_SetItemState(app.list, 3, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        wait([] { return !app.previewPixels.data.empty(); });
+        auto selected = app.files[app.selected]; auto details = Text(app.details);
+        auto rowCount = [] {
+            POINT origin{}, position{}; ListView_GetItemPosition(app.list, 0, &origin);
+            int count = 0;
+            for (int i = 0; i < ListView_GetItemCount(app.list); ++i) { ListView_GetItemPosition(app.list, i, &position); if (position.y == origin.y) ++count; }
+            return count;
+        };
+        for (auto layout : { L"right", L"left", L"bottom" }) {
+            app.layout = layout;
+            SetWindowPos(app.window, nullptr, 0, 0, 820, 680, SWP_NOMOVE | SWP_NOZORDER); Layout();
+            RECT smallArea{}; GetClientRect(app.list, &smallArea); auto smallColumns = rowCount();
+            SetWindowPos(app.window, nullptr, 0, 0, 1480, 900, SWP_NOMOVE | SWP_NOZORDER); Layout();
+            RECT large{}; GetClientRect(app.list, &large); auto largeColumns = rowCount();
+            require(large.right > smallArea.right && large.bottom > smallArea.bottom && largeColumns > smallColumns, "list area and columns follow window size");
+            require(app.selected == 3 && Same(app.files[app.selected], selected), "selection retained on resize");
+        }
+        wait([] { return ThumbnailsReady(); });
+        auto cacheHits = app.cache.hits.load();
+        SendMessageW(app.list, WM_MOUSEWHEEL, MAKEWPARAM(MK_CONTROL, WHEEL_DELTA), 0);
+        SendMessageW(app.window, WM_TIMER, ZoomTimer, 0);
+        wait([] { return ThumbnailsReady(); });
+        int width = 0, height = 0; ImageList_GetIconSize(app.thumbs, &width, &height);
+        require(width == 160 && height == 120 && app.activeThumbnailWidth == 160, "Ctrl wheel changes thumbnail image list");
+        require(app.cache.hits > cacheHits, "Ctrl wheel reuses decoded thumbnail cache");
+        require(app.selected == 3 && Text(app.details) == details, "zoom keeps selection and metadata");
+        SendMessageW(app.list, WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA), 0);
+        require(app.thumbnailWidth == 160, "plain wheel does not zoom");
+        SendMessageW(app.list, WM_MOUSEWHEEL, MAKEWPARAM(MK_CONTROL, -WHEEL_DELTA), 0);
+        SendMessageW(app.window, WM_TIMER, ZoomTimer, 0);
+        Job stale = ThumbnailJob(0); --stale.thumbnailGeneration;
+        require(!CurrentJob(stale), "old thumbnail size result rejected");
+        OpenFolder(directory.wstring(), true);
+        wait([] { return !app.folderPending && ThumbnailsReady() && !app.previewPixels.data.empty(); });
+        require(app.activeThumbnailWidth == 128 && Same(app.files[app.selected], selected), "zoom and reload retain selected image");
+        NMITEMACTIVATE blank{}; blank.hdr.hwndFrom = app.list; blank.hdr.code = NM_DBLCLK; blank.iItem = -1;
+        SendMessageW(app.window, WM_NOTIFY, Images, reinterpret_cast<LPARAM>(&blank));
+        { std::lock_guard<std::mutex> lock(app.mutex);
+          require(std::none_of(app.jobs.begin(), app.jobs.end(), [](auto& job) { return job.kind == 3; }), "blank double click does not launch Photos"); }
+        require(TabCtrl_GetItemCount(app.metadataTabs) == 2 && TabCtrl_GetCurSel(app.metadataTabs) == 0, "simple and detailed tabs created with simple default");
+        int xmpIndex = -1;
+        for (int i = 0; i < static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"xmp-日本語.png") xmpIndex = i;
+        require(xmpIndex >= 0, "XMP UI fixture found");
+        ListView_SetItemState(app.list, xmpIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        wait([] { return !app.previewPixels.data.empty() && app.summary.values[4] == L"撮影者 & テスト"; });
+        require(Text(app.simpleValues[0]) == L"xmp-日本語.png" && Text(app.simpleValues[2]) == L"320 × 160 px" && Text(app.simpleValues[3]).find(L"XMP") != std::wstring::npos && Text(app.simpleValues[5]) == L"日本語ワールド" && Text(app.simpleValues[6]) == L"wrld_test" && Text(app.simpleValues[7]).empty(), "simple tab eight fields match selected image");
+        auto selectionGeneration = app.selection; auto summary = app.summary; auto detailedText = Text(app.details);
+        for (int tab : { 1,0,1 }) {
+            TabCtrl_SetCurSel(app.metadataTabs, tab);
+            NMHDR notification{ app.metadataTabs, MetadataTabs, TCN_SELCHANGE };
+            SendMessageW(app.window, WM_NOTIFY, MetadataTabs, reinterpret_cast<LPARAM>(&notification));
+            require(app.selection == selectionGeneration && app.summary.values == summary.values && Text(app.details) == detailedText && ((GetWindowLongPtrW(app.details, GWL_STYLE) & WS_VISIBLE) != 0) == (tab == 1), "tab switch uses same result without rereading");
+        }
+        auto longSummary = summary; longSummary.values[5] = std::wstring(3000, L'界');
+        ShowSummary(longSummary); TabCtrl_SetCurSel(app.metadataTabs, 0);
+        for (auto layout : { L"right", L"left", L"bottom" }) {
+            app.layout = layout; Layout();
+            RECT start{}; GetWindowRect(app.simpleValues[0], &start);
+            bool aligned = true;
+            for (auto value : app.simpleValues) { RECT rect{}; GetWindowRect(value, &rect); aligned = aligned && rect.left == start.left; }
+            require(aligned && SendMessageW(app.simpleValues[5], EM_GETLINECOUNT, 0, 0) > 1, "simple labels align and long Japanese value wraps in each layout");
+            SendMessageW(app.simple, WM_VSCROLL, SB_BOTTOM, 0);
+            RECT model{}, page{}; GetWindowRect(app.simpleValues[7], &model); GetWindowRect(app.simple, &page);
+            require(app.simpleScroll > 0 && model.top >= page.top && model.bottom <= page.bottom, "simple pane scroll exposes final reserved model field");
+        }
+        ShowSummary(summary);
+        int webpIndex = -1;
+        for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"webp-透過.WEBP") webpIndex = i;
+        require(webpIndex >= 0, "uppercase WebP included in enumeration");
+        ListView_SetItemState(app.list, webpIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        wait([] { return !app.previewPixels.data.empty() && app.summary.values[4] == L"WebP撮影者"; });
+        require(app.summary.values[2] == L"320 × 160 px" && Text(app.details).find(L"WebP") != std::wstring::npos, "WebP selected preview and metadata");
+        for (int i=0; i<static_cast<int>(app.files.size()); i+=40) {
+            ListView_EnsureVisible(app.list, i, FALSE); ScheduleThumbnails(); wait([] { return ThumbnailsReady(); });
+            require(ImageList_GetImageCount(app.thumbs) <= ThumbnailSlots + 1 && app.cache.Bytes() <= ThumbnailCache::Limit, "scroll keeps thumbnail resources bounded");
+        }
+        int restoredIndex = -1;
+        for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"grid-0.jpg") restoredIndex = i;
+        require(restoredIndex >= 0, "scroll restoration fixture found");
+        ListView_EnsureVisible(app.list, restoredIndex, FALSE); ScheduleThumbnails(); wait([] { return ThumbnailsReady(); });
+        require(app.thumbnailDone[restoredIndex] && app.itemSlots[restoredIndex] >= 0, "evicted thumbnail restored when scrolling back");
+        { std::lock_guard<std::mutex> lock(app.mutex);
+          require(app.results.size() <= 32 && app.jobs.size() <= ThumbnailSlots + 2, "result buffers and pending jobs bounded"); }
+        app.thumbnailWidth = 256; ApplyThumbnailSize(); app.thumbnailWidth = 64; ApplyThumbnailSize();
+        OpenFolder(directory.wstring(), true); wait([] { return ThumbnailsReady() && !app.previewPixels.data.empty(); });
+        require(app.activeThumbnailWidth == 64 && Same(app.files[app.selected], (directory / L"webp-透過.WEBP").wstring()), "rapid zoom and reload discard stale work");
+        report << "ALL PASSED\n"; return 0;
+    } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
+    return 1;
+}
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     winrt::init_apartment(winrt::apartment_type::single_threaded);
-    INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_LISTVIEW_CLASSES }; InitCommonControlsEx(&controls);
+    INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES }; InitCommonControlsEx(&controls);
     LoadSettings();
     if (std::wstring(command) == L"--self-test") { auto result = SelfTest(); winrt::uninit_apartment(); return result; }
+    if (std::wstring(command) == L"--photos-test") { auto result = PhotosTest(); winrt::uninit_apartment(); return result; }
+    bool uiTest = std::wstring(command) == L"--ui-test";
+    if (uiTest) {
+        app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
+        fs::create_directories(app.settings.parent_path());
+        app.last.clear(); app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
+        app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128;
+    }
     WNDCLASSW preview{}; preview.lpfnWndProc = PreviewProc; preview.hInstance = instance; preview.lpszClassName = L"KuniPreview"; preview.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&preview);
+    WNDCLASSW simple{}; simple.lpfnWndProc = SimpleProc; simple.hInstance = instance; simple.lpszClassName = L"KuniSimple"; simple.hCursor = LoadCursorW(nullptr, IDC_ARROW); simple.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&simple);
     WNDCLASSW main{}; main.lpfnWndProc = WindowProc; main.hInstance = instance; main.lpszClassName = L"KuniVRCPhotEditor"; main.hCursor = LoadCursorW(nullptr, IDC_ARROW); main.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&main);
-    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
+    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.1.2 — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
     if (!window) return 1;
+    if (uiTest) { int result = UiTest(); SendMessageW(window, WM_CLOSE, 0, 0); winrt::uninit_apartment(); return result; }
     ShowWindow(window, show); UpdateWindow(window);
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
         if (message.message == WM_KEYDOWN && message.wParam == VK_RETURN && message.hwnd == app.path) { OpenFolder(Text(app.path)); continue; }
+        if (message.message == WM_MOUSEWHEEL) {
+            // Route by pointer location even when another control has keyboard focus.
+            POINT point{ static_cast<short>(LOWORD(message.lParam)), static_cast<short>(HIWORD(message.lParam)) };
+            HWND hovered = WindowFromPoint(point);
+            if (hovered == app.simple || IsChild(app.simple, hovered)) { SendMessageW(app.simple, WM_MOUSEWHEEL, message.wParam, message.lParam); continue; }
+            if (hovered == app.list || hovered == app.preview || hovered == app.details) {
+                SendMessageW(hovered, WM_MOUSEWHEEL, message.wParam, message.lParam); continue;
+            }
+        }
         if (!IsDialogMessageW(window, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
     }
     winrt::uninit_apartment(); return static_cast<int>(message.wParam);
