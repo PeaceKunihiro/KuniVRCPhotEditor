@@ -396,6 +396,15 @@ HBITMAP Thumbnail(const Pixels& pixels, int width = 128) {
     }
     return bitmap;
 }
+void UpdateThumbnailSpacing() {
+    HDC dc = GetDC(app.list);
+    auto font = reinterpret_cast<HFONT>(SendMessageW(app.list, WM_GETFONT, 0, 0));
+    auto previous = SelectObject(dc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
+    TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics);
+    SelectObject(dc, previous); ReleaseDC(app.list, dc);
+    int labelHeight = std::max(1L, metrics.tmHeight + metrics.tmExternalLeading);
+    ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 8, app.activeThumbnailWidth * 3 / 4 + labelHeight + 8);
+}
 void ArrangeImages() {
     ListView_Arrange(app.list, LVA_DEFAULT);
     if (app.selected >= 0) ListView_EnsureVisible(app.list, app.selected, FALSE);
@@ -471,7 +480,7 @@ void ApplyThumbnailSize(bool force = false) {
     if (previous) ImageList_Destroy(previous);
     app.slotLimit = slots; app.imageBytes = retained;
     app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - retained);
-    ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 36, app.activeThumbnailWidth * 3 / 4 + 44);
+    UpdateThumbnailSpacing();
     app.loaded = 0; ResetThumbnailTracking();
     SendMessageW(app.list, WM_SETREDRAW, FALSE, 0);
     for (int i = 0; i < static_cast<int>(app.files.size()); ++i) {
@@ -601,13 +610,28 @@ void Results() {
 }
 void Layout() {
     RECT r{}; GetClientRect(app.window, &r); int width = r.right, height = r.bottom;
-    MoveWindow(app.path, 8, 8, std::max(80, width - 176), 26, TRUE);
-    MoveWindow(GetDlgItem(app.window, OpenPath), width - 160, 8, 64, 26, TRUE);
-    MoveWindow(GetDlgItem(app.window, Browse), width - 88, 8, 80, 26, TRUE);
-    MoveWindow(app.history, 8, 42, std::max(80, width - 448), 280, TRUE);
-    MoveWindow(GetDlgItem(app.window, Bookmarks), width - 432, 42, 120, 26, TRUE);
-    MoveWindow(GetDlgItem(app.window, Options), width - 304, 42, 116, 26, TRUE);
-    MoveWindow(app.placement, width - 180, 42, 172, 180, TRUE);
+    // Move the toolbar as one batch and discard copied pixels from old positions.
+    // Sequential MoveWindow(..., TRUE) can repaint while siblings still overlap.
+    struct ToolbarPosition { HWND window; int x, y, width, height; };
+    const ToolbarPosition toolbar[]{
+        { app.path, 8, 8, std::max(80, width - 176), 26 },
+        { GetDlgItem(app.window, OpenPath), width - 160, 8, 64, 26 },
+        { GetDlgItem(app.window, Browse), width - 88, 8, 80, 26 },
+        { app.history, 8, 42, std::max(80, width - 448), 280 },
+        { GetDlgItem(app.window, Bookmarks), width - 432, 42, 120, 26 },
+        { GetDlgItem(app.window, Options), width - 304, 42, 116, 26 },
+        { app.placement, width - 180, 42, 172, 180 }
+    };
+    auto positions = BeginDeferWindowPos(ARRAYSIZE(toolbar));
+    for (const auto& control : toolbar) {
+        if (!positions) break;
+        positions = DeferWindowPos(positions, control.window, nullptr, control.x, control.y, control.width, control.height,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+    }
+    if (!positions || !EndDeferWindowPos(positions)) {
+        for (const auto& control : toolbar) SetWindowPos(control.window, nullptr, control.x, control.y, control.width, control.height,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+    }
     RECT list{ 8, 78, width - 8, height - 36 }, side = list;
     if (app.layout == L"bottom") { int split = 78 + std::max(80, (height - 114) / 2); list.bottom = split - 4; side.top = split + 4; }
     else {
@@ -633,6 +657,9 @@ void Layout() {
     LayoutSimple();
     MoveWindow(app.status, 8, height - 28, width - 16, 24, TRUE);
     ArrangeImages();
+    // Erase the vacated button locations as well as repainting the controls.
+    RECT toolbarArea{ 0, 0, width, 78 };
+    RedrawWindow(app.window, &toolbarArea, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 void LayoutSimple() {
     if (!app.simple) return;
@@ -835,10 +862,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.placement = Control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, Placement);
         for (auto label : { L"サイドビュー: 右", L"サイドビュー: 左", L"サイドビュー: 下" }) SendMessageW(app.placement, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
         SendMessageW(app.placement, CB_SETCURSEL, app.layout == L"left" ? 1 : app.layout == L"bottom" ? 2 : 0, 0);
-        app.list = Control(WC_LISTVIEWW, L"", LVS_ICON | LVS_AUTOARRANGE | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, Images);
+        app.list = Control(WC_LISTVIEWW, L"", LVS_ICON | LVS_AUTOARRANGE | LVS_NOLABELWRAP | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, Images);
         SetWindowSubclass(app.list, ImagesProc, 1, 0);
-        ListView_SetExtendedListViewStyle(app.list, LVS_EX_DOUBLEBUFFER);
-        ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 36, app.activeThumbnailWidth * 3 / 4 + 44);
+        ListView_SetExtendedListViewStyle(app.list, LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
+        UpdateThumbnailSpacing();
         app.thumbs = CreateThumbnails(app.activeThumbnailWidth, app.slotLimit, app.imageBytes);
         if (!app.thumbs) return -1;
         app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - app.imageBytes); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
@@ -882,7 +909,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if (reinterpret_cast<NMHDR*>(lparam)->hwndFrom == app.metadataTabs && reinterpret_cast<NMHDR*>(lparam)->code == TCN_SELCHANGE) { Layout(); return 0; }
         if (reinterpret_cast<NMHDR*>(lparam)->hwndFrom == app.list) {
             auto header = reinterpret_cast<NMHDR*>(lparam);
-            if (header->code == LVN_ITEMCHANGED) {
+            if (header->code == LVN_GETINFOTIPW) {
+                auto tip = reinterpret_cast<NMLVGETINFOTIPW*>(lparam);
+                if (tip->iItem >= 0 && tip->iItem < static_cast<int>(app.files.size()) && tip->pszText && tip->cchTextMax > 0) {
+                    // ListView keeps the full name even when its one-line label is clipped.
+                    wchar_t name[512]{}; ListView_GetItemText(app.list, tip->iItem, 0, name, ARRAYSIZE(name));
+                    wcsncpy_s(tip->pszText, static_cast<size_t>(tip->cchTextMax), name, _TRUNCATE);
+                }
+            } else if (header->code == LVN_ITEMCHANGED) {
                 auto changed = reinterpret_cast<NMLISTVIEW*>(lparam);
                 if ((changed->uChanged & LVIF_STATE) && (changed->uNewState & LVIS_SELECTED) && !(changed->uOldState & LVIS_SELECTED)) Select(changed->iItem);
             } else if (header->code == NM_DBLCLK) {
@@ -1030,12 +1064,32 @@ int UiTest() {
     };
     try {
         auto source = directory / L"sample.jpg";
+        auto longName = L"長いファイル名-" + std::wstring(70, L'界') + L".jpg";
+        fs::copy_file(source, directory / longName, fs::copy_options::overwrite_existing);
         require(Text(GetDlgItem(app.window, OpenPath)) == L"ロード" && Text(GetDlgItem(app.window, Options)).find(L"オプション") == 0 && Text(GetDlgItem(app.window, Bookmarks)).find(L"ブックマーク") == 0 && app.cacheMB == 100 && app.saveHistory, "load options bookmarks controls and defaults");
         for (int i = 0; i < 650; ++i) fs::copy_file(source, directory / (L"grid-" + std::to_wstring(i) + L".jpg"), fs::copy_options::overwrite_existing);
         OpenFolder(directory.wstring());
         wait([] { return !app.folderPending && !app.files.empty() && ThumbnailsReady(); });
         require(ListView_GetItemCount(app.list) >= 20, "async folder and thumbnail loading");
         require(app.files.size() > 650 && app.loaded < static_cast<int>(app.files.size()) && app.wantedLast - app.wantedFirst < ThumbnailSlots, "large folder loads viewport before offscreen images");
+        auto compactSpacing = ListView_GetItemSpacing(app.list,FALSE);
+        report << "INFO: compact spacing=" << LOWORD(compactSpacing) << "x" << HIWORD(compactSpacing) << '\n';
+        RECT icon{}, next{}, filenameRect{};
+        ListView_GetItemRect(app.list,0,&icon,LVIR_ICON); ListView_GetItemRect(app.list,1,&next,LVIR_ICON);
+        require(next.left - icon.left - app.activeThumbnailWidth == 8 && next.top == icon.top, "compact grid leaves 8px between neighboring images");
+        ListView_GetItemRect(app.list,0,&filenameRect,LVIR_LABEL);
+        int nextRow = -1;
+        for (int i=1; i<ListView_GetItemCount(app.list); ++i) { ListView_GetItemRect(app.list,i,&next,LVIR_ICON); if (next.top > icon.top) { nextRow = i; break; } }
+        require(nextRow >= 0 && filenameRect.bottom <= next.top && HIWORD(compactSpacing) < 140, "compact row preserves filename space without next-row overlap");
+        int longIndex = -1;
+        for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == longName) longIndex = i;
+        require(longIndex >= 0,"long Japanese filename fixture listed");
+        wchar_t tooltip[512]{}; NMLVGETINFOTIPW tip{};
+        tip.hdr = {app.list,Images,LVN_GETINFOTIPW}; tip.iItem = longIndex; tip.pszText = tooltip; tip.cchTextMax = ARRAYSIZE(tooltip);
+        SendMessageW(app.window,WM_NOTIFY,Images,reinterpret_cast<LPARAM>(&tip));
+        require(std::wstring(tooltip) == longName,"infotip contains full Japanese filename and extension");
+        tip.iItem = 0; SendMessageW(app.window,WM_NOTIFY,Images,reinterpret_cast<LPARAM>(&tip));
+        require(std::wstring(tooltip).find(L"読込みエラー") != std::wstring::npos,"infotip retains failed-thumbnail status");
         ListView_SetItemState(app.list, 3, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         wait([] { return !app.previewPixels.data.empty(); });
         auto selected = app.files[app.selected]; auto details = Text(app.details);
@@ -1198,7 +1252,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     WNDCLASSW preview{}; preview.lpfnWndProc = PreviewProc; preview.hInstance = instance; preview.lpszClassName = L"KuniPreview"; preview.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&preview);
     WNDCLASSW simple{}; simple.lpfnWndProc = SimpleProc; simple.hInstance = instance; simple.lpszClassName = L"KuniSimple"; simple.hCursor = LoadCursorW(nullptr, IDC_ARROW); simple.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&simple);
     WNDCLASSW main{}; main.lpfnWndProc = WindowProc; main.hInstance = instance; main.lpszClassName = L"KuniVRCPhotEditor"; main.hCursor = LoadCursorW(nullptr, IDC_ARROW); main.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&main);
-    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.2.0+ — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
+    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.2.0+ — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
     if (!window) return 1;
     if (uiTest) { int result = UiTest(); SendMessageW(window, WM_CLOSE, 0, 0); winrt::uninit_apartment(); return result; }
     ShowWindow(window, show); UpdateWindow(window);
