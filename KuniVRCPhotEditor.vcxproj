@@ -83,7 +83,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -103,7 +103,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -119,7 +119,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -139,13 +139,13 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;windowscodecs.lib;propsys.lib;runtimeobject.lib;ole32.lib;shell32.lib;uuid.lib;xmllite.lib;shlwapi.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" /><ClCompile Include="MetadataModel.cpp" /><ClCompile Include="MetadataTests.cpp" /><ClInclude Include="MetadataModel.h" /><ClInclude Include="MetadataTests.h" />
   </ItemGroup>
-  <Import Project="WebP.props" /><ItemGroup><ClCompile Include="WebPImage.cpp" /><ClCompile Include="WebPTests.cpp" /><ClInclude Include="WebPTests.h" /><ClInclude Include="WebPFixtures.h" /><ClInclude Include="ThumbnailCache.h" /><ClInclude Include="WebPImage.h" /></ItemGroup><Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="WebP.props" /><ItemGroup><ClCompile Include="WebPImage.cpp" /><ClCompile Include="ExtendedXmp.cpp" /><ClCompile Include="ExtendedXmpTests.cpp" /><ClInclude Include="ExtendedXmpTests.h" /><ClInclude Include="ExtendedXmp.h" /><ClCompile Include="ViewerSettings.cpp" /><ClInclude Include="ViewerSettings.h" /><ClCompile Include="WebPTests.cpp" /><ClInclude Include="WebPTests.h" /><ClInclude Include="WebPFixtures.h" /><ClInclude Include="ThumbnailCache.h" /><ClInclude Include="WebPImage.h" /></ItemGroup><Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 <Target Name="CopyThirdPartyNotices" AfterTargets="Build"><Copy SourceFiles="$(ProjectDir)THIRD_PARTY_NOTICES.md" DestinationFolder="$(TargetDir)" /><Copy SourceFiles="$(ProjectDir)third_party\libwebp-1.6.0\COPYING" DestinationFiles="$(TargetDir)libwebp-COPYING.txt" /><Copy SourceFiles="$(ProjectDir)third_party\libwebp-1.6.0\PATENTS" DestinationFiles="$(TargetDir)libwebp-PATENTS.txt" /></Target></Project>

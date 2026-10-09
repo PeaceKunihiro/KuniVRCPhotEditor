@@ -4,6 +4,8 @@
 #include "WebPImage.h"
 #include "ThumbnailCache.h"
 #include "WebPTests.h"
+#include "ViewerSettings.h"
+#include "ExtendedXmpTests.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <shobjidl.h>
@@ -39,7 +41,7 @@ constexpr int ThumbnailMin = 64, ThumbnailMax = 256, ThumbnailStep = 32;
 constexpr UINT_PTR ZoomTimer = 1;
 constexpr UINT_PTR ThumbnailTimer = 2;
 constexpr int ThumbnailSlots = 512;
-enum { PathEdit = 101, OpenPath, Browse, History, Reload, Placement, Images, Details, MetadataTabs };
+enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks };
 struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; };
 struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; };
 struct State {
@@ -50,6 +52,11 @@ struct State {
     PhotoSummary summary;
     HIMAGELIST thumbs{};
     std::vector<std::wstring> files, recent;
+    std::vector<std::wstring> bookmarks;
+    int cacheMB = 100, slotLimit = ThumbnailSlots;
+    size_t imageBytes = 0;
+    bool saveHistory = true;
+    bool thumbnailBudgetLimited = false;
     std::vector<bool> thumbnailDone;
     std::vector<bool> thumbnailRequested;
     std::vector<int> itemSlots, slotOwners;
@@ -103,11 +110,7 @@ void Counts(const std::wstring& message = L"") {
 }
 bool Same(const std::wstring& a, const std::wstring& b) { return _wcsicmp(a.c_str(), b.c_str()) == 0; }
 std::wstring Normalize(const std::wstring& value) {
-    if (value.empty()) throw std::runtime_error("empty path");
-    auto p = fs::absolute(fs::path(value)).lexically_normal();
-    auto s = p.wstring();
-    while (s.size() > p.root_path().wstring().size() && (s.back() == L'\\' || s.back() == L'/')) s.pop_back();
-    return s;
+    return NormalizeFolderAddress(value);
 }
 void RefreshHistory() {
     SendMessageW(app.history, CB_RESETCONTENT, 0, 0);
@@ -124,23 +127,15 @@ void LoadSettings() {
     app.settings = fs::path(executable).parent_path() / L"settings.json";
     try {
         if (!fs::exists(app.settings)) return;
+        if (fs::file_size(app.settings) > 1024 * 1024) throw std::runtime_error("settings size");
         std::ifstream input(app.settings, std::ios::binary);
         if (!input) throw std::runtime_error("read");
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
-        auto object = JsonObject::Parse(winrt::to_hstring(json));
-        if (object.GetNamedNumber(L"version") != 1) throw std::runtime_error("version");
-        std::wstring last(object.GetNamedString(L"lastFolder"));
-        std::wstring layout(object.GetNamedString(L"sideView"));
-        int thumbnailWidth = ReadThumbnailWidth(object);
-        if (layout != L"left" && layout != L"right" && layout != L"bottom") throw std::runtime_error("layout");
-        std::vector<std::wstring> recent;
-        for (auto item : object.GetNamedArray(L"history")) {
-            auto path = Normalize(std::wstring(item.GetString()));
-            if (std::none_of(recent.begin(), recent.end(), [&](auto& p) { return Same(p, path); }) && recent.size() < HistoryLimit) recent.push_back(path);
-        }
-        app.last = last; app.layout = layout; app.recent = std::move(recent);
-        app.thumbnailWidth = app.activeThumbnailWidth = thumbnailWidth;
+        auto settings = ParseViewerSettings(json);
+        app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
+        app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
+        app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
     } catch (...) {
         app.settingsProtected = true;
         app.settingsError = L"設定の読込みに失敗しました。元のsettings.jsonを保全し、今回は設定を保存しません。";
@@ -149,13 +144,10 @@ void LoadSettings() {
 void SaveSettings() {
     if (app.settingsProtected) return;
     try {
-        JsonObject object; object.Insert(L"version", JsonValue::CreateNumberValue(1));
-        object.Insert(L"lastFolder", JsonValue::CreateStringValue(app.last));
-        object.Insert(L"sideView", JsonValue::CreateStringValue(app.layout));
-        object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(app.thumbnailWidth));
-        JsonArray history; for (auto& path : app.recent) history.Append(JsonValue::CreateStringValue(path));
-        object.Insert(L"history", history);
-        auto bytes = winrt::to_string(object.Stringify());
+        ViewerSettings settings;
+        settings.thumbnailWidth = app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
+        settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
+        auto bytes = SerializeViewerSettings(settings);
         auto temp = app.settings; temp += L".tmp";
         { std::ofstream output(temp, std::ios::binary | std::ios::trunc); output.write(bytes.data(), bytes.size()); output.flush(); if (!output) throw std::runtime_error("write"); }
         if (!MoveFileExW(temp.c_str(), app.settings.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) throw std::runtime_error("replace");
@@ -425,9 +417,10 @@ void ScheduleThumbnails() {
         return low;
     };
     int first = boundary(false), last = boundary(true) - 1;
+    app.thumbnailBudgetLimited = last - first + 1 > app.slotLimit;
     // Visible items precede a small prefetch margin. Both UI slots and queued work are bounded.
-    int margin = std::min(32, std::max(0, (ThumbnailSlots - (last - first + 1)) / 2));
-    app.wantedFirst = std::max(0, first - margin); app.wantedLast = std::min({ count - 1, last + margin, app.wantedFirst + ThumbnailSlots - 1 });
+    int margin = std::min(32, std::max(0, (app.slotLimit - (last - first + 1)) / 2));
+    app.wantedFirst = std::max(0, first - margin); app.wantedLast = std::min({ count - 1, last + margin, app.wantedFirst + app.slotLimit - 1 });
     std::lock_guard<std::mutex> lock(app.mutex);
     app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [&](const Job& j) {
         if (j.kind != 1) return false;
@@ -443,21 +436,41 @@ void ScheduleThumbnails() {
     for (int i = last + 1; i <= app.wantedLast; ++i) add(i);
     app.wake.notify_all();
 }
-void ApplyThumbnailSize() {
+size_t ImageListBytes(HIMAGELIST images) {
+    IMAGEINFO info{};
+    if (!ImageList_GetImageInfo(images, 0, &info)) throw std::runtime_error("ImageList info");
+    auto bytes = [](HBITMAP bitmap) {
+        if (!bitmap) return size_t(0); BITMAP b{};
+        if (!GetObjectW(bitmap, sizeof(b), &b)) throw std::runtime_error("ImageList bitmap");
+        return size_t(b.bmWidthBytes) * abs(b.bmHeight);
+    };
+    return bytes(info.hbmImage) + (info.hbmMask != info.hbmImage ? bytes(info.hbmMask) : 0);
+}
+HIMAGELIST CreateThumbnails(int width, int& slots, size_t& retained) {
+    size_t budget = size_t(app.cacheMB) * 1000000, canvas = size_t(width) * (width * 3 / 4) * 4;
+    slots = static_cast<int>(std::min(size_t(ThumbnailSlots), budget / 3 / canvas - 5));
+    auto images = ImageList_Create(width, width * 3 / 4, ILC_COLOR32, slots + 1, 1);
+    auto placeholder = Thumbnail({}, width);
+    bool ok = images && placeholder && ImageList_Add(images, placeholder, nullptr) == 0 && ImageList_SetImageCount(images, slots + 1);
+    if (placeholder) DeleteObject(placeholder);
+    try { if (ok) { retained = ImageListBytes(images); ok = retained < budget; } } catch (...) { ok = false; }
+    if (!ok) { if (images) ImageList_Destroy(images); return nullptr; }
+    return images;
+}
+void ApplyThumbnailSize(bool force = false) {
     KillTimer(app.window, ZoomTimer);
-    if (app.thumbnailWidth == app.activeThumbnailWidth) { SaveSettings(); return; }
-    auto images = ImageList_Create(app.thumbnailWidth, app.thumbnailWidth * 3 / 4, ILC_COLOR32, 1, 64);
-    auto placeholder = Thumbnail({}, app.thumbnailWidth);
-    if (!images || !placeholder || ImageList_Add(images, placeholder, nullptr) < 0) {
-        if (images) ImageList_Destroy(images); if (placeholder) DeleteObject(placeholder);
+    if (!force && app.thumbnailWidth == app.activeThumbnailWidth) { SaveSettings(); return; }
+    int slots = 0; size_t retained = 0; auto images = CreateThumbnails(app.thumbnailWidth, slots, retained);
+    if (!images) {
         app.thumbnailWidth = app.activeThumbnailWidth; Counts(L"サムネイルサイズを変更できませんでした。"); return;
     }
-    DeleteObject(placeholder);
     ++app.thumbnailGeneration; app.currentThumbnailGeneration = app.thumbnailGeneration;
     { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind == 1; }), app.jobs.end()); }
     app.activeThumbnailWidth = app.thumbnailWidth;
     auto previous = ListView_SetImageList(app.list, images, LVSIL_NORMAL); app.thumbs = images;
     if (previous) ImageList_Destroy(previous);
+    app.slotLimit = slots; app.imageBytes = retained;
+    app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - retained);
     ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 36, app.activeThumbnailWidth * 3 / 4 + 44);
     app.loaded = 0; ResetThumbnailTracking();
     SendMessageW(app.list, WM_SETREDRAW, FALSE, 0);
@@ -524,10 +537,10 @@ void Results() {
             ListView_DeleteAllItems(app.list); Select(-1);
             app.folder = job.path; app.last = job.path; app.files = std::move(result.files); app.loaded = 0;
             ResetThumbnailTracking();
-            app.recent.erase(std::remove_if(app.recent.begin(), app.recent.end(), [&](auto& p) { return Same(p, app.folder); }), app.recent.end());
+            app.recent.erase(std::remove_if(app.recent.begin(), app.recent.end(), [&](auto& p) { return SameFolderAddress(p, app.folder); }), app.recent.end());
             app.recent.insert(app.recent.begin(), app.folder); if (app.recent.size() > HistoryLimit) app.recent.resize(HistoryLimit);
             RefreshHistory(); SetWindowTextW(app.path, app.folder.c_str()); SaveSettings();
-            ImageList_RemoveAll(app.thumbs); auto placeholder = Thumbnail({}, app.activeThumbnailWidth); ImageList_Add(app.thumbs, placeholder, nullptr); DeleteObject(placeholder);
+            auto placeholder = Thumbnail({}, app.activeThumbnailWidth); ImageList_Replace(app.thumbs, 0, placeholder, nullptr); DeleteObject(placeholder);
             int preserveIndex = -1;
             SendMessageW(app.list, WM_SETREDRAW, FALSE, 0);
             for (int i = 0; i < static_cast<int>(app.files.size()); ++i) {
@@ -547,8 +560,8 @@ void Results() {
             ++app.loaded;
             if (result.error.empty()) {
                 int slot = -1;
-                if (app.slotOwners.size() < ThumbnailSlots) slot = static_cast<int>(app.slotOwners.size());
-                else for (int i = 0; i < ThumbnailSlots; ++i) {
+                if (app.slotOwners.size() < app.slotLimit) slot = static_cast<int>(app.slotOwners.size());
+                else for (int i = 0; i < app.slotLimit; ++i) {
                     int owner = app.slotOwners[i];
                     if (owner < app.wantedFirst || owner > app.wantedLast) {
                         slot = i; break;
@@ -576,7 +589,7 @@ void Results() {
             }
             bool ready = true;
             for (int i = app.wantedFirst; i <= app.wantedLast; ++i) ready = ready && app.thumbnailDone[i];
-            if (ready) Counts(L"表示範囲のサムネイル読込み完了");
+            if (ready) Counts(app.thumbnailBudgetLimited ? L"キャッシュ上限により表示範囲の一部を保持しています。" : L"表示範囲のサムネイル読込み完了");
         } else if (job.selection == app.selection && job.index == app.selected) {
             app.previewPixels = std::move(result.pixels);
             auto text = result.error.empty() ? result.text : job.path + L"\r\n\r\n読込みエラー: " + result.error;
@@ -588,11 +601,12 @@ void Results() {
 }
 void Layout() {
     RECT r{}; GetClientRect(app.window, &r); int width = r.right, height = r.bottom;
-    MoveWindow(app.path, 8, 8, std::max(80, width - 270), 26, TRUE);
-    MoveWindow(GetDlgItem(app.window, OpenPath), width - 254, 8, 64, 26, TRUE);
-    MoveWindow(GetDlgItem(app.window, Browse), width - 182, 8, 84, 26, TRUE);
-    MoveWindow(GetDlgItem(app.window, Reload), width - 90, 8, 82, 26, TRUE);
-    MoveWindow(app.history, 8, 42, std::max(80, width - 196), 280, TRUE);
+    MoveWindow(app.path, 8, 8, std::max(80, width - 176), 26, TRUE);
+    MoveWindow(GetDlgItem(app.window, OpenPath), width - 160, 8, 64, 26, TRUE);
+    MoveWindow(GetDlgItem(app.window, Browse), width - 88, 8, 80, 26, TRUE);
+    MoveWindow(app.history, 8, 42, std::max(80, width - 448), 280, TRUE);
+    MoveWindow(GetDlgItem(app.window, Bookmarks), width - 432, 42, 120, 26, TRUE);
+    MoveWindow(GetDlgItem(app.window, Options), width - 304, 42, 116, 26, TRUE);
     MoveWindow(app.placement, width - 180, 42, 172, 180, TRUE);
     RECT list{ 8, 78, width - 8, height - 36 }, side = list;
     if (app.layout == L"bottom") { int split = 78 + std::max(80, (height - 114) / 2); list.bottom = split - 4; side.top = split + 4; }
@@ -695,6 +709,7 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     }
     return DefWindowProcW(window, message, wparam, lparam);
 }
+void LoadAddress(const std::wstring& address);
 void BrowseFolder() {
     ComPtr<IFileOpenDialog> dialog;
     auto hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
@@ -703,7 +718,107 @@ void BrowseFolder() {
     if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return;
     ComPtr<IShellItem> item; if (SUCCEEDED(hr)) hr = dialog->GetResult(&item);
     PWSTR path = nullptr; if (SUCCEEDED(hr)) hr = item->GetDisplayName(SIGDN_FILESYSPATH, &path);
-    if (SUCCEEDED(hr)) { OpenFolder(path); CoTaskMemFree(path); } else Counts(L"フォルダー選択エラー: " + ErrorText(hr));
+    if (SUCCEEDED(hr)) { LoadAddress(path); CoTaskMemFree(path); } else Counts(L"フォルダー選択エラー: " + ErrorText(hr));
+}
+void LoadAddress(const std::wstring& address) {
+    try {
+        auto path = Normalize(address);
+        if (!fs::is_directory(path)) throw std::runtime_error("folder");
+        SetWindowTextW(app.path, path.c_str()); OpenFolder(path, SameFolderAddress(path, app.folder));
+    } catch (...) { Counts(L"無効なフォルダーパスです。現在の一覧を保持します。"); }
+}
+bool AddBookmark(const std::wstring& address) {
+    try {
+        auto path = Normalize(address);
+        if (!fs::is_directory(path)) throw std::runtime_error("folder");
+        if (std::any_of(app.bookmarks.begin(), app.bookmarks.end(), [&](auto& p) { return SameFolderAddress(p, path); })) { Counts(L"既にブックマークに登録されています。"); return false; }
+        if (app.bookmarks.size() >= 1000) { Counts(L"ブックマークの登録上限は1000件です。"); return false; }
+        app.bookmarks.push_back(path); SaveSettings(); Counts(L"ブックマークに追加しました。"); return true;
+    } catch (...) { Counts(L"ブックマークに追加できません。フォルダーを確認してください。"); return false; }
+}
+void RemoveBookmark(size_t index) {
+    if (index >= app.bookmarks.size()) return;
+    app.bookmarks.erase(app.bookmarks.begin() + index); SaveSettings(); Counts(L"ブックマークを削除しました。");
+}
+INT_PTR CALLBACK CacheDialog(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_INITDIALOG) {
+        SetWindowLongPtrW(dialog, DWLP_USER, lparam); SetWindowTextW(dialog, L"画像サムネイルキャッシュ上限");
+        auto child = [&](const wchar_t* type, const wchar_t* text, DWORD style, int x, int y, int width, int height, int id) {
+            auto control = CreateWindowExW(0, type, text, WS_CHILD | WS_VISIBLE | style, x, y, width, height, dialog, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE); return control;
+        };
+        child(L"STATIC", L"上限（MB、16〜2048の整数）", 0, 12, 12, 350, 24, 0);
+        child(L"EDIT", std::to_wstring(*reinterpret_cast<int*>(lparam)).c_str(), WS_BORDER | WS_TABSTOP | ES_NUMBER, 12, 40, 140, 26, 100);
+        child(L"STATIC", L"一覧とメモリキャッシュのサムネイル保持分が対象です。", 0, 12, 74, 420, 24, 0);
+        child(L"BUTTON", L"OK", WS_TABSTOP | BS_DEFPUSHBUTTON, 200, 112, 80, 26, IDOK);
+        child(L"BUTTON", L"キャンセル", WS_TABSTOP, 290, 112, 100, 26, IDCANCEL);
+        SendDlgItemMessageW(dialog, 100, EM_SETLIMITTEXT, 4, 0); SetFocus(GetDlgItem(dialog, 100)); SendDlgItemMessageW(dialog, 100, EM_SETSEL, 0, -1); return FALSE;
+    }
+    if (message == WM_COMMAND && LOWORD(wparam) == IDOK) {
+        auto text = Text(GetDlgItem(dialog, 100));
+        int value = 0;
+        if (!ParseCacheLimitInput(text, value)) {
+            MessageBoxW(dialog, L"16〜2048MBの整数を入力してください。", L"入力エラー", MB_OK | MB_ICONWARNING); return TRUE;
+        }
+        *reinterpret_cast<int*>(GetWindowLongPtrW(dialog, DWLP_USER)) = value; EndDialog(dialog, IDOK); return TRUE;
+    }
+    if (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wparam) == IDCANCEL)) { EndDialog(dialog, IDCANCEL); return TRUE; }
+    return FALSE;
+}
+void ChangeCacheLimit(int mb) {
+    if (mb < 16 || mb > 2048 || mb == app.cacheMB) return;
+    int previous = app.cacheMB; auto generation = app.thumbnailGeneration;
+    app.cacheMB = mb; ApplyThumbnailSize(true);
+    if (generation == app.thumbnailGeneration) app.cacheMB = previous;
+    else Counts(L"画像サムネイルキャッシュ上限: " + std::to_wstring(mb) + L" MB");
+}
+void ToggleHistorySaving() {
+    app.saveHistory = !app.saveHistory;
+    if (!app.saveHistory) { app.recent.clear(); if (!app.folder.empty()) app.recent.push_back(app.folder); RefreshHistory(); }
+    SaveSettings(); Counts(app.saveHistory ? L"フォルダ履歴保存: ON" : L"フォルダ履歴保存: OFF（起動中のみ保持）");
+}
+INT_PTR ShowCacheLimitDialog(int& mb) {
+    struct { DLGTEMPLATE dialog; WORD menu, windowClass, title; } resource{};
+    resource.dialog.style = WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME | DS_CENTER;
+    resource.dialog.cx = 240; resource.dialog.cy = 96;
+    return DialogBoxIndirectParamW(GetModuleHandleW(nullptr), &resource.dialog, app.window, CacheDialog, reinterpret_cast<LPARAM>(&mb));
+}
+HMENU BuildOptionsMenu() {
+    auto menu = CreatePopupMenu();
+    auto label = L"画像サムネイルキャッシュ上限: " + std::to_wstring(app.cacheMB) + L" MB…";
+    AppendMenuW(menu, MF_STRING, 1, label.c_str());
+    AppendMenuW(menu, MF_STRING | (app.saveHistory ? MF_CHECKED : MF_UNCHECKED), 2, app.saveHistory ? L"フォルダ履歴保存: ON" : L"フォルダ履歴保存: OFF");
+    return menu;
+}
+void OptionsMenu() {
+    auto menu = BuildOptionsMenu();
+    RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
+    auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
+    if (action == 1) {
+        int mb = app.cacheMB;
+        if (ShowCacheLimitDialog(mb) == IDOK) ChangeCacheLimit(mb);
+    } else if (action == 2) ToggleHistorySaving();
+}
+HMENU BuildBookmarkMenu() {
+    auto menu = CreatePopupMenu(), remove = CreatePopupMenu();
+    AppendMenuW(menu, MF_STRING, 1, L"このアドレスを追加");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    auto escape = [](std::wstring path) { size_t position = 0; while ((position = path.find(L'&', position)) != std::wstring::npos) { path.insert(position, 1, L'&'); position += 2; } return path; };
+    for (size_t i = 0; i < app.bookmarks.size(); ++i) {
+        auto label = escape(app.bookmarks[i]);
+        AppendMenuW(menu, MF_STRING, 1000 + i, label.c_str()); AppendMenuW(remove, MF_STRING, 3000 + i, label.c_str());
+    }
+    if (app.bookmarks.empty()) { AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"登録なし"); DestroyMenu(remove); }
+    else { AppendMenuW(menu, MF_SEPARATOR, 0, nullptr); AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(remove), L"ブックマークを削除"); }
+    return menu;
+}
+void BookmarkMenu() {
+    auto menu = BuildBookmarkMenu();
+    RECT rect{}; GetWindowRect(GetDlgItem(app.window, Bookmarks), &rect);
+    auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
+    if (action == 1) AddBookmark(Text(app.path));
+    else if (action >= 1000 && action < 1000 + app.bookmarks.size()) LoadAddress(app.bookmarks[action - 1000]);
+    else if (action >= 3000 && action < 3000 + app.bookmarks.size()) RemoveBookmark(action - 3000);
 }
 HWND Control(LPCWSTR type, LPCWSTR text, DWORD style, int id) {
     HWND control = CreateWindowExW(0, type, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, app.window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
@@ -714,7 +829,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_CREATE: {
         app.window = window;
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
-        Control(L"BUTTON", L"開く", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse); Control(L"BUTTON", L"再読込み", WS_TABSTOP, Reload);
+        Control(L"BUTTON", L"ロード", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
+        Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
         app.history = Control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, History);
         app.placement = Control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, Placement);
         for (auto label : { L"サイドビュー: 右", L"サイドビュー: 左", L"サイドビュー: 下" }) SendMessageW(app.placement, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
@@ -723,7 +839,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         SetWindowSubclass(app.list, ImagesProc, 1, 0);
         ListView_SetExtendedListViewStyle(app.list, LVS_EX_DOUBLEBUFFER);
         ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 36, app.activeThumbnailWidth * 3 / 4 + 44);
-        app.thumbs = ImageList_Create(app.activeThumbnailWidth, app.activeThumbnailWidth * 3 / 4, ILC_COLOR32, 1, 64); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
+        app.thumbs = CreateThumbnails(app.activeThumbnailWidth, app.slotLimit, app.imageBytes);
+        if (!app.thumbs) return -1;
+        app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - app.imageBytes); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
         app.preview = Control(L"KuniPreview", L"", WS_BORDER, 0);
         app.metadataTabs = Control(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, MetadataTabs);
         for (auto label : { L"シンプル", L"詳細" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
@@ -753,10 +871,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize = { 760, 520 }; return 0;
     case WM_COMMAND:
         switch (LOWORD(wparam)) {
-        case OpenPath: OpenFolder(Text(app.path)); break;
+        case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
-        case Reload: if (!app.folder.empty()) OpenFolder(app.folder, true); break;
-        case History: if (HIWORD(wparam) == CBN_SELCHANGE) { auto index = SendMessageW(app.history, CB_GETCURSEL, 0, 0); if (index >= 0 && size_t(index) < app.recent.size()) OpenFolder(app.recent[index]); } break;
+        case Options: OptionsMenu(); break;
+        case Bookmarks: BookmarkMenu(); break;
+        case History: if (HIWORD(wparam) == CBN_SELCHANGE) { auto index = SendMessageW(app.history, CB_GETCURSEL, 0, 0); if (index >= 0 && size_t(index) < app.recent.size()) LoadAddress(app.recent[index]); } break;
         case Placement: if (HIWORD(wparam) == CBN_SELCHANGE) { auto index = SendMessageW(app.placement, CB_GETCURSEL, 0, 0); app.layout = index == 1 ? L"left" : index == 2 ? L"bottom" : L"right"; Layout(); SaveSettings(); } break;
         } return 0;
     case WM_NOTIFY:
@@ -803,14 +922,27 @@ int SelfTest() {
         require(IsPhotosId(L"Microsoft.Windows.Photos_8wekyb3d8bbwe!App") && !IsPhotosId(L"Other.Photos_8wekyb3d8bbwe!App") && !IsPhotosId(L"Microsoft.Windows.Photos_8wekyb3d8bbwe!"), "Photos app identity filter");
         app.settings = directory / L"settings.json";
         app.settingsProtected = false;
+        app.saveHistory = true; app.cacheMB = 100; app.bookmarks.clear();
         app.last = Normalize(directory.wstring()); app.layout = L"bottom"; app.recent = { app.last }; app.thumbnailWidth = 192;
         SaveSettings(); app.last.clear(); app.recent.clear(); app.layout = L"right";
         // LoadSettings uses the real EXE path, so parse the isolated round-trip file directly.
         std::ifstream input(app.settings, std::ios::binary);
         std::string json((std::istreambuf_iterator<char>(input)), {});
         auto object = JsonObject::Parse(winrt::to_hstring(json));
-        require(object.GetNamedNumber(L"version") == 1 && object.GetNamedString(L"sideView") == L"bottom" && object.GetNamedArray(L"history").Size() == 1, "settings JSON round trip");
+        require(object.GetNamedNumber(L"version") == 2 && object.GetNamedString(L"sideView") == L"bottom" && object.GetNamedArray(L"history").Size() == 1, "settings JSON round trip");
         require(ReadThumbnailWidth(object) == 192, "thumbnail width persisted");
+        auto legacySettings = ParseViewerSettings("{\"version\":1,\"lastFolder\":\"\",\"sideView\":\"right\",\"history\":[]}");
+        require(legacySettings.cacheMB == 100 && legacySettings.saveHistory && legacySettings.bookmarks.empty(), "old settings migrate to 100MB history ON");
+        ViewerSettings settings; settings.last = app.last; settings.history = app.recent; settings.bookmarks = app.recent; settings.cacheMB = 16;
+        auto roundTrip = ParseViewerSettings(SerializeViewerSettings(settings));
+        require(roundTrip.cacheMB == 16 && roundTrip.bookmarks == app.recent && roundTrip.history == app.recent, "new settings bookmarks and cache round trip");
+        settings.saveHistory = false; auto off = ParseViewerSettings(SerializeViewerSettings(settings));
+        require(off.last.empty() && off.history.empty() && off.bookmarks == app.recent && !off.saveHistory, "history OFF omits last folder while bookmarks persist");
+        int limit = 100;
+        require(ParseCacheLimitInput(L"16",limit) && limit == 16 && ParseCacheLimitInput(L"2048",limit) && limit == 2048 && !ParseCacheLimitInput(L"15",limit) && !ParseCacheLimitInput(L"2049",limit) && !ParseCacheLimitInput(L"1.5",limit) && !ParseCacheLimitInput(L"",limit) && !ParseCacheLimitInput(L"9999999999",limit), "cache input bounds and malformed values");
+        bool invalidSetting = false; settings.cacheMB = 2049;
+        try { ParseViewerSettings(SerializeViewerSettings(settings)); } catch (...) { invalidSetting = true; }
+        require(invalidSetting, "invalid cache setting rejected transactionally");
         app.thumbnailWidth = app.activeThumbnailWidth = 128;
         require(Same(Normalize(directory.wstring() + L"\\"), Normalize(directory.wstring())), "trailing separator normalization");
         ComPtr<IWICImagingFactory> factory;
@@ -842,6 +974,7 @@ int SelfTest() {
         auto broken = directory / L"broken.png";
         RunMetadataTests(directory, report);
         RunWebPTests(directory, report);
+        RunExtendedXmpTests(directory, report);
         { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -897,6 +1030,7 @@ int UiTest() {
     };
     try {
         auto source = directory / L"sample.jpg";
+        require(Text(GetDlgItem(app.window, OpenPath)) == L"ロード" && Text(GetDlgItem(app.window, Options)).find(L"オプション") == 0 && Text(GetDlgItem(app.window, Bookmarks)).find(L"ブックマーク") == 0 && app.cacheMB == 100 && app.saveHistory, "load options bookmarks controls and defaults");
         for (int i = 0; i < 650; ++i) fs::copy_file(source, directory / (L"grid-" + std::to_wstring(i) + L".jpg"), fs::copy_options::overwrite_existing);
         OpenFolder(directory.wstring());
         wait([] { return !app.folderPending && !app.files.empty() && ThumbnailsReady(); });
@@ -989,6 +1123,61 @@ int UiTest() {
         app.thumbnailWidth = 256; ApplyThumbnailSize(); app.thumbnailWidth = 64; ApplyThumbnailSize();
         OpenFolder(directory.wstring(), true); wait([] { return ThumbnailsReady() && !app.previewPixels.data.empty(); });
         require(app.activeThumbnailWidth == 64 && Same(app.files[app.selected], (directory / L"webp-透過.WEBP").wstring()), "rapid zoom and reload discard stale work");
+        auto readSettings = [&] {
+            std::ifstream input(app.settings, std::ios::binary); return ParseViewerSettings(std::string((std::istreambuf_iterator<char>(input)), {}));
+        };
+        auto bookmarkFolder = directory / L"bookmark-自動試験 & #"; fs::create_directories(bookmarkFolder);
+        auto generation = app.generation;
+        require(AddBookmark(bookmarkFolder.wstring()) && !AddBookmark(bookmarkFolder.wstring() + L"\\") && app.generation == generation && app.bookmarks.size() == 1, "bookmark add deduplicates without loading folder");
+        auto menu = BuildBookmarkMenu(); wchar_t label[32768]{};
+        GetMenuStringW(menu,1000,label,ARRAYSIZE(label),MF_BYCOMMAND);
+        require(std::wstring(label).find(L"&&") != std::wstring::npos && GetSubMenu(menu,GetMenuItemCount(menu)-1), "bookmark menu paths escape ampersands and include deletion submenu"); DestroyMenu(menu);
+        ToggleHistorySaving(); auto offSettings = readSettings();
+        require(!offSettings.saveHistory && offSettings.history.empty() && offSettings.last.empty() && offSettings.bookmarks.size() == 1 && app.recent.size() == 1, "history OFF clears stored history and keeps bookmarks independent");
+        menu = BuildOptionsMenu(); require(!(GetMenuState(menu,2,MF_BYCOMMAND) & MF_CHECKED), "options menu reflects history OFF"); DestroyMenu(menu);
+        SetWindowTextW(app.path,bookmarkFolder.c_str()); SendMessageW(app.window,WM_COMMAND,OpenPath,0);
+        wait([&] { return !app.folderPending && SameFolderAddress(app.folder,bookmarkFolder.wstring()); });
+        require(app.files.empty() && readSettings().history.empty(), "load button uses edited address while history OFF");
+        LoadAddress(directory.wstring()); wait([] { return ThumbnailsReady(); });
+        auto webpPath = (directory / L"webp-透過.WEBP").wstring();
+        for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (Same(app.files[i],webpPath)) ListView_SetItemState(app.list,i,LVIS_SELECTED | LVIS_FOCUSED,LVIS_SELECTED | LVIS_FOCUSED);
+        wait([] { return !app.previewPixels.data.empty(); });
+        auto selectedPath = app.files[app.selected]; auto cacheEpoch = app.cache.Ticket();
+        SetWindowTextW(app.path,directory.c_str()); SendMessageW(app.window,WM_COMMAND,OpenPath,0);
+        wait([] { return ThumbnailsReady() && !app.previewPixels.data.empty(); });
+        require(Same(app.files[app.selected],selectedPath) && app.cache.Ticket() > cacheEpoch, "same folder load reloads cache and preserves selection");
+        generation = app.generation; LoadAddress(L""); LoadAddress((directory / L"not-a-folder").wstring());
+        require(app.generation == generation && Same(app.files[app.selected],selectedPath), "invalid or empty load preserves list and selection");
+        fs::remove(bookmarkFolder); LoadAddress(app.bookmarks[0]);
+        require(app.bookmarks.size() == 1 && app.generation == generation, "unavailable bookmark retained after load error");
+        RemoveBookmark(0); require(app.bookmarks.empty() && readSettings().bookmarks.empty(), "bookmark deletion persists");
+        ToggleHistorySaving(); require(readSettings().saveHistory && !readSettings().history.empty(), "history ON resumes saving current session");
+        menu = BuildOptionsMenu(); require((GetMenuState(menu,2,MF_BYCOMMAND) & MF_CHECKED) != 0, "options menu reflects history ON"); DestroyMenu(menu);
+        int dialogMB = 100;
+        auto timer = SetTimer(nullptr,0,50,[](HWND,UINT,UINT_PTR id,DWORD) {
+            KillTimer(nullptr,id); auto dialog = GetActiveWindow();
+            SetDlgItemTextW(dialog,100,L"16"); SendMessageW(dialog,WM_COMMAND,IDOK,0);
+        });
+        require(timer && ShowCacheLimitDialog(dialogMB) == IDOK && dialogMB == 16, "cache option native dialog accepts entered value");
+        dialogMB = 100;
+        timer = SetTimer(nullptr,0,50,[](HWND,UINT,UINT_PTR id,DWORD) { KillTimer(nullptr,id); SendMessageW(GetActiveWindow(),WM_COMMAND,IDCANCEL,0); });
+        require(timer && ShowCacheLimitDialog(dialogMB) == IDCANCEL && dialogMB == 100, "cache option cancel keeps existing value");
+        ChangeCacheLimit(16); app.thumbnailWidth = 256; ApplyThumbnailSize(); wait([] { return ThumbnailsReady(); });
+        require(app.cacheMB == 16 && app.slotLimit < ThumbnailSlots && app.cache.Bytes() + ImageListBytes(app.thumbs) <= 16000000 && readSettings().cacheMB == 16 && Same(app.files[app.selected],selectedPath), "cache decrease bounds LRU plus actual ImageList storage and keeps selection");
+        SetWindowPos(app.window,nullptr,0,0,2200,1600,SWP_NOMOVE | SWP_NOZORDER); Layout(); ListView_EnsureVisible(app.list,0,FALSE); ScheduleThumbnails(); wait([] { return ThumbnailsReady(); });
+        size_t pending = 0; { std::lock_guard<std::mutex> lock(app.mutex); pending = app.jobs.size(); }
+        require(app.thumbnailBudgetLimited && pending < ThumbnailSlots && app.cache.Bytes() + ImageListBytes(app.thumbs) <= 16000000, "viewport larger than cache budget finishes without generation loop");
+        ChangeCacheLimit(100); app.thumbnailWidth = 128; ApplyThumbnailSize(); wait([] { return ThumbnailsReady(); });
+        require(app.cache.Bytes() + ImageListBytes(app.thumbs) <= 100000000 && readSettings().cacheMB == 100, "cache increase and zoom keep 100MB total pixel budget");
+        SetWindowPos(app.window,nullptr,0,0,760,520,SWP_NOMOVE | SWP_NOZORDER); Layout();
+        RECT history{}, bookmarks{}, options{}, placement{}; GetWindowRect(app.history,&history); GetWindowRect(GetDlgItem(app.window,Bookmarks),&bookmarks); GetWindowRect(GetDlgItem(app.window,Options),&options); GetWindowRect(app.placement,&placement);
+        require(history.right < bookmarks.left && bookmarks.right < options.left && options.right < placement.left, "top controls do not overlap at minimum window size");
+        int extendedIndex = -1;
+        for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"extended-日本語.jpg") extendedIndex = i;
+        require(extendedIndex >= 0,"Extended XMP UI fixture found");
+        ListView_SetItemState(app.list,extendedIndex,LVIS_SELECTED | LVIS_FOCUSED,LVIS_SELECTED | LVIS_FOCUSED);
+        wait([] { return !app.previewPixels.data.empty() && app.summary.values[4] == L"拡張撮影者"; });
+        require(Text(app.simpleValues[5]) == L"拡張ワールド" && Text(app.details).find(L"検証成功") != std::wstring::npos,"Extended XMP updates simple and detailed tabs");
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
     return 1;
@@ -1004,18 +1193,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
         app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
         fs::create_directories(app.settings.parent_path());
         app.last.clear(); app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
-        app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128;
+        app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128; app.cacheMB = 100; app.saveHistory = true; app.bookmarks.clear();
     }
     WNDCLASSW preview{}; preview.lpfnWndProc = PreviewProc; preview.hInstance = instance; preview.lpszClassName = L"KuniPreview"; preview.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&preview);
     WNDCLASSW simple{}; simple.lpfnWndProc = SimpleProc; simple.hInstance = instance; simple.lpszClassName = L"KuniSimple"; simple.hCursor = LoadCursorW(nullptr, IDC_ARROW); simple.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&simple);
     WNDCLASSW main{}; main.lpfnWndProc = WindowProc; main.hInstance = instance; main.lpszClassName = L"KuniVRCPhotEditor"; main.hCursor = LoadCursorW(nullptr, IDC_ARROW); main.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&main);
-    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.1.2 — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
+    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.2.0+ — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
     if (!window) return 1;
     if (uiTest) { int result = UiTest(); SendMessageW(window, WM_CLOSE, 0, 0); winrt::uninit_apartment(); return result; }
     ShowWindow(window, show); UpdateWindow(window);
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
-        if (message.message == WM_KEYDOWN && message.wParam == VK_RETURN && message.hwnd == app.path) { OpenFolder(Text(app.path)); continue; }
+        if (message.message == WM_KEYDOWN && message.wParam == VK_RETURN && message.hwnd == app.path) { LoadAddress(Text(app.path)); continue; }
         if (message.message == WM_MOUSEWHEEL) {
             // Route by pointer location even when another control has keyboard focus.
             POINT point{ static_cast<short>(LOWORD(message.lParam)), static_cast<short>(HIWORD(message.lParam)) };

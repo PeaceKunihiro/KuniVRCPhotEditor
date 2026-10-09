@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "MetadataModel.h"
+#include "ExtendedXmp.h"
 #include <xmllite.h>
 #include <shlwapi.h>
 #include <wrl/client.h>
@@ -19,6 +20,7 @@ constexpr size_t XmpLimit = 16 * 1024 * 1024;
 const std::wstring XmpUri = L"http://ns.adobe.com/xap/1.0/";
 const std::wstring VrcUri = L"http://ns.vrchat.com/vrc/1.0/";
 std::wstring* Target(XmpFields& fields, const std::wstring& uri, const std::wstring& name) {
+    if (uri == L"http://ns.adobe.com/xmp/note/" && name == L"HasExtendedXMP") return &fields.extendedGuid;
     if (uri == XmpUri && name == L"CreateDate") return &fields.date;
     if (uri == XmpUri && name == L"Author") return &fields.author;
     if (uri == VrcUri && name == L"WorldDisplayName") return &fields.worldName;
@@ -111,7 +113,9 @@ std::vector<std::string> Packets(const std::wstring& path, std::wstring& notes) 
             } else input.seekg(static_cast<std::streamoff>(padded), std::ios::cur);
         }
     } else if (signature[0] == 0xff && signature[1] == 0xd8) {
+        std::vector<std::string> extended; size_t extendedBytes = 0; bool extendedLimit = false;
         input.seekg(2);
+        try {
         for (;;) {
             unsigned char byte = 0; Read(input, reinterpret_cast<char*>(&byte), 1);
             if (byte != 0xff) throw std::runtime_error("JPEG marker");
@@ -125,8 +129,18 @@ std::vector<std::string> Packets(const std::wstring& path, std::wstring& notes) 
             std::string data(length, '\0'); Read(input, data.data(), length);
             const char standard[] = "http://ns.adobe.com/xap/1.0/\0";
             if (data.compare(0, sizeof(standard) - 1, standard, sizeof(standard) - 1) == 0) add(data.substr(sizeof(standard) - 1));
-            else if (data.find("http://ns.adobe.com/xmp/extension/") == 0) notes += L"JPEG Extended XMPはこの版では未対応です。\r\n";
+            else {
+                const char signature[] = "http://ns.adobe.com/xmp/extension/";
+                if (data.compare(0, sizeof(signature), signature, sizeof(signature)) == 0) {
+                    extendedBytes += data.size();
+                    if (extended.size() >= 1024 || extendedBytes > XmpLimit + 1024 * 75) extendedLimit = true;
+                    else if (!extendedLimit) extended.push_back(std::move(data));
+                }
+            }
         }
+        } catch (...) { notes += L"JPEGメタデータ領域の読込みエラー。取得済み標準XMPは保持します。\r\n"; }
+        if (extendedLimit) notes += L"JPEG Extended XMPが収集上限を超えています。\r\n";
+        else { auto restored = RestoreExtendedXmp(packets, extended, notes); if (!restored.empty()) add(std::move(restored)); }
     }
     return packets;
 }
@@ -204,10 +218,12 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path) {
             std::wstring parseError; XmpFields parsed;
             try { result.xmpDetail += L"\r\nXMP（直接抽出）\r\n" + Utf8(packet) + L"\r\n"; } catch (...) { result.notes += L"XMPの文字コード読込みエラー。\r\n"; }
             if (ParseXmp(packet, parsed, parseError)) {
-                if (!parsed.date.empty()) fields.date = parsed.date;
-                if (!parsed.author.empty()) fields.author = parsed.author;
-                if (!parsed.worldName.empty()) fields.worldName = parsed.worldName;
-                if (!parsed.worldId.empty()) fields.worldId = parsed.worldId;
+                auto merge = [&](std::wstring& target, const std::wstring& value) {
+                    if (target.empty()) target = value;
+                    else if (!value.empty() && target != value) result.notes += L"XMP項目に異なる値があります。先に取得した標準側の値を優先します。\r\n";
+                };
+                merge(fields.date, parsed.date); merge(fields.author, parsed.author);
+                merge(fields.worldName, parsed.worldName); merge(fields.worldId, parsed.worldId);
             } else result.notes += parseError + L"\r\n";
         }
     } catch (...) { result.notes += L"XMP読込みエラー（破損・読込み不可・サイズ上限）。\r\n"; }

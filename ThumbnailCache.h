@@ -15,6 +15,7 @@ class ThumbnailCache {
     std::mutex mutex;
     size_t bytes = 0;
     uint64_t epoch = 0;
+    size_t limit = Limit;
 public:
     static constexpr size_t Limit = 128 * 1024 * 1024;
     std::atomic<unsigned> hits{0}, misses{0};
@@ -35,10 +36,14 @@ public:
         std::lock_guard<std::mutex> lock(mutex);
         if (ticket != UINT64_MAX && ticket != epoch) return;
         for (auto i = entries.begin(); i != entries.end(); ++i) if (i->key == key) return;
-        if (pixels.data.size() > Limit) return;
-        while (!entries.empty() && bytes + pixels.data.size() > Limit) { bytes -= entries.back().pixels.data.size(); entries.pop_back(); }
+        if (pixels.data.size() > limit) return;
+        while (!entries.empty() && bytes + pixels.data.size() > limit) { bytes -= entries.back().pixels.data.size(); entries.pop_back(); }
         entries.push_front({ key, pixels }); bytes += pixels.data.size();
     }
     void Clear() { std::lock_guard<std::mutex> lock(mutex); ++epoch; entries.clear(); bytes = 0; }
     size_t Bytes() { std::lock_guard<std::mutex> lock(mutex); return bytes; }
+    void SetLimit(size_t value) {
+        std::lock_guard<std::mutex> lock(mutex); limit = value; ++epoch;
+        while (!entries.empty() && bytes > limit) { bytes -= entries.back().pixels.data.size(); entries.pop_back(); }
+    }
 };

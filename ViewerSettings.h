@@ -1,0 +1,14 @@
+#pragma once
+#include <string>
+#include <vector>
+struct ViewerSettings {
+    int thumbnailWidth = 128, cacheMB = 100;
+    bool saveHistory = true;
+    std::wstring last, layout = L"right";
+    std::vector<std::wstring> history, bookmarks;
+};
+std::wstring NormalizeFolderAddress(const std::wstring& path);
+bool SameFolderAddress(const std::wstring& a, const std::wstring& b);
+ViewerSettings ParseViewerSettings(const std::string& json);
+std::string SerializeViewerSettings(const ViewerSettings& settings);
+bool ParseCacheLimitInput(const std::wstring& text, int& value);
