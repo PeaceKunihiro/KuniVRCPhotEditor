@@ -26,6 +26,7 @@ WebPImage ReadWebP(const std::wstring& path, UINT maxWidth, UINT maxHeight) {
     const uint64_t pixelLimit = (result.animated ? 16ULL : 64ULL) * 1024 * 1024;
     if (!result.sourceWidth || !result.sourceHeight || uint64_t(result.sourceWidth) * result.sourceHeight > pixelLimit)
         throw std::runtime_error("WebP pixel limit");
+    if (!maxWidth || !maxHeight) return result; // Container information only; no second image decode.
     double scale = std::min({ 1.0, double(maxWidth) / result.sourceWidth, double(maxHeight) / result.sourceHeight });
     result.width = std::max(1U, UINT(result.sourceWidth * scale)); result.height = std::max(1U, UINT(result.sourceHeight * scale));
     result.pixels.resize(size_t(result.width) * result.height * 4);

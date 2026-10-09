@@ -21,6 +21,7 @@ const std::wstring XmpUri = L"http://ns.adobe.com/xap/1.0/";
 const std::wstring VrcUri = L"http://ns.vrchat.com/vrc/1.0/";
 std::wstring* Target(XmpFields& fields, const std::wstring& uri, const std::wstring& name) {
     if (uri == L"http://ns.adobe.com/xmp/note/" && name == L"HasExtendedXMP") return &fields.extendedGuid;
+    if (uri == L"urn:kunivrcphoteditor:metadata:1.0" && name == L"Subjects") return &fields.subjects;
     if (uri == XmpUri && name == L"CreateDate") return &fields.date;
     if (uri == XmpUri && name == L"Author") return &fields.author;
     if (uri == VrcUri && name == L"WorldDisplayName") return &fields.worldName;
@@ -223,12 +224,12 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path) {
                     else if (!value.empty() && target != value) result.notes += L"XMP項目に異なる値があります。先に取得した標準側の値を優先します。\r\n";
                 };
                 merge(fields.date, parsed.date); merge(fields.author, parsed.author);
-                merge(fields.worldName, parsed.worldName); merge(fields.worldId, parsed.worldId);
+                merge(fields.worldName, parsed.worldName); merge(fields.worldId, parsed.worldId); merge(fields.subjects, parsed.subjects);
             } else result.notes += parseError + L"\r\n";
         }
     } catch (...) { result.notes += L"XMP読込みエラー（破損・読込み不可・サイズ上限）。\r\n"; }
     if (!fields.date.empty() && !ValidXmpDate(fields.date)) result.notes += L"xmp:CreateDateが不正なため別の日時を使用しました。\r\n";
     result.values[3] = ChooseDate(fields.date, result.values[0], created, modified);
-    result.values[4] = fields.author; result.values[5] = fields.worldName; result.values[6] = fields.worldId;
+    result.values[4] = fields.author; result.values[5] = fields.worldName; result.values[6] = fields.worldId; result.values[7] = fields.subjects;
     return result;
 }
