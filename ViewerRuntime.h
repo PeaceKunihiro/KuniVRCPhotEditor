@@ -1,6 +1,7 @@
 #pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
+#include "Stage3.h"
 #include "MetadataTests.h"
 #include "WebPImage.h"
 #include "ThumbnailCache.h"
@@ -47,8 +48,9 @@ constexpr int ThumbnailMin = 64, ThumbnailMax = 256, ThumbnailStep = 32;
 constexpr UINT_PTR ZoomTimer = 1;
 constexpr UINT_PTR ThumbnailTimer = 2;
 constexpr UINT_PTR ActivityTimer = 3;
+constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
-enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help };
+enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator };
 struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; };
 struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
 struct State {
@@ -72,7 +74,7 @@ struct State {
     std::thread searchWorker;
     std::function<int()> chooseSaveMode;
     HWND metadataTabs{}, simple{}, simpleNote{};
-    std::array<HWND, 9> simpleLabels{}, simpleValues{};
+    std::array<HWND, 11> simpleLabels{}, simpleValues{};
     int simpleScroll = 0, simpleWheel = 0, simpleContentHeight = 0;
     HWND editButton{}, saveButton{}, cancelButton{}, editStatus{};
     MetadataEditorUi editorUi; EditableMetadata editable;

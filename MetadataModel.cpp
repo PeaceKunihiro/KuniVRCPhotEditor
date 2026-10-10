@@ -157,11 +157,24 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
     if (SUCCEEDED(hr)) hr = reader->SetProperty(XmlReaderProperty_MaxElementDepth, 64);
     if (SUCCEEDED(hr)) hr = reader->SetInput(stream.Get());
     XmpFields parsed;
-    struct Element { std::wstring name, uri, text; };
+    bool invalidMembers=false,invalidCandidates=false;
+    struct Element { std::wstring name, uri, text; bool sequence=false; };
     std::vector<Element> stack;
     XmlNodeType type{};
     auto finish = [&] {
         auto element = std::move(stack.back()); stack.pop_back();
+        constexpr auto kpe=L"urn:kunivrcphoteditor:metadata:1.0";
+        bool capture=std::any_of(stack.begin(),stack.end(),[&](const auto& p){return p.uri==kpe&&p.name==L"CaptureRecord";});
+        if(capture&&element.name==L"Seq"&&element.uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&!stack.empty())stack.back().sequence=true;
+        if(capture&&element.uri==kpe){
+            if(element.name==L"InstanceMembers"&&!element.sequence)invalidMembers=true;
+            if(element.name==L"ModelCandidates"&&!element.sequence)invalidCandidates=true;
+            if(element.name==L"MemberListStatus")parsed.memberStatus=Trim(element.text);
+            if(element.name==L"CandidateStatus")parsed.candidateStatus=Trim(element.text);
+            if(element.name==L"DisplayName"&&stack.size()>=3&&stack.back().name==L"li"&&stack.back().uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&stack[stack.size()-2].name==L"Seq"&&stack[stack.size()-2].uri==stack.back().uri){
+                auto& parent=stack[stack.size()-3];if(parent.uri==kpe&&(parent.name==L"InstanceMembers"||parent.name==L"ModelCandidates")){auto& names=parent.name==L"InstanceMembers"?parsed.members:parsed.candidates;auto name=Trim(element.text);if(!name.empty()){if(!names.empty())names+=L"\r\n";names+=name;}}
+            }
+        }
         if (auto target = Target(parsed, element.uri, element.name)) {
             auto value = Trim(element.text); if (!value.empty()) { if (!target->empty() && *target != value) *target += L"\r\n" + value; else *target = value; }
         }
@@ -186,6 +199,8 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
         } else if (type == XmlNodeType_EndElement && !stack.empty()) finish();
     }
     if (FAILED(hr) || !stack.empty()) { error = L"XMPのXML読込みエラー。元の値は詳細で確認してください。"; return false; }
+    if(invalidMembers)parsed.memberStatus=L"unknown";
+    if(invalidCandidates)parsed.candidateStatus=L"unknown";
     fields = std::move(parsed); return true;
 }
 bool ValidXmpDate(const std::wstring& text) {
@@ -225,12 +240,19 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path) {
                     else if (!value.empty() && target != value) result.notes += L"XMP項目に異なる値があります。先に取得した標準側の値を優先します。\r\n";
                 };
                 merge(fields.date, parsed.date); merge(fields.author, parsed.author);
-                merge(fields.worldName, parsed.worldName); merge(fields.worldId, parsed.worldId); merge(fields.subjects, parsed.subjects); merge(fields.tags, parsed.tags);
+                merge(fields.worldName, parsed.worldName); merge(fields.worldId, parsed.worldId); merge(fields.subjects, parsed.subjects); merge(fields.tags, parsed.tags); merge(fields.members,parsed.members);merge(fields.candidates,parsed.candidates);merge(fields.memberStatus,parsed.memberStatus);merge(fields.candidateStatus,parsed.candidateStatus);
             } else result.notes += parseError + L"\r\n";
         }
     } catch (...) { result.notes += L"XMP読込みエラー（破損・読込み不可・サイズ上限）。\r\n"; }
     if (!fields.date.empty() && !ValidXmpDate(fields.date)) result.notes += L"xmp:CreateDateが不正なため別の日時を使用しました。\r\n";
     result.values[3] = ChooseDate(fields.date, result.values[0], created, modified);
     result.values[4] = fields.author; result.values[5] = fields.worldName; result.values[6] = fields.worldId; result.values[7] = fields.subjects; result.values[8] = fields.tags;
+    auto display=[](const std::wstring& names,const std::wstring& status,bool candidate){
+        std::wstring prefix;if(status==L"not-observed")prefix=L"未観測";else if(status==L"no-match")prefix=L"候補なし";else if(status==L"partial")prefix=L"部分的な記録";else if(status==L"ambiguous")prefix=L"曖昧な記録";else if(status==L"unknown")prefix=L"取得状況不明";else if(!status.empty()&&status!=L"reconstructed"&&status!=L"observed")prefix=L"未対応の取得状態";
+        if(names.empty()&&status==L"reconstructed")prefix=L"記録された同室者なし";
+        if(names.empty()&&candidate&&status==L"observed")prefix=L"候補情報不完全";
+        return prefix.empty()?names:prefix+(names.empty()?L"":L"\r\n"+names);
+    };
+    result.values[9]=display(fields.members,fields.memberStatus,false);result.values[10]=display(fields.candidates,fields.candidateStatus,true);
     return result;
 }

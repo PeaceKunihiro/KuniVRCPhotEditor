@@ -73,6 +73,12 @@ const std::string Empty="<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf=
 std::string Change(const std::string& xml,const MetadataEdit& edit,bool add,bool stripReference=true){
     auto doc=Dom(xml);if(stripReference)Remove(doc.Get(),L"note:HasExtendedXMP");
     for(size_t i=0;i<6;++i)if(edit.actions[i]!=EditAction::Keep)Remove(doc.Get(),Names[i]);
+    if(!edit.stage3Xml.empty()){
+        if(add){ComPtr<IXMLDOMNode> existing;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord | //@kpe:CaptureRecord"),&existing);if(existing)throw std::runtime_error("Automatic record already exists; manual data is preserved");
+            auto recordDoc=Dom(edit.stage3Xml);ComPtr<IXMLDOMNode> record,description,imported;recordDoc->selectSingleNode(Bstr(L"//rdf:Description/kpe:CaptureRecord"),&record);if(!record)throw std::runtime_error("Invalid Stage3 record");
+            ComPtr<IXMLDOMDocument3> target;winrt::check_hresult(doc.As(&target));winrt::check_hresult(target->importNode(record.Get(),VARIANT_TRUE,&imported));doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description);if(!description)throw std::runtime_error("XMP description missing");winrt::check_hresult(description->appendChild(imported.Get(),nullptr));
+        }else Remove(doc.Get(),L"kpe:CaptureRecord");
+    }
     if(add){ComPtr<IXMLDOMNode> description;doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description);if(!description)throw std::runtime_error("Unsupported XMP RDF structure");
         for(size_t i=0;i<6;++i)if(edit.actions[i]==EditAction::Set){auto node=Element(doc.Get(),Names[i],Uris[i]);
             if(i<4)winrt::check_hresult(node->put_text(Bstr(edit.values[i])));
@@ -147,6 +153,7 @@ void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination
     if(auto validation=edit.Validate();!validation.empty())throw std::runtime_error(Utf8(validation));
     auto extension=fs::path(destination).extension().wstring();std::transform(extension.begin(),extension.end(),extension.begin(),towlower);
     if((c.png&&extension!=L".png")||(c.webp&&extension!=L".webp")||(!c.png&&!c.webp&&extension!=L".jpg"&&extension!=L".jpeg"))throw std::runtime_error("Destination format must match source");
+    if(!edit.stage3Xml.empty())for(auto& packet:{c.standard,c.extended})if(!packet.empty()){auto doc=Dom(packet);ComPtr<IXMLDOMNode> existing;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord | //@kpe:CaptureRecord"),&existing);if(existing)throw std::runtime_error("Automatic record already exists; original annotations are preserved");}
     std::string standard=Change(c.standard.empty()?Empty:c.standard,edit,true),extended;
     if(!c.extended.empty())extended=Change(c.extended,edit,false);
     std::string metadata;
@@ -162,6 +169,7 @@ void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination
     if(c.webp){output=WriteWebPXmp(c.parts,c.xmp,standard);inserted=true;}
     if(!inserted)throw std::runtime_error("Metadata insertion failed");
     auto verify=Inspect(output);if(Preserved(c)!=Preserved(verify))throw std::runtime_error("Image data preservation failed");
+    if(!edit.stage3Xml.empty()){auto doc=Dom(verify.standard.empty()?verify.extended:verify.standard);ComPtr<IXMLDOMNode> record;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord"),&record);if(!record&& !verify.extended.empty()){doc=Dom(verify.extended);doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord"),&record);}if(!record)throw std::runtime_error("Stage3 reread verification failed");}
     auto actual=Values(verify),before=Values(c);for(size_t i=0;i<6;++i){auto wanted=edit.actions[i]==EditAction::Set?edit.values[i]:edit.actions[i]==EditAction::Remove?L"":before[i];
         if(i>=4){auto normalize=[](std::wstring s){s.erase(std::remove(s.begin(),s.end(),L'\r'),s.end());while(!s.empty()&&s.back()==L'\n')s.pop_back();return s;};if(normalize(actual[i])!=normalize(wanted))throw std::runtime_error("Subjects verification failed");}
         else if(actual[i]!=wanted)throw std::runtime_error("Edited metadata verification failed");}

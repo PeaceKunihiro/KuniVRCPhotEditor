@@ -1,0 +1,42 @@
+#pragma once
+#include <windows.h>
+#include <string>
+#include <vector>
+#include <filesystem>
+#include <cstdint>
+#include <ostream>
+namespace stage3 {
+using Time=int64_t; // UTC milliseconds since Windows epoch.
+struct Person {std::wstring name,id;};
+enum class Kind {Join,Leave,Room,LeftRoom,Photo,Invalid};
+struct Event {Time time=0;Kind kind=Kind::Invalid;Person person;std::wstring world,instance,path;uint64_t order=0;};
+struct Snapshot {std::vector<Person> members;std::wstring status=L"unknown",world,instance;bool ambiguous=false;};
+Time Now();Time ParseTime(const std::wstring& text);std::wstring Iso(Time time);
+bool ParseLogLine(const std::wstring& line,Event& event);
+class InstanceTimeline {
+    std::vector<Event> events;bool damaged=false;
+public:
+    void Add(Event event);void Invalidate(){damaged=true;}void Clear(){events.clear();damaged=false;}
+    Snapshot At(Time time)const;
+    std::vector<Time> PhotoTimes(const std::wstring& path)const;
+};
+class LogMonitor {
+    uint64_t offset=0;std::string unfinished;std::wstring identity;Time lastTime=0;unsigned resets=0;
+public:
+    InstanceTimeline timeline;bool invalid=false;
+    void Read(const std::filesystem::path& path);
+    std::wstring Session()const{return identity+L":reset:"+std::to_wstring(resets);}
+};
+struct Record {std::wstring session,world,instance,timeSource,timeStatus,memberStatus,candidateStatus=L"not-observed";Time reference=0,detected=0;std::vector<Person> members;};
+std::string RecordXml(const Record& record);
+struct Decision {bool ready=false;std::wstring reason;Record record;};
+Decision Correlate(const std::wstring& path,const std::wstring& date,const std::wstring& world,Time detected,const LogMonitor& log);
+struct Config {std::wstring logFolder,photoFolder,outputFolder,selectedLog;bool autoRecord=false;DWORD processId=0;int graceSeconds=5,retrySeconds=60,backupLimit=10;};
+struct Item {std::wstring path,state,reason,output;};
+bool SeparateFolders(const std::filesystem::path& input,const std::filesystem::path& output);
+void EvaluateReferences(const std::filesystem::path& log,const std::filesystem::path& photos,const std::filesystem::path& samples,std::ostream& report);
+void RunMonitorTests(const std::filesystem::path& directory,std::ostream& report);
+void ShowMonitorDialog();std::wstring MonitorStatus();void Shutdown();void RunTests(const std::filesystem::path& directory,std::ostream& report);
+bool Recording();void ToggleRecording();
+std::filesystem::path LatestLog(const std::filesystem::path& folder);
+}

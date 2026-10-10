@@ -22,7 +22,7 @@ std::wstring Text(HWND control) {
 }
 void Status(const std::wstring& message) {
     auto text=app.activityText.empty()?message:std::wstring(1,L"◐◓◑◒"[app.activityFrame%4])+L" "+app.activityText;
-    SetWindowTextW(app.status,text.c_str());
+    auto monitor=stage3::MonitorStatus();if(!monitor.empty())text+=L" | Stage3: "+monitor;SetWindowTextW(app.status,text.c_str());
 }
 void SetActivity(const std::wstring& text){app.activityText=text;SetTimer(app.window,ActivityTimer,150,nullptr);Status(text);SetWindowTextW(app.editStatus,text.c_str());}
 void StopActivity(){app.activityText.clear();KillTimer(app.window,ActivityTimer);Counts();}
@@ -414,11 +414,21 @@ void Results() {
         }
     }
 }
+namespace {
+bool recordBlink=false;
+void UpdateRecordingControls(bool tick=false){auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=GetDlgItem(app.window,RecordToggle);auto text=on?L"記録停止":L"記録開始";if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(GetDlgItem(app.window,RecordIndicator),nullptr,FALSE);}
+bool DrawRecording(DRAWITEMSTRUCT* draw){if(draw->CtlID!=RecordToggle&&draw->CtlID!=RecordIndicator)return false;int saved=SaveDC(draw->hDC);bool on=stage3::Recording();auto rect=draw->rcItem;
+    if(draw->CtlID==RecordIndicator){FillRect(draw->hDC,&rect,ThemeBrush());auto brush=CreateSolidBrush(on&&recordBlink?RGB(220,35,35):RGB(135,135,135));auto oldBrush=SelectObject(draw->hDC,brush);auto oldPen=SelectObject(draw->hDC,GetStockObject(NULL_PEN));int size=std::min(rect.right-rect.left,rect.bottom-rect.top)-10;int x=(rect.left+rect.right-size)/2,y=(rect.top+rect.bottom-size)/2;Ellipse(draw->hDC,x,y,x+size,y+size);SelectObject(draw->hDC,oldBrush);SelectObject(draw->hDC,oldPen);DeleteObject(brush);}
+    else {auto color=on?RGB(185,25,25):RGB(0,90,190);if(draw->itemState&ODS_SELECTED)color=on?RGB(140,15,15):RGB(0,65,140);auto brush=CreateSolidBrush(color);FillRect(draw->hDC,&rect,brush);DeleteObject(brush);FrameRect(draw->hDC,&rect,GetSysColorBrush(COLOR_GRAYTEXT));auto font=SendMessageW(draw->hwndItem,WM_GETFONT,0,0);if(font)SelectObject(draw->hDC,reinterpret_cast<HGDIOBJ>(font));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,RGB(255,255,255));auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(draw->hDC,&rect);}}
+    RestoreDC(draw->hDC,saved);return true;
+}
+}
 void Layout() {
     RECT r{}; GetClientRect(app.window, &r); int width = r.right, height = r.bottom;
     // Move the toolbar as one batch and discard copied pixels from old positions.
     // Sequential MoveWindow(..., TRUE) can repaint while siblings still overlap.
     struct ToolbarPosition { HWND window; int x, y, width, height; };
+    bool wrap=width<848;int recordingY=wrap?110:76,placementX=wrap?8:width-332;int listTop=wrap?144:110;
     const ToolbarPosition toolbar[]{
         { app.path, 8, 8, std::max(80, width - 176), 26 },
         { GetDlgItem(app.window, OpenPath), width - 160, 8, 64, 26 },
@@ -428,8 +438,11 @@ void Layout() {
         { app.searchButton,width-72,42,64,26 },
         { GetDlgItem(app.window, Bookmarks),8,76,120,26 },
         { GetDlgItem(app.window, Options),136,76,116,26 },
-        { GetDlgItem(app.window, Help),260,76,88,26 },
-        { app.placement,width-180,76,172,180 }
+        { GetDlgItem(app.window, PersonSettings),260,76,144,26 },
+        { GetDlgItem(app.window, Help),412,76,88,26 },
+        { app.placement,placementX,recordingY,172,180 },
+        { GetDlgItem(app.window,RecordToggle),placementX+180,recordingY,104,26 },
+        { GetDlgItem(app.window,RecordIndicator),placementX+292,recordingY,24,26 }
     };
     auto positions = BeginDeferWindowPos(ARRAYSIZE(toolbar));
     for (const auto& control : toolbar) {
@@ -441,11 +454,11 @@ void Layout() {
         for (const auto& control : toolbar) SetWindowPos(control.window, nullptr, control.x, control.y, control.width, control.height,
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
     }
-    RECT list{ 8, 110, width - 8, height - 36 }, side = list;
+    RECT list{ 8, listTop, width - 8, height - 36 }, side = list;
     bool noSide=app.layout==L"none";
     for(auto h:{app.preview,app.metadataTabs})ShowWindow(h,noSide?SW_HIDE:SW_SHOW);
     if (noSide) {}
-    else if (app.layout == L"bottom") { int split = 110 + std::max(80, (height - 146) / 2); list.bottom = split - 4; side.top = split + 4; }
+    else if (app.layout == L"bottom") { int split = listTop + std::max(80, (height - listTop - 36) / 2); list.bottom = split - 4; side.top = split + 4; }
     else {
         int sideWidth = std::clamp(width * 2 / 5, 280, 540);
         if (app.layout == L"left") { side.right = 8 + sideWidth; list.left = side.right + 8; }
@@ -614,13 +627,15 @@ HMENU BuildOptionsMenu() {
     AppendMenuW(menu,MF_STRING,5,L"バックアップ削除…");
     AppendMenuW(menu,MF_STRING|(app.darkTheme?MF_CHECKED:0),6,app.darkTheme?L"ナイトモード: ON（ダーク）":L"ナイトモード: OFF（ライト）");
     AppendMenuW(menu,MF_STRING|(app.metadataSearch?MF_CHECKED:0),7,app.metadataSearch?L"メタデータ検索モード: ON":L"メタデータ検索モード: OFF");
+
     return menu;
 }
 void OptionsMenu() {
     auto menu = BuildOptionsMenu();
     RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
     auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if (action >= 3) NewOptionsAction(static_cast<int>(action));
+    if(action==8)stage3::ShowMonitorDialog();
+    else if (action >= 3) NewOptionsAction(static_cast<int>(action));
     else if (action == 1) {
         int mb = app.cacheMB;
         if (ShowCacheLimitDialog(mb) == IDOK) ChangeCacheLimit(mb);
@@ -658,7 +673,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"ロード", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
         Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
-        Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);
+        Control(L"BUTTON",L"人物記録設定 ▼",WS_TABSTOP,PersonSettings);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);
+        Control(L"BUTTON",L"記録開始",WS_TABSTOP|BS_OWNERDRAW,RecordToggle);Control(L"STATIC",L"記録状態",SS_OWNERDRAW,RecordIndicator);SetTimer(window,RecordTimer,500,nullptr);
         app.searchEdit=Control(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,SearchEdit);
         SendMessageW(app.searchEdit,EM_SETCUEBANNER,TRUE,reinterpret_cast<LPARAM>(L"検索文字列（Enter／ボタンで実行）"));
         SetWindowSubclass(app.searchEdit,SearchEditProc,40,0);app.searchButton=Control(L"BUTTON",L"検索",WS_TABSTOP,SearchButton);
@@ -678,7 +694,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         for (auto label : { L"シンプル", L"詳細" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
         app.simple = Control(L"KuniSimple", L"", WS_VSCROLL | WS_CLIPCHILDREN, 0);
         SetWindowLongPtrW(app.simple, GWL_EXSTYLE, GetWindowLongPtrW(app.simple, GWL_EXSTYLE) | WS_EX_CONTROLPARENT);
-        const wchar_t* labels[]{ L"ファイル名", L"容量", L"解像度", L"作成日時", L"撮影者", L"ワールド名", L"ワールドID", L"モデル", L"タグ" };
+        const wchar_t* labels[]{ L"ファイル名", L"容量", L"解像度", L"作成日時", L"撮影者", L"ワールド名", L"ワールドID", L"モデル", L"タグ", L"同室者", L"モデル候補" };
         for (size_t i = 0; i < app.simpleValues.size(); ++i) {
             app.simpleLabels[i] = Control(L"STATIC", labels[i], SS_LEFT, 0); SetParent(app.simpleLabels[i], app.simple);
             app.simpleValues[i] = Control(L"EDIT", L"", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleValues[i], app.simple);
@@ -704,9 +720,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: ApplyTheme();return 0;
     case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
-    case WM_DRAWITEM: if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
+    case WM_DRAWITEM: if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
+        if(wparam==RecordTimer){UpdateRecordingControls(true);return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
@@ -724,6 +741,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case CancelMetadata:
             if(app.saving&&!app.batchFiles.empty()){app.cancelBatch=true;SetWindowTextW(app.editStatus,L"現在の画像の保存完了後に中止します…");}else if(!app.saving){app.editing=false;app.batchLoading=false;app.batchFiles.clear();app.batchMetadata.clear();SetWindowTextW(app.editStatus,L"編集をキャンセルしました。");UpdateEditorControls();Layout();}break;
         case SearchButton: if(app.searching)CancelSearch();else StartSearch(Text(app.searchEdit));break;
+        case RecordToggle: stage3::ToggleRecording();UpdateRecordingControls();Counts();break;
+        case PersonSettings: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"参加者自動記録の設定…");RECT r{};GetWindowRect(GetDlgItem(window,PersonSettings),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)stage3::ShowMonitorDialog();UpdateRecordingControls();break;}
         case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
@@ -763,6 +782,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
             }
         } return 0;
+    case WM_APP+3: if(!app.closing)Counts();return 0;
     case WM_SELECTION: if(!app.closing)FlushSelectionUpdate();return 0;
     case WM_RESULTS: if(!app.closing)Results(); return 0;
     case WM_CLOSE: {
@@ -770,7 +790,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if(app.closing)return 0;
         if(!GuardTransition([window]{SendMessageW(window,WM_CLOSE,0,0);}))return 0;
         KillTimer(window, ZoomTimer);
-        KillTimer(window, ThumbnailTimer);StopActivity(); app.closing = true;
+        KillTimer(window, ThumbnailTimer);StopActivity();stage3::Shutdown(); app.closing = true;
         if (app.thumbnailWidth != app.activeThumbnailWidth) SaveSettings();
         CancelSearch();{std::lock_guard<std::mutex> lock(app.mutex);app.stopping=true;}app.wake.notify_all();
         // COM teardown may call back into the UI STA. Keep it pumping until workers finish.

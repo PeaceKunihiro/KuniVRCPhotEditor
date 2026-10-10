@@ -14,10 +14,12 @@ std::wstring NormalizeTags(const std::wstring& text) {
     return result;
 }
 bool MetadataEdit::Changed() const {
+    if(!stage3Xml.empty())return true;
     for (auto action : actions) if (action != EditAction::Keep) return true;
     return false;
 }
 std::wstring MetadataEdit::Validate() const {
+    if(stage3Xml.size()>1024*1024)return L"Stage3 metadata limit exceeded";
     for(size_t i=0;i<actions.size();++i)if(actions[i]==EditAction::Append&&i!=5)return L"追加できるのはタグだけです。";
     for (size_t i=0; i<values.size(); ++i) if (actions[i] == EditAction::Set || actions[i] == EditAction::Append) {
         if (values[i].empty()) return L"空欄で保存せず、値を削除する操作を指定してください。";

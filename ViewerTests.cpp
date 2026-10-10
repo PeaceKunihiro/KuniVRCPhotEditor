@@ -83,7 +83,7 @@ int SelfTest() {
         RunExtendedXmpTests(directory, report);
         RunMetadataWriterTests(directory, report);
         RunV031Tests(directory, report);
-        RunV035Tests(directory,report);
+        RunV035Tests(directory,report);stage3::RunTests(directory,report);
 { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -149,7 +149,7 @@ LRESULT CALLBACK CountLabelPaint(HWND window, UINT message, WPARAM wp, LPARAM lp
     return DefSubclassProc(window, message, wp, lp);
 }
 struct LabelPaintProbe {
-    std::array<int, 9> counts{};
+    std::array<int, 11> counts{};
     LabelPaintProbe() {
         for (size_t i = 0; i < counts.size(); ++i)
             if (!SetWindowSubclass(app.simpleLabels[i], CountLabelPaint, 32, reinterpret_cast<DWORD_PTR>(&counts[i])))
@@ -180,6 +180,8 @@ int UiTest() {
         auto longName = L"長いファイル名-" + std::wstring(70, L'界') + L".jpg";
         fs::copy_file(source, directory / longName, fs::copy_options::overwrite_existing);
         require(Text(GetDlgItem(app.window, OpenPath)) == L"ロード" && Text(GetDlgItem(app.window, Options)).find(L"オプション") == 0 && Text(GetDlgItem(app.window, Bookmarks)).find(L"ブックマーク") == 0 && app.cacheMB == 100 && app.saveHistory, "load options bookmarks controls and defaults");
+        require(Text(GetDlgItem(app.window,PersonSettings))==L"人物記録設定 ▼"&&Text(GetDlgItem(app.window,RecordToggle))==L"記録開始"&&!stage3::Recording()&&Text(app.simpleLabels[9])==L"同室者"&&Text(app.simpleLabels[10])==L"モデル候補","v0.4.1 recording controls start OFF and participant rows exist");
+        for(int width:{760,1000}){SetWindowPos(app.window,nullptr,0,0,width,700,SWP_NOMOVE|SWP_NOZORDER);Layout();RECT placement{},button{},indicator{},gallery{},person{},help{};GetWindowRect(app.placement,&placement);GetWindowRect(GetDlgItem(app.window,RecordToggle),&button);GetWindowRect(GetDlgItem(app.window,RecordIndicator),&indicator);GetWindowRect(app.list,&gallery);GetWindowRect(GetDlgItem(app.window,PersonSettings),&person);GetWindowRect(GetDlgItem(app.window,Help),&help);require(placement.right<=button.left&&button.right<=indicator.left&&button.bottom<=gallery.top&&person.right<=help.left,"v0.4.1 toolbar wraps without overlapping recording controls");}
         for (int i = 0; i < 650; ++i) fs::copy_file(source, directory / (L"grid-" + std::to_wstring(i) + L".jpg"), fs::copy_options::overwrite_existing);
         OpenFolder(directory.wstring());
         wait([] { return !app.folderPending && !app.files.empty() && ThumbnailsReady(); });
@@ -406,7 +408,7 @@ int UiTest() {
         require(app.cache.Bytes() + ImageListBytes(app.thumbs) <= 100000000 && readSettings().cacheMB == 100, "cache increase and zoom keep 100MB total pixel budget");
         SetWindowPos(app.window,nullptr,0,0,760,520,SWP_NOMOVE | SWP_NOZORDER); Layout();
         RECT history{}, bookmarks{}, options{}, placement{}; GetWindowRect(app.history,&history); GetWindowRect(GetDlgItem(app.window,Bookmarks),&bookmarks); GetWindowRect(GetDlgItem(app.window,Options),&options); GetWindowRect(app.placement,&placement);
-        require(bookmarks.right < options.left && options.right < placement.left, "top controls do not overlap at minimum window size");
+        require(bookmarks.right < options.left && (options.right < placement.left || options.bottom <= placement.top), "top controls do not overlap at minimum window size");
         int extendedIndex = -1;
         for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"extended-日本語.jpg") extendedIndex = i;
         require(extendedIndex >= 0,"Extended XMP UI fixture found");
@@ -538,6 +540,12 @@ int UiTest() {
         SendMessageW(app.placement,CB_SETCURSEL,0,0);SendMessageW(app.window,WM_COMMAND,MAKEWPARAM(Placement,CBN_SELCHANGE),reinterpret_cast<LPARAM>(app.placement));app.darkTheme=false;ApplyTheme();wait([]{return app.selected>=0&&app.metadataReady&&ThumbnailsReady();});
         BeginMetadataEdit();wait([]{return !app.batchLoading;});SetWindowTextW(GetDlgItem(app.editorUi.Window(),1001),L"非表示前の変更");app.confirmChanges=[]{return 3;};SendMessageW(app.placement,CB_SETCURSEL,3,0);SendMessageW(app.window,WM_COMMAND,MAKEWPARAM(Placement,CBN_SELCHANGE),reinterpret_cast<LPARAM>(app.placement));require(app.layout==L"right"&&app.editing&&IsWindowVisible(app.editorUi.Window()),"cancel hiding sidebar protects unsaved metadata edit");
         app.confirmChanges=[]{return 2;};SendMessageW(app.placement,CB_SETCURSEL,3,0);SendMessageW(app.window,WM_COMMAND,MAKEWPARAM(Placement,CBN_SELCHANGE),reinterpret_cast<LPARAM>(app.placement));require(app.layout==L"none"&&!app.editing&&!IsWindowVisible(app.editorUi.Window()),"discard confirmation permits hiding editor");app.confirmChanges={};
+        auto recordingRoot=directory/L"ui-recording";fs::create_directories(recordingRoot/L"logs");fs::create_directories(recordingRoot/L"photos");JsonObject recordingConfig;recordingConfig.Insert(L"version",JsonValue::CreateNumberValue(1));recordingConfig.Insert(L"logFolder",JsonValue::CreateStringValue((recordingRoot/L"logs").wstring()));recordingConfig.Insert(L"photoFolder",JsonValue::CreateStringValue((recordingRoot/L"photos").wstring()));{std::ofstream config(directory/L"stage3-settings.json");config<<winrt::to_string(recordingConfig.Stringify());}
+        auto recordingPixel=[&](int id,int x,int y){auto child=GetDlgItem(app.window,id);RECT rect{};GetClientRect(child,&rect);HDC screen=GetDC(child),dc=CreateCompatibleDC(screen);auto bitmap=CreateCompatibleBitmap(screen,rect.right,rect.bottom);auto old=SelectObject(dc,bitmap);DRAWITEMSTRUCT draw{};draw.CtlID=id;draw.CtlType=id==RecordToggle?ODT_BUTTON:ODT_STATIC;draw.hwndItem=child;draw.hDC=dc;draw.rcItem=rect;SendMessageW(app.window,WM_DRAWITEM,id,reinterpret_cast<LPARAM>(&draw));auto color=GetPixel(dc,x,y);SelectObject(dc,old);DeleteObject(bitmap);DeleteDC(dc);ReleaseDC(child,screen);return color;};
+        SendMessageW(app.window,WM_COMMAND,RecordToggle,0);require(stage3::Recording()&&Text(GetDlgItem(app.window,RecordToggle))==L"記録停止","v0.4.1 record button enables recording while waiting for a log");
+        for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();auto buttonColor=recordingPixel(RecordToggle,5,13);SendMessageW(app.window,WM_TIMER,RecordTimer,0);auto first=recordingPixel(RecordIndicator,12,13);SendMessageW(app.window,WM_TIMER,RecordTimer,0);auto second=recordingPixel(RecordIndicator,12,13);require(GetRValue(buttonColor)>GetBValue(buttonColor)&&first!=second&&(GetRValue(first)>GetBValue(first)||GetRValue(second)>GetBValue(second)),"v0.4.1 ON button is red and recording dot blinks in both themes");CaptureUiTest(directory/(dark?L"recording-night-on.png":L"recording-light-on.png"));}
+        SendMessageW(app.window,WM_COMMAND,RecordToggle,0);SendMessageW(app.window,WM_TIMER,RecordTimer,0);auto offButton=recordingPixel(RecordToggle,5,13),offDot=recordingPixel(RecordIndicator,12,13);require(!stage3::Recording()&&Text(GetDlgItem(app.window,RecordToggle))==L"記録開始"&&GetBValue(offButton)>GetRValue(offButton)&&GetRValue(offDot)==GetGValue(offDot)&&GetGValue(offDot)==GetBValue(offDot),"v0.4.1 OFF button is blue and dot remains gray");
+        app.layout=L"right";TabCtrl_SetCurSel(app.metadataTabs,0);auto participantSummary=ReadPhotoSummary((directory/L"stage3-tests"/L"display-names.png").wstring());ShowSummary(participantSummary);app.simpleScroll=100000;Layout();require(Text(app.simpleValues[9])==participantSummary.values[9]&&Text(app.simpleValues[10])==L"候補 & 名前","v0.4.1 sidebar receives structured participants and candidate names");CaptureUiTest(directory/L"participants-night.png");app.darkTheme=false;ApplyTheme();CaptureUiTest(directory/L"participants-light.png");
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }

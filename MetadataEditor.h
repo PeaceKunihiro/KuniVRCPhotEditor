@@ -4,6 +4,7 @@
 #include "MetadataModel.h"
 enum class EditAction { Keep, Set, Remove, Append };
 struct MetadataEdit {
+    std::string stage3Xml;
     std::array<std::wstring, 6> values{};
     std::array<EditAction, 6> actions{};
     bool Changed() const;
