@@ -1,4 +1,4 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 State app;
 void ShowSummary(const PhotoSummary& summary, const std::wstring& message) {
     app.summary = summary; app.simpleScroll = 0;
@@ -31,7 +31,14 @@ std::wstring Normalize(const std::wstring& value) {
 }
 void RefreshHistory() {
     SendMessageW(app.history, CB_RESETCONTENT, 0, 0);
-    for (auto& p : app.recent) SendMessageW(app.history, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(p.c_str()));
+    int selected = -1;
+    auto current = app.folder.empty() ? app.last : app.folder;
+    for (auto& p : app.recent) {
+        auto index = SendMessageW(app.history, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(p.c_str()));
+        if (SameFolderAddress(p, current)) selected = static_cast<int>(index);
+    }
+    SendMessageW(app.history, CB_SETCURSEL, selected, 0);
+    InvalidateRect(app.history, nullptr, TRUE);
 }
 int ReadThumbnailWidth(const JsonObject& object) {
     auto number = object.GetNamedNumber(L"thumbnailWidth", 128);
@@ -685,9 +692,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     }
     case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());return 1;}
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: ApplyTheme();return 0;
-    case WM_MEASUREITEM: reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight=22;return TRUE;
+    case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
-    case WM_DRAWITEM: ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam));return TRUE;
+    case WM_DRAWITEM: if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }

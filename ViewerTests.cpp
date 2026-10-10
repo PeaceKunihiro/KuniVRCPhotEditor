@@ -114,6 +114,25 @@ int PhotosTest() {
 }
 bool ThumbnailsReady() { if (app.folderPending || app.wantedLast < app.wantedFirst) return false; for (int i=app.wantedFirst; i<=app.wantedLast; ++i) if (!app.thumbnailDone[i]) return false; return true; }
 namespace {
+LRESULT CALLBACK LegacyComboDraw(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR) {
+    if(message==WM_DRAWITEM) { ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE; }
+    return DefSubclassProc(window,message,wp,lp);
+}
+bool ComboPopupHasText(HWND combo) {
+    COMBOBOXINFO info{sizeof(info)};
+    if (!GetComboBoxInfo(combo, &info) || !IsWindowVisible(info.hwndList)) return false;
+    RECT r{}; GetClientRect(info.hwndList, &r);
+    HDC source=GetDC(info.hwndList), dc=CreateCompatibleDC(source);
+    HBITMAP bitmap=CreateCompatibleBitmap(source,r.right,r.bottom); auto old=SelectObject(dc,bitmap);
+    bool printed=PrintWindow(info.hwndList,dc,PW_CLIENTONLY)!=FALSE;
+    int ink=0;
+    // Compare against the row background, excluding its border and focus rectangle.
+    auto background=GetPixel(dc,r.right-24,11);
+    for(int y=5;y<17;++y) for(int x=8;x<r.right-32;++x)
+        if(GetPixel(dc,x,y)!=background)++ink;
+    SelectObject(dc,old); DeleteObject(bitmap); DeleteDC(dc); ReleaseDC(info.hwndList,source);
+    return printed && ink>25;
+}
 LRESULT CALLBACK CountLabelPaint(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR data) {
     if (message == WM_PAINT) ++*reinterpret_cast<int*>(data);
     return DefSubclassProc(window, message, wp, lp);
@@ -127,7 +146,7 @@ struct LabelPaintProbe {
     }
     ~LabelPaintProbe() { for (auto label : app.simpleLabels) RemoveWindowSubclass(label, CountLabelPaint, 32); }
 };
-void CaptureUiTest(const fs::path& file){bool visible=IsWindowVisible(app.window);ShowWindow(app.window,SW_SHOWNOACTIVATE);RedrawWindow(app.window,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);RECT rect{};GetWindowRect(app.window,&rect);int width=rect.right-rect.left,height=rect.bottom-rect.top;HDC screen=GetDC(app.window),dc=CreateCompatibleDC(screen);HBITMAP bitmap=CreateCompatibleBitmap(screen,width,height);auto old=SelectObject(dc,bitmap);if(!PrintWindow(app.window,dc,2))throw std::runtime_error("UI capture failed");if(!visible)ShowWindow(app.window,SW_HIDE);SelectObject(dc,old);std::vector<BYTE> bytes(size_t(width)*height*4);BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=width;info.bmiHeader.biHeight=-height;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;GetDIBits(dc,bitmap,0,height,bytes.data(),&info,DIB_RGB_COLORS);DeleteObject(bitmap);DeleteDC(dc);ReleaseDC(app.window,screen);
+void CaptureUiTest(const fs::path& file, HWND target = nullptr){bool visible=IsWindowVisible(app.window);ShowWindow(app.window,SW_SHOWNOACTIVATE);RedrawWindow(app.window,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);if(!target)target=app.window;RECT rect{};GetWindowRect(target,&rect);int width=rect.right-rect.left,height=rect.bottom-rect.top;HDC screen=GetDC(target),dc=CreateCompatibleDC(screen);HBITMAP bitmap=CreateCompatibleBitmap(screen,width,height);auto old=SelectObject(dc,bitmap);if(!PrintWindow(target,dc,2))throw std::runtime_error("UI capture failed");if(!visible)ShowWindow(app.window,SW_HIDE);SelectObject(dc,old);std::vector<BYTE> bytes(size_t(width)*height*4);BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=width;info.bmiHeader.biHeight=-height;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;GetDIBits(dc,bitmap,0,height,bytes.data(),&info,DIB_RGB_COLORS);DeleteObject(bitmap);DeleteDC(dc);ReleaseDC(target,screen);
     ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));ComPtr<IWICStream> stream;winrt::check_hresult(factory->CreateStream(&stream));winrt::check_hresult(stream->InitializeFromFilename(file.c_str(),GENERIC_WRITE));ComPtr<IWICBitmapEncoder> encoder;winrt::check_hresult(factory->CreateEncoder(GUID_ContainerFormatPng,nullptr,&encoder));winrt::check_hresult(encoder->Initialize(stream.Get(),WICBitmapEncoderNoCache));ComPtr<IWICBitmapFrameEncode> frame;winrt::check_hresult(encoder->CreateNewFrame(&frame,nullptr));winrt::check_hresult(frame->Initialize(nullptr));winrt::check_hresult(frame->SetSize(width,height));for(size_t i=3;i<bytes.size();i+=4)bytes[i]=255;auto format=GUID_WICPixelFormat32bppBGRA;winrt::check_hresult(frame->SetPixelFormat(&format));winrt::check_hresult(frame->WritePixels(height,width*4,static_cast<UINT>(bytes.size()),bytes.data()));winrt::check_hresult(frame->Commit());winrt::check_hresult(encoder->Commit());
 }
 }
@@ -155,6 +174,25 @@ int UiTest() {
         wait([] { return !app.folderPending && !app.files.empty() && ThumbnailsReady(); });
         require(ListView_GetItemCount(app.list) >= 20, "async folder and thumbnail loading");
         require(app.files.size() > 650 && app.loaded < static_cast<int>(app.files.size()) && app.wantedLast - app.wantedFirst < ThumbnailSlots, "large folder loads viewport before offscreen images");
+        require(SendMessageW(app.history,CB_GETCURSEL,0,0)==0 && Same(Text(app.history),app.folder), "history refresh restores current folder selection");
+        ShowWindow(app.window,SW_SHOWNOACTIVATE);
+        SetWindowSubclass(app.history,LegacyComboDraw,39,0);
+        SendMessageW(app.history,CB_SHOWDROPDOWN,TRUE,0);
+        bool legacyBlank=!ComboPopupHasText(app.history);
+        SendMessageW(app.history,CB_SHOWDROPDOWN,FALSE,0);
+        RemoveWindowSubclass(app.history,LegacyComboDraw,39);
+        require(legacyBlank,"legacy combo draw handler reproduces invisible history text");
+        for(bool dark:{false,true}) {
+            app.darkTheme=dark; ApplyTheme();
+            for(auto combo:{app.history,app.placement}) {
+                SendMessageW(combo,CB_SHOWDROPDOWN,TRUE,0);
+                require(ComboPopupHasText(combo),"history and placement dropdowns contain rendered text in both themes");
+                COMBOBOXINFO info{sizeof(info)};GetComboBoxInfo(combo,&info);
+                CaptureUiTest(directory/(std::wstring(dark?L"combo-night-":L"combo-light-")+(combo==app.history?L"history.png":L"placement.png")),info.hwndList);
+                SendMessageW(combo,CB_SHOWDROPDOWN,FALSE,0);
+            }
+        }
+        app.darkTheme=false;ApplyTheme();ShowWindow(app.window,SW_HIDE);
         auto compactSpacing = ListView_GetItemSpacing(app.list,FALSE);
         report << "INFO: compact spacing=" << LOWORD(compactSpacing) << "x" << HIWORD(compactSpacing) << '\n';
         RECT icon{}, next{}, filenameRect{};
@@ -360,6 +398,16 @@ int UiTest() {
         TabCtrl_SetCurSel(app.metadataTabs,1);Layout();
         SendMessageW(app.window,WM_COMMAND,EditMetadata,0);
         require(app.editing && !IsWindowEnabled(app.saveButton),"detail edit starts without pending changes");
+        ShowWindow(app.window,SW_SHOWNOACTIVATE);
+        auto editChoice=GetDlgItem(app.editorUi.Window(),1100);
+        for(bool dark:{false,true}) {
+            app.darkTheme=dark;ApplyTheme();SendMessageW(editChoice,CB_SHOWDROPDOWN,TRUE,0);
+            require(ComboPopupHasText(editChoice),"metadata edit dropdown contains rendered text in both themes");
+            COMBOBOXINFO info{sizeof(info)};GetComboBoxInfo(editChoice,&info);
+            CaptureUiTest(directory/(dark?L"combo-night-edit.png":L"combo-light-edit.png"),info.hwndList);
+            SendMessageW(editChoice,CB_SHOWDROPDOWN,FALSE,0);
+        }
+        app.darkTheme=false;ApplyTheme();ShowWindow(app.window,SW_HIDE);
         auto authorInput=GetDlgItem(app.editorUi.Window(),1001);
         SetWindowTextW(authorInput,L"編集UI & 日本語");
         require(app.editorUi.Read().Changed() && IsWindowEnabled(app.saveButton),"editing an input marks change and enables save");

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
 #include "MetadataTests.h"
@@ -187,7 +187,7 @@ COLORREF ThemeForeground();
 HBRUSH ThemeBrush();
 LRESULT ThemeControlColor(HDC dc);
 LRESULT ThemeNotify(NMHDR* header);
-void ThemeDrawItem(DRAWITEMSTRUCT* draw);
+bool ThemeDrawItem(DRAWITEMSTRUCT* draw);
 
 bool TestBackupCheckboxes();
 
