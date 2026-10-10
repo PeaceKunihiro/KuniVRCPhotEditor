@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_LBUTTONDBLCLK) { LaunchSelectedPhotos(); return 0; }
     if (message == WM_MOUSEWHEEL) {
@@ -11,7 +11,7 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         return 0;
     }
     if (message == WM_PAINT) {
-        PAINTSTRUCT paint{}; HDC dc = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r); FillRect(dc, &r, GetSysColorBrush(COLOR_WINDOW));
+        PAINTSTRUCT paint{}; HDC dc = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r); FillRect(dc, &r, ThemeBrush());
         auto& p = app.previewPixels;
         if (!p.data.empty()) {
             double scale = std::min(double(r.right) / p.width, double(r.bottom) / p.height);
@@ -22,7 +22,7 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = p.width; info.bmiHeader.biHeight = -static_cast<LONG>(p.height);
             info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
             SetStretchBltMode(dc, HALFTONE); StretchDIBits(dc, (r.right - width) / 2, (r.bottom - height) / 2, width, height, 0, 0, p.width, p.height, pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
-        } else { SetBkMode(dc, TRANSPARENT); DrawTextW(dc, app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
+        } else { SetTextColor(dc,ThemeForeground());SetBkMode(dc, TRANSPARENT); DrawTextW(dc, app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
         EndPaint(window, &paint); return 0;
     }
     return DefWindowProcW(window, message, wparam, lparam);

@@ -28,7 +28,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     if (json.size() > 1024 * 1024) throw std::runtime_error("settings limit");
     auto object = JsonObject::Parse(winrt::to_hstring(json)); ViewerSettings settings;
     auto version = object.GetNamedNumber(L"version");
-    if (version != 1 && version != 2) throw std::runtime_error("version");
+    if (version != 1 && version != 2 && version != 3) throw std::runtime_error("version");
     auto number = [&](const wchar_t* name, int initial, int minimum, int maximum, int step) {
         auto n = object.GetNamedNumber(name, initial);
         if (!std::isfinite(n) || n < minimum || n > maximum || std::fmod(n - minimum, step) != 0) throw std::runtime_error("setting number");
@@ -36,6 +36,10 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     };
     settings.thumbnailWidth = number(L"thumbnailWidth", 128, 64, 256, 32);
     settings.cacheMB = number(L"thumbnailCacheMB", 100, 16, 2048, 1);
+    settings.autoBackup=object.GetNamedBoolean(L"autoBackup",true);
+    settings.darkTheme=object.GetNamedBoolean(L"darkTheme",false);
+    settings.metadataSearch=object.GetNamedBoolean(L"metadataSearch",false);
+    settings.backupLimit=number(L"backupLimit",10,1,1000,1);
     settings.saveHistory = object.GetNamedBoolean(L"saveFolderHistory", true);
     settings.last = object.GetNamedString(L"lastFolder", L"");
     settings.layout = object.GetNamedString(L"sideView", L"right");
@@ -57,11 +61,15 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     return settings;
 }
 std::string SerializeViewerSettings(const ViewerSettings& settings) {
-    JsonObject object; object.Insert(L"version", JsonValue::CreateNumberValue(2));
+    JsonObject object; object.Insert(L"version", JsonValue::CreateNumberValue(3));
     object.Insert(L"lastFolder", JsonValue::CreateStringValue(settings.saveHistory ? settings.last : L""));
     object.Insert(L"sideView", JsonValue::CreateStringValue(settings.layout));
     object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(settings.thumbnailWidth));
     object.Insert(L"thumbnailCacheMB", JsonValue::CreateNumberValue(settings.cacheMB));
+    object.Insert(L"autoBackup",JsonValue::CreateBooleanValue(settings.autoBackup));
+    object.Insert(L"darkTheme",JsonValue::CreateBooleanValue(settings.darkTheme));
+    object.Insert(L"metadataSearch",JsonValue::CreateBooleanValue(settings.metadataSearch));
+    object.Insert(L"backupLimit",JsonValue::CreateNumberValue(settings.backupLimit));
     object.Insert(L"saveFolderHistory", JsonValue::CreateBooleanValue(settings.saveHistory));
     JsonArray history; if (settings.saveHistory) for (auto& p : settings.history) history.Append(JsonValue::CreateStringValue(p));
     object.Insert(L"history", history);

@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 bool CurrentJob(const Job& job) {
     if (job.kind == 3 || job.kind == 4) return true; // A click requests this exact file even if selection changes.
     return job.generation == app.currentGeneration &&
@@ -6,13 +6,14 @@ bool CurrentJob(const Job& job) {
         (job.kind != 2 || job.selection == app.currentSelection);
 }
 void Worker(bool thumbnails) {
+    WorkerLifetime lifetime;
     auto init = RoInitialize(RO_INIT_MULTITHREADED);
     ComPtr<IWICImagingFactory> factory;
     auto factoryHr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
     while (!app.stopping) {
         Job job;
         { std::unique_lock<std::mutex> lock(app.mutex);
-          auto next = [&] { return std::find_if(app.jobs.begin(), app.jobs.end(), [&](const Job& j) { return (j.kind == 1) == thumbnails; }); };
+          auto next = [&] { return std::find_if(app.jobs.begin(), app.jobs.end(), [&](const Job& j) { return j.kind<6 && (j.kind == 1) == thumbnails; }); };
           app.wake.wait(lock, [&] { return app.stopping || next() != app.jobs.end(); });
           if (app.stopping) break; auto i = next(); job = std::move(*i); app.jobs.erase(i); }
         if (!CurrentJob(job)) continue;
@@ -20,7 +21,8 @@ void Worker(bool thumbnails) {
         try {
             if(job.kind==1||job.kind==2){result.job.sourceKey=ThumbnailCache::Key(job.path);if(!job.sourceKey.empty()&&job.sourceKey!=result.job.sourceKey)throw std::runtime_error("Source changed; reload before viewing");}
             if (job.kind == 4) {
-                SaveMetadataCopy(job.path, job.destination, job.fingerprint, job.edit);
+                if(job.overwrite)result.text=SaveMetadataOverwrite(job.path,job.fingerprint,job.edit,job.autoBackup,job.backupLimit,job.preserve);
+                else SaveMetadataCopy(job.path, job.destination, job.fingerprint, job.edit);
                 result.summary = ReadPhotoSummary(job.destination);
             } else if (job.kind == 3) {
                 std::wstring detail;

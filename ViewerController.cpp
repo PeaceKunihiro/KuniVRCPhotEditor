@@ -1,6 +1,6 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 void Select(int index) {
-    app.editing=false; app.metadataReady=false; app.previewFailed=false; app.editError.clear(); app.editable={}; UpdateEditorControls(); Layout();
+    app.editing=false; app.metadataReady=false; app.previewFailed=false; app.editError.clear(); app.editable={}; SetWindowTextW(app.editStatus,L"PNG/JPEGの上書き・別名コピー保存に対応。");UpdateEditorControls(); Layout();
     app.selected = index; app.previewPixels = {}; ++app.selection; app.currentSelection = app.selection;
     InvalidateRect(app.preview, nullptr, TRUE);
     if (index < 0) { SetWindowTextW(app.details, L"画像を選択してください。"); ShowSummary({}, L"画像を選択してください。"); Counts(); return; }
@@ -15,6 +15,7 @@ void Select(int index) {
 }
 void OpenFolder(const std::wstring& path, bool reload, const std::wstring& preserveOverride) {
     if (!GuardTransition([path,reload,preserveOverride]{OpenFolder(path,reload,preserveOverride);})) return;
+    CancelSearch();if(!reload){app.appliedQuery.clear();SetWindowTextW(app.searchEdit,L"");}
     app.editing=false; UpdateEditorControls(); Layout();
     try {
         auto normalized = Normalize(path);
@@ -29,12 +30,18 @@ void OpenFolder(const std::wstring& path, bool reload, const std::wstring& prese
 }
 
 void StartSave() {
-    if(!app.editing||app.saving||app.selected<0)return;
+    if(!app.editing||app.saving||app.backupBusy||app.selected<0)return;
     auto edit=app.editorUi.Read();if(!edit.Changed())return;auto error=edit.Validate();if(!error.empty()){SetWindowTextW(app.editStatus,error.c_str());return;}
     std::wstring destination;
+    int mode=2;
+    if(app.chooseSaveMode)mode=app.chooseSaveMode();
+    else if(!app.chooseSavePath){TASKDIALOG_BUTTON buttons[]{{1,L"上書き保存"},{2,L"別名コピーとして保存"},{3,L"キャンセル"}};TASKDIALOGCONFIG c{sizeof(c)};c.hwndParent=app.window;c.pszWindowTitle=L"保存方法";c.pszMainInstruction=L"画像の保存方法を選択してください。";c.pszContent=app.autoBackup?L"上書き前の画像をAB_バックアップへ保存します。":L"自動バックアップはOFFです。上書きでは復元用コピーを作成しません。";c.cButtons=3;c.pButtons=buttons;c.nDefaultButton=2;c.dwFlags=TDF_ALLOW_DIALOG_CANCELLATION;TaskDialogIndirect(&c,&mode,nullptr,nullptr);}
+    if(mode!=1&&mode!=2){app.afterSave={};return;}
+    bool overwrite=mode==1;
     ComPtr<IFileSaveDialog> dialog;auto hr=S_OK;
     auto source=app.files[app.selected];auto ext=fs::path(source).extension().wstring();auto name=fs::path(source).stem().wstring()+L"_edited"+ext;
-    if(app.chooseSavePath){destination=app.chooseSavePath();if(destination.empty()){app.afterSave={};return;}}
+    if(overwrite)destination=source;
+    else if(app.chooseSavePath){destination=app.chooseSavePath();if(destination.empty()){app.afterSave={};return;}}
     else {
     hr=CoCreateInstance(CLSID_FileSaveDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&dialog));
     if(SUCCEEDED(hr)){DWORD options=0;dialog->GetOptions(&options);dialog->SetOptions(options|FOS_FORCEFILESYSTEM|FOS_PATHMUSTEXIST);dialog->SetFileName(name.c_str());dialog->SetDefaultExtension(ext.c_str()+1);
@@ -46,12 +53,12 @@ void StartSave() {
     }
     std::error_code destinationError;bool exists=fs::exists(destination,destinationError);
     if(destinationError){app.afterSave={};SetWindowTextW(app.editStatus,L"保存先を確認できません。アクセス権とパスを確認してください。");return;}
-    if(exists){app.afterSave={};SetWindowTextW(app.editStatus,L"既存ファイルには上書きできません。別の名前を指定してください。");return;}
-    Job job{4,app.generation,app.selection,app.selected,source,L""};job.edit=edit;job.fingerprint=app.editable.fingerprint;job.destination=destination;
-    app.saving=true;app.editorUi.Enable(false);SetWindowTextW(app.editStatus,L"保存中…コピーを検証しています。");UpdateEditorControls();Queue(std::move(job),true);
+    if(exists&&!overwrite){app.afterSave={};SetWindowTextW(app.editStatus,L"既存ファイルには上書きできません。別の名前を指定してください。");return;}
+    Job job{4,app.generation,app.selection,app.selected,source,L""};job.edit=edit;job.fingerprint=app.editable.fingerprint;job.destination=destination;job.overwrite=overwrite;job.autoBackup=app.autoBackup;job.backupLimit=app.backupLimit;job.preserve=(app.settings.parent_path()/L"backups.json").wstring();
+    CancelSearch();app.saving=true;app.editorUi.Enable(false);SetWindowTextW(app.editStatus,L"保存中…コピーを検証しています。");UpdateEditorControls();Queue(std::move(job),true);
 }
 bool GuardTransition(std::function<void()> action) {
-    if(app.transitionBypass)return true;if(app.saving)return false;
+    if(app.transitionBypass)return true;if(app.saving||app.backupBusy)return false;
     if(!app.editing || !app.editorUi.Read().Changed())return true;
     TASKDIALOG_BUTTON buttons[]{{1,L"保存"},{2,L"破棄"},{3,L"キャンセル"}};
     TASKDIALOGCONFIG config{sizeof(config)};config.hwndParent=app.window;config.pszWindowTitle=L"未保存の変更";config.pszMainInstruction=L"編集内容を保存しますか？";config.cButtons=3;config.pButtons=buttons;config.nDefaultButton=3;config.dwFlags=TDF_ALLOW_DIALOG_CANCELLATION;

@@ -3,7 +3,8 @@
 #include <vector>
 struct ViewerSettings {
     int thumbnailWidth = 128, cacheMB = 100;
-    bool saveHistory = true;
+    bool saveHistory = true, autoBackup=true, darkTheme=false, metadataSearch=false;
+    int backupLimit=10;
     std::wstring last, layout = L"right";
     std::vector<std::wstring> history, bookmarks;
 };

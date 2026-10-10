@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
 #include "MetadataTests.h"
@@ -9,6 +9,7 @@
 #include "ExtendedXmpTests.h"
 #include "MetadataWriter.h"
 #include "MetadataEditorUi.h"
+#include "BackupManager.h"
 #include <functional>
 #include <windows.h>
 #include <commctrl.h>
@@ -45,11 +46,19 @@ constexpr int ThumbnailMin = 64, ThumbnailMax = 256, ThumbnailStep = 32;
 constexpr UINT_PTR ZoomTimer = 1;
 constexpr UINT_PTR ThumbnailTimer = 2;
 constexpr int ThumbnailSlots = 512;
-enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata };
-struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; };
-struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; };
+enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help };
+struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; };
+struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; };
 struct State {
     HWND window{}, path{}, history{}, list{}, preview{}, details{}, status{}, placement{};
+    HWND searchEdit{}, searchButton{};
+    std::vector<std::wstring> allFiles;
+    std::wstring appliedQuery;
+    bool metadataSearch=false, searching=false, autoBackup=true, darkTheme=false, backupBusy=false;
+    int backupLimit=10;
+    unsigned searchGeneration=0;std::atomic<unsigned> currentSearchGeneration{0};
+    std::thread searchWorker;
+    std::function<int()> chooseSaveMode;
     HWND metadataTabs{}, simple{}, simpleNote{};
     std::array<HWND, 8> simpleLabels{}, simpleValues{};
     int simpleScroll = 0, simpleWheel = 0, simpleContentHeight = 0;
@@ -69,7 +78,7 @@ struct State {
     size_t imageBytes = 0;
     bool saveHistory = true;
     bool thumbnailBudgetLimited = false;
-    std::vector<bool> thumbnailDone;
+    std::vector<bool> thumbnailDone, thumbnailFailed;
     std::vector<bool> thumbnailRequested;
     std::vector<int> itemSlots, slotOwners;
     std::vector<std::wstring> thumbnailKeys;
@@ -94,6 +103,7 @@ struct State {
     std::atomic<unsigned> currentGeneration{0}, currentSelection{0};
     std::atomic<unsigned> currentThumbnailGeneration{0};
     std::atomic<bool> stopping{false};
+    std::atomic<unsigned> activeWorkers{0};
 };
 extern State app;
 Job ThumbnailJob(int index);
@@ -122,6 +132,7 @@ HRESULT ActivatePhotos(const std::wstring& path, std::wstring& detail, HRESULT (
 bool CurrentJob(const Job& job);
 void Worker(bool thumbnails = false);
 void Select(int index);
+void SubmitBackupDeletion(const std::vector<BackupCandidate>& candidates, const std::vector<std::wstring>& selected);
 void OpenFolder(const std::wstring& path, bool reload = false, const std::wstring& preserveOverride = L"");
 HBITMAP Thumbnail(const Pixels& pixels, int width = 128);
 void UpdateThumbnailSpacing();
@@ -160,3 +171,24 @@ int PhotosTest();
 bool ThumbnailsReady();
 int UiTest();
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show);
+
+void SearchWorker();
+void StartSearch(const std::wstring& query,const std::wstring& preserve=L"");
+void CancelSearch();
+void CommitDisplay(std::vector<std::wstring> files,const std::wstring& preserve);
+bool SearchContains(const std::wstring& text,const std::wstring& query);
+void ShowBackupDeletion();
+void ChooseBackupDeletion(const std::vector<BackupCandidate>& candidates);
+void NewOptionsAction(int action);
+void ShowVersion();
+void ApplyTheme();
+COLORREF ThemeBackground();
+COLORREF ThemeForeground();
+HBRUSH ThemeBrush();
+LRESULT ThemeControlColor(HDC dc);
+LRESULT ThemeNotify(NMHDR* header);
+void ThemeDrawItem(DRAWITEMSTRUCT* draw);
+
+bool TestBackupCheckboxes();
+
+struct WorkerLifetime { ~WorkerLifetime(){--app.activeWorkers;} };

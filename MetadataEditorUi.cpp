@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "MetadataEditorUi.h"
 #include <algorithm>
 namespace { std::wstring Text(HWND h){std::wstring s(GetWindowTextLengthW(h)+1,L'\0');GetWindowTextW(h,s.data(),static_cast<int>(s.size()));s.resize(wcslen(s.c_str()));return s;} }
@@ -22,7 +22,7 @@ void MetadataEditorUi::Create(HWND parent){WNDCLASSW wc{};wc.hInstance=GetModule
     panel=CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,L"",WS_CHILD|WS_VSCROLL|WS_CLIPCHILDREN,0,0,1,1,parent,nullptr,wc.hInstance,this);
     const wchar_t* names[]{L"撮影日時（XMP）",L"撮影者",L"ワールド名",L"ワールドID",L"被写体名（1行1名）"};
     auto control=[&](const wchar_t* type,const wchar_t* text,DWORD style){auto h=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,panel,nullptr,wc.hInstance,nullptr);SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return h;};
-    for(size_t i=0;i<5;++i){labels[i]=control(L"STATIC",names[i],0);inputs[i]=control(L"EDIT",L"",WS_BORDER|WS_TABSTOP|(i==4?ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL:ES_AUTOHSCROLL));SetWindowLongPtrW(inputs[i],GWLP_ID,1000+i);SendMessageW(inputs[i],EM_SETLIMITTEXT,65536,0);choices[i]=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP);SetWindowLongPtrW(choices[i],GWLP_ID,1100+i);
+    for(size_t i=0;i<5;++i){labels[i]=control(L"STATIC",names[i],0);inputs[i]=control(L"EDIT",L"",WS_BORDER|WS_TABSTOP|(i==4?ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL:ES_AUTOHSCROLL));SetWindowLongPtrW(inputs[i],GWLP_ID,1000+i);SendMessageW(inputs[i],EM_SETLIMITTEXT,65536,0);choices[i]=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS|WS_TABSTOP);SetWindowLongPtrW(choices[i],GWLP_ID,1100+i);
         for(auto s:{L"変更しない",L"値を設定",L"値を削除する"})SendMessageW(choices[i],CB_ADDSTRING,0,reinterpret_cast<LPARAM>(s));SendMessageW(choices[i],CB_SETCURSEL,0,0);}
     message=control(L"STATIC",L"入力後に「値を設定」を選択。空欄と削除は別操作です。",0);
 }

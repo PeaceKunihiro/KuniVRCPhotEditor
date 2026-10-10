@@ -6,22 +6,26 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     LoadSettings();
     if (std::wstring(command) == L"--self-test") { auto result = SelfTest(); winrt::uninit_apartment(); return result; }
     if (std::wstring(command) == L"--photos-test") { auto result = PhotosTest(); winrt::uninit_apartment(); return result; }
-    bool uiTest = std::wstring(command) == L"--ui-test";
+    bool shutdownTest=std::wstring(command)==L"--shutdown-test";
+    bool uiTest=shutdownTest||std::wstring(command)==L"--ui-test";
     if (uiTest) {
         app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
         fs::create_directories(app.settings.parent_path());
         app.last.clear(); app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
+        app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;
         app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128; app.cacheMB = 100; app.saveHistory = true; app.bookmarks.clear();
     }
     WNDCLASSW preview{}; preview.style=CS_DBLCLKS; preview.lpfnWndProc = PreviewProc; preview.hInstance = instance; preview.lpszClassName = L"KuniPreview"; preview.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&preview);
     WNDCLASSW simple{}; simple.lpfnWndProc = SimpleProc; simple.hInstance = instance; simple.lpszClassName = L"KuniSimple"; simple.hCursor = LoadCursorW(nullptr, IDC_ARROW); simple.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&simple);
     WNDCLASSW main{}; main.lpfnWndProc = WindowProc; main.hInstance = instance; main.lpszClassName = L"KuniVRCPhotEditor"; main.hCursor = LoadCursorW(nullptr, IDC_ARROW); main.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&main);
-    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.3.0 — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
+    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.3.3 — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
     if (!window) return 1;
-    if (uiTest) { int result = UiTest(); SendMessageW(window, WM_CLOSE, 0, 0); winrt::uninit_apartment(); return result; }
+    if(shutdownTest){SendMessageW(window,WM_CLOSE,0,0);int result=app.closing&&app.activeWorkers==0?0:1;winrt::uninit_apartment();return result;}
+    if(uiTest){int result=UiTest();SendMessageW(window,WM_CLOSE,0,0);if(!app.closing||app.activeWorkers)result=1;winrt::uninit_apartment();return result;}
     ShowWindow(window, show); UpdateWindow(window);
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if(message.message==WM_KEYDOWN&&message.wParam==VK_RETURN&&message.hwnd==app.searchEdit)continue;
         if (message.message == WM_KEYDOWN && message.wParam == VK_RETURN && message.hwnd == app.path) { LoadAddress(Text(app.path)); continue; }
         if (message.message == WM_MOUSEWHEEL) {
             // Route by pointer location even when another control has keyboard focus.

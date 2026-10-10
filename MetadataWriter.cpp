@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "MetadataWriter.h"
 #include "ExtendedXmp.h"
 #include <msxml6.h>
@@ -37,7 +37,7 @@ std::string ReadHandle(HANDLE file) {
     if(done!=bytes.size()) throw std::runtime_error("Incomplete image read"); return bytes;
 }
 std::string ReadFileBytes(const std::wstring& path) {
-    Handle file; file.value=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    Handle file; file.value=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
     Check(file.value!=INVALID_HANDLE_VALUE); return ReadHandle(file.value);
 }
 uint32_t BE(const char* p){auto b=reinterpret_cast<const unsigned char*>(p);return (uint32_t(b[0])<<24)|(uint32_t(b[1])<<16)|(uint32_t(b[2])<<8)|b[3];}
@@ -128,10 +128,10 @@ EditableMetadata InspectEditable(const std::wstring& path){
     if(!c.standard.empty()){auto doc=Dom(c.standard);ComPtr<IXMLDOMNode> description;winrt::check_hresult(doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description));if(!description)throw std::runtime_error("Unsupported XMP RDF structure; view only");}
     return {Values(c),Wide(Fingerprint(bytes))};
 }
-void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination,const std::wstring& expected,const MetadataEdit& edit){
+void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination,const std::wstring& expected,const MetadataEdit& edit,bool allowLockedRename){
     auto error=edit.Validate();if(!error.empty())throw std::runtime_error(Utf8(error));if(!edit.Changed())throw std::runtime_error("No metadata changes");
     if(fs::exists(destination))throw std::runtime_error("Destination already exists; overwrite is disabled");
-    Handle input;input.value=CreateFileW(source.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);Check(input.value!=INVALID_HANDLE_VALUE);
+    Handle input;input.value=CreateFileW(source.c_str(),GENERIC_READ,FILE_SHARE_READ|(allowLockedRename?FILE_SHARE_DELETE:0),nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);Check(input.value!=INVALID_HANDLE_VALUE);
     auto original=ReadHandle(input.value);if(Wide(Fingerprint(original))!=expected)throw std::runtime_error("Source changed; reload before saving");auto c=Inspect(original);
     auto extension=fs::path(destination).extension().wstring();std::transform(extension.begin(),extension.end(),extension.begin(),towlower);
     if((c.png&&extension!=L".png")||(!c.png&&extension!=L".jpg"&&extension!=L".jpeg"))throw std::runtime_error("Destination format must match source");
