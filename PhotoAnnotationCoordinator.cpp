@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "Stage3.h"
 #include "MetadataModel.h"
 #include <regex>
@@ -10,7 +10,7 @@ std::wstring Escape(const std::wstring& value){std::wstring out;for(auto c:value
 std::string RecordXml(const Record& r){
     std::wstring xml=L"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about='' xmlns:kpe='urn:kunivrcphoteditor:metadata:1.0'><kpe:CaptureRecord rdf:parseType='Resource'>";
     auto field=[&](const wchar_t* name,const std::wstring& value){xml+=L"<kpe:"+std::wstring(name)+L">"+Escape(value)+L"</kpe:"+name+L">";};
-    field(L"SchemaVersion",L"1");field(L"ToolVersion",L"0.4.2");field(L"ReferenceTime",Iso(r.reference));field(L"DetectedAt",Iso(r.detected));field(L"ReferenceTimeSource",r.timeSource);field(L"TimeStatus",r.timeStatus);field(L"SessionId",r.session);field(L"WorldID",r.world);field(L"InstanceId",r.instance);field(L"MemberListStatus",r.memberStatus);field(L"CandidateStatus",r.candidateStatus);field(L"CandidateWindowSeconds",L"3");if(!r.candidateReason.empty())field(L"CandidateReason",r.candidateReason);
+    field(L"SchemaVersion",L"1");field(L"ToolVersion",L"0.4.3");field(L"ReferenceTime",Iso(r.reference));field(L"DetectedAt",Iso(r.detected));field(L"ReferenceTimeSource",r.timeSource);field(L"TimeStatus",r.timeStatus);field(L"SessionId",r.session);field(L"WorldID",r.world);field(L"InstanceId",r.instance);field(L"MemberListStatus",r.memberStatus);field(L"CandidateStatus",r.candidateStatus);field(L"CandidateWindowSeconds",L"3");if(!r.candidateReason.empty())field(L"CandidateReason",r.candidateReason);
     xml+=L"<kpe:InstanceMembers><rdf:Seq>";for(auto& p:r.members){xml+=L"<rdf:li rdf:parseType='Resource'>";field(L"DisplayName",p.name);field(L"UserId",p.id);xml+=L"</rdf:li>";}xml+=L"</rdf:Seq></kpe:InstanceMembers><kpe:ModelCandidates><rdf:Seq>";for(auto& candidate:r.candidates){xml+=L"<rdf:li rdf:parseType='Resource'>";field(L"DisplayName",candidate.person.name);field(L"UserId",candidate.person.id);field(L"RawText",candidate.raw);field(L"ObservedAt",Iso(candidate.observed));field(L"ObservationCount",std::to_wstring(candidate.count));field(L"MatchMethod",candidate.method);field(L"MatchScore",std::to_wstring(candidate.score));field(L"OcrConfidence",L"");field(L"Bounds",candidate.bounds);xml+=L"</rdf:li>";}xml+=L"</rdf:Seq></kpe:ModelCandidates></kpe:CaptureRecord></rdf:Description></rdf:RDF></x:xmpmeta>";return winrt::to_string(xml);
 }
 Decision Correlate(const std::wstring& path,const std::wstring& date,const std::wstring& world,Time detected,const LogMonitor& log){
