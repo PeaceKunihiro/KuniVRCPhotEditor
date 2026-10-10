@@ -1,7 +1,8 @@
-#pragma once
+﻿#pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
 #include "Stage3.h"
+#include "OcrRuntime.h"
 #include "MetadataTests.h"
 #include "WebPImage.h"
 #include "ThumbnailCache.h"
@@ -218,3 +219,5 @@ bool ThemeDrawItem(DRAWITEMSTRUCT* draw);
 bool TestBackupCheckboxes();
 
 struct WorkerLifetime { ~WorkerLifetime(){--app.activeWorkers;} };
+
+void CreateOcrUi();void LayoutOcrUi(RECT page,bool visible);void RefreshOcrUi();bool OcrCommand(int id,int code);

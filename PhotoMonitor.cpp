@@ -1,5 +1,6 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "Stage3.h"
+#include "OcrRuntime.h"
 #include <tlhelp32.h>
 #include <map>
 #include <set>
@@ -16,7 +17,7 @@ std::filesystem::path LatestLog(const std::filesystem::path& folder){
 }
 namespace {
 std::mutex mutex;std::condition_variable wake;std::thread thread;bool stop=false,running=false;std::wstring state=L"停止";std::vector<Item> items;
-struct Pending {Item item;std::wstring logPath;Time detected=0,retryAt=0;std::wstring revision,session;int stable=0;};
+struct Pending {Item item;std::wstring logPath;Time detected=0,retryAt=0;std::wstring revision,session;int stable=0;bool slotKnown=false,followup=false,ocrSubmitted=false;Time photoStamp=0;std::wstring slotInstance;};
 fs::path testDataRoot;
 fs::path Data(const wchar_t* name){return (testDataRoot.empty()?app.settings.parent_path():testDataRoot)/name;}
 void AtomicJson(const fs::path& path,const JsonObject& value){auto bytes=winrt::to_string(value.Stringify());auto temp=path;temp+=L".tmp";{std::ofstream out(temp,std::ios::binary|std::ios::trunc);out.write(bytes.data(),bytes.size());out.flush();if(!out)throw std::runtime_error("Stage3 record write failed");}HANDLE flushed=CreateFileW(temp.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(flushed==INVALID_HANDLE_VALUE)winrt::throw_last_error();auto ok=FlushFileBuffers(flushed);auto code=GetLastError();CloseHandle(flushed);if(!ok)winrt::throw_hresult(HRESULT_FROM_WIN32(code));if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))winrt::throw_last_error();}
@@ -25,12 +26,13 @@ Config LoadConfig(){Config c;wchar_t folder[32768]{};auto count=ExpandEnvironmen
 void SaveConfig(const Config& c){JsonObject o;o.Insert(L"version",JsonValue::CreateNumberValue(1));o.Insert(L"logFolder",JsonValue::CreateStringValue(c.logFolder));o.Insert(L"photoFolder",JsonValue::CreateStringValue(c.photoFolder));o.Insert(L"outputFolder",JsonValue::CreateStringValue(c.outputFolder));o.Insert(L"selectedLog",JsonValue::CreateStringValue(c.selectedLog));o.Insert(L"processId",JsonValue::CreateNumberValue(c.processId));o.Insert(L"autoRecord",JsonValue::CreateBooleanValue(c.autoRecord));AtomicJson(Data(L"stage3-settings.json"),o);}
 std::set<std::wstring> Photos(const std::wstring& folder){std::set<std::wstring> found;for(fs::recursive_directory_iterator it(folder),end;it!=end;++it){auto attr=GetFileAttributesW(it->path().c_str());if(attr==INVALID_FILE_ATTRIBUTES)continue;if(attr&FILE_ATTRIBUTE_REPARSE_POINT){if(it->is_directory())it.disable_recursion_pending();continue;}if(!it->is_regular_file())continue;if(it->path().filename().wstring().size()>=3&&_wcsnicmp(it->path().filename().c_str(),L"AB_",3)==0)continue;auto ext=it->path().extension().wstring();if(Same(ext,L".png")||Same(ext,L".jpg")||Same(ext,L".jpeg")||Same(ext,L".webp")){found.insert(it->path().wstring());if(found.size()>20000)throw std::runtime_error("Photo monitoring limit: 20000 files");}}return found;}
 std::vector<DWORD> Processes(){std::vector<DWORD> ids;HANDLE h=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);if(h==INVALID_HANDLE_VALUE)return ids;PROCESSENTRY32W p{sizeof(p)};if(Process32FirstW(h,&p))do{if(_wcsicmp(p.szExeFile,L"VRChat.exe")==0)ids.push_back(p.th32ProcessID);}while(Process32NextW(h,&p));CloseHandle(h);return ids;}
-void Journal(const std::map<std::wstring,Pending>& pending){JsonObject root;root.Insert(L"version",JsonValue::CreateNumberValue(1));JsonArray entries;for(auto& pair:pending){auto& p=pair.second;JsonObject e;e.Insert(L"path",JsonValue::CreateStringValue(p.item.path));e.Insert(L"state",JsonValue::CreateStringValue(p.item.state));e.Insert(L"reason",JsonValue::CreateStringValue(p.item.reason));e.Insert(L"output",JsonValue::CreateStringValue(p.item.output));e.Insert(L"session",JsonValue::CreateStringValue(p.session));e.Insert(L"logPath",JsonValue::CreateStringValue(p.logPath));e.Insert(L"retryAt",JsonValue::CreateStringValue(std::to_wstring(p.retryAt)));e.Insert(L"detected",JsonValue::CreateStringValue(std::to_wstring(p.detected)));e.Insert(L"revision",JsonValue::CreateStringValue(p.revision));entries.Append(e);}root.Insert(L"items",entries);AtomicJson(Data(L"stage3-journal.json"),root);}
-std::map<std::wstring,Pending> Restore(){std::map<std::wstring,Pending> restored;auto root=ReadJson(Data(L"stage3-journal.json"));if(!root)return restored;auto array=root.GetNamedArray(L"items");if(array.Size()>20000)throw std::runtime_error("Journal item limit");for(auto v:array){auto o=v.GetObject();Pending p;p.item.path=o.GetNamedString(L"path");p.item.state=o.GetNamedString(L"state");p.item.reason=o.GetNamedString(L"reason");p.item.output=o.GetNamedString(L"output");p.session=o.GetNamedString(L"session");p.logPath=o.GetNamedString(L"logPath",L"");p.detected=std::stoll(o.GetNamedString(L"detected").c_str());p.retryAt=std::stoll(o.GetNamedString(L"retryAt",o.GetNamedString(L"detected")).c_str());p.revision=o.GetNamedString(L"revision");restored.emplace(p.item.path,std::move(p));}return restored;}
+void Journal(const std::map<std::wstring,Pending>& pending){JsonObject root;root.Insert(L"version",JsonValue::CreateNumberValue(1));JsonArray entries;for(auto& pair:pending){auto& p=pair.second;JsonObject e;e.Insert(L"slotKnown",JsonValue::CreateBooleanValue(p.slotKnown));e.Insert(L"followup",JsonValue::CreateBooleanValue(p.followup));e.Insert(L"photoStamp",JsonValue::CreateStringValue(std::to_wstring(p.photoStamp)));e.Insert(L"slotInstance",JsonValue::CreateStringValue(p.slotInstance));e.Insert(L"path",JsonValue::CreateStringValue(p.item.path));e.Insert(L"state",JsonValue::CreateStringValue(p.item.state));e.Insert(L"reason",JsonValue::CreateStringValue(p.item.reason));e.Insert(L"output",JsonValue::CreateStringValue(p.item.output));e.Insert(L"session",JsonValue::CreateStringValue(p.session));e.Insert(L"logPath",JsonValue::CreateStringValue(p.logPath));e.Insert(L"retryAt",JsonValue::CreateStringValue(std::to_wstring(p.retryAt)));e.Insert(L"detected",JsonValue::CreateStringValue(std::to_wstring(p.detected)));e.Insert(L"revision",JsonValue::CreateStringValue(p.revision));entries.Append(e);}root.Insert(L"items",entries);AtomicJson(Data(L"stage3-journal.json"),root);}
+std::map<std::wstring,Pending> Restore(){std::map<std::wstring,Pending> restored;auto root=ReadJson(Data(L"stage3-journal.json"));if(!root)return restored;auto array=root.GetNamedArray(L"items");if(array.Size()>20000)throw std::runtime_error("Journal item limit");for(auto v:array){auto o=v.GetObject();Pending p;p.slotKnown=o.GetNamedBoolean(L"slotKnown",false);p.followup=o.GetNamedBoolean(L"followup",false);p.photoStamp=std::stoll(o.GetNamedString(L"photoStamp",L"0").c_str());p.slotInstance=o.GetNamedString(L"slotInstance",L"");p.item.path=o.GetNamedString(L"path");p.item.state=o.GetNamedString(L"state");p.item.reason=o.GetNamedString(L"reason");p.item.output=o.GetNamedString(L"output");p.session=o.GetNamedString(L"session");p.logPath=o.GetNamedString(L"logPath",L"");p.detected=std::stoll(o.GetNamedString(L"detected").c_str());p.retryAt=std::stoll(o.GetNamedString(L"retryAt",o.GetNamedString(L"detected")).c_str());p.revision=o.GetNamedString(L"revision");restored.emplace(p.item.path,std::move(p));}return restored;}
 void Publish(const std::wstring& text,const std::map<std::wstring,Pending>& pending){std::lock_guard<std::mutex> lock(mutex);state=text;items.clear();for(auto& pair:pending)items.push_back(pair.second.item);if(app.window)PostMessageW(app.window,WM_APP+3,0,0);}
 void Monitor(Config config,bool synthetic=false){
     auto initialized=RoInitialize(RO_INIT_MULTITHREADED);std::map<std::wstring,Pending> pending;
-    try{winrt::check_hresult(initialized);pending=Restore();auto baseline=Photos(config.photoFolder);std::map<std::wstring,LogMonitor> logs;std::wstring selected;DWORD process=0;bool clockInvalid=false;Time previousWall=Now();ULONGLONG previousMono=GetTickCount64();
+    try{winrt::check_hresult(initialized);if(!synthetic)person_ocr::LoadSettings(Data(L"ocr-settings.json").parent_path());pending=Restore();person_ocr::BurstGate burstGate;std::vector<const Pending*> prior;for(auto& pair:pending)if(pair.second.slotKnown)prior.push_back(&pair.second);std::sort(prior.begin(),prior.end(),[](auto a,auto b){return a->photoStamp<b->photoStamp;});for(auto p:prior)burstGate.Followup(p->session+L"|"+p->slotInstance,p->photoStamp,person_ocr::GetSettings().seconds);
+        if(!synthetic){person_ocr::Start(app.window);}auto baseline=Photos(config.photoFolder);std::map<std::wstring,LogMonitor> logs;std::wstring selected;DWORD process=0;bool clockInvalid=false;Time previousWall=Now();ULONGLONG previousMono=GetTickCount64();
         for(;;){ {std::lock_guard<std::mutex> lock(mutex);if(stop)break;}
             Time now=Now();auto monotonic=GetTickCount64();if(std::abs((now-previousWall)-static_cast<Time>(monotonic-previousMono))>2000){clockInvalid=true;for(auto& entry:logs)entry.second.timeline.Invalidate();for(auto& pair:pending)if(pair.second.item.state==L"待機"){pair.second.item.state=L"保留";pair.second.item.reason=L"システム時刻変更：時刻対応を無効化";}Journal(pending);}previousWall=now;previousMono=monotonic;
             auto processes=synthetic?std::vector<DWORD>{123}:Processes();if(config.processId)processes.erase(std::remove_if(processes.begin(),processes.end(),[&](auto id){return id!=config.processId;}),processes.end());bool observing=false;std::wstring message;auto allProcesses=Processes();std::wstring pids;for(auto id:allProcesses)pids+=std::to_wstring(id)+L" ";
@@ -50,18 +52,27 @@ void Monitor(Config config,bool synthetic=false){
                 }
             }catch(const std::exception& e){message=L"ログ未取得・無効："+std::wstring(winrt::to_hstring(e.what()).c_str());observing=false;}catch(...){message=L"ログ未取得・無効";observing=false;}
             if(clockInvalid){observing=false;message=L"時刻対応無効：監視を停止・再開始して再同期してください";}
+            if(!synthetic)person_ocr::Context(process,observing&&!selected.empty()?logs[selected].Session():L"",observing&&!selected.empty()?logs[selected].timeline.At(now).instance:L"");
             if(observing){auto current=Photos(config.photoFolder);for(auto& path:current)if(baseline.insert(path).second){Pending p;p.item.path=path;p.item.state=L"待機";p.item.reason=L"書込み安定・遅延ログ待ち";p.detected=now;p.retryAt=now;p.logPath=selected;p.session=logs[selected].Session();pending.emplace(path,std::move(p));}Journal(pending);}
             bool changed=false;
+            // Reserve first/follow-up slots before waiting for file stability or OCR.
+            std::vector<Pending*> unclassified;for(auto& pair:pending){auto& p=pair.second;if(p.item.state!=L"待機"||p.slotKnown||p.logPath.empty())continue;auto& source=logs[p.logPath];auto times=source.timeline.PhotoTimes(p.item.path);if(times.size()!=1)continue;p.photoStamp=times[0];std::wsmatch stamp;auto filename=fs::path(p.item.path).filename().wstring();if(std::regex_match(filename,stamp,std::wregex(LR"(^VRChat[_-]([0-9]{4}-[0-9]{2}-[0-9]{2})[_-]([0-9]{2}-[0-9]{2}-[0-9]{2})(\.[0-9]{1,7})_[0-9]+x[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase))){auto hint=ParseTime(stamp[1].str()+L" "+stamp[2].str()+stamp[3].str());if(hint&&std::abs(hint-times[0])<=5000)p.photoStamp=hint;}p.slotInstance=source.timeline.At(p.photoStamp).instance;if(!p.slotInstance.empty())unclassified.push_back(&p);}
+            std::sort(unclassified.begin(),unclassified.end(),[](auto a,auto b){return a->photoStamp<b->photoStamp||(a->photoStamp==b->photoStamp&&a->item.path<b->item.path);});for(auto p:unclassified){p->followup=burstGate.Followup(p->session+L"|"+p->slotInstance,p->photoStamp,person_ocr::GetSettings().seconds);p->slotKnown=true;changed=true;}
             for(auto& pair:pending){auto& p=pair.second;if(p.item.state!=L"待機")continue;
+                // Pin frames as soon as a reliable capture timestamp exists, before stability grace.
+                if(p.slotKnown&&!p.followup&&!p.ocrSubmitted){auto snapshot=logs[p.logPath].timeline.At(p.photoStamp);if(!snapshot.ambiguous&&snapshot.instance==p.slotInstance){Record record;record.reference=p.photoStamp;record.session=p.session;record.instance=p.slotInstance;record.members=snapshot.members;p.ocrSubmitted=person_ocr::Submit(p.item.path,record,logs[p.logPath].timeline);}}
                 try{auto relative=fs::path(p.item.path).lexically_relative(fs::path(config.photoFolder));if(relative.empty()||*relative.begin()==L".."){p.item.state=L"保留";p.item.reason=L"監視入力外の復旧項目";changed=true;continue;}
                     if(p.logPath.empty()||!SameFolderAddress(fs::path(p.logPath).parent_path().wstring(),config.logFolder)){p.item.state=L"保留";p.item.reason=L"元ログ不明／設定外の復旧項目";changed=true;continue;}
                     auto& log=logs[p.logPath];if(p.session!=log.Session()){p.item.state=L"保留";p.item.reason=L"セッション変更：一覧を転用しません";changed=true;continue;}
                     auto key=ThumbnailCache::Key(p.item.path);if(key!=p.revision){if(p.stable>=2){p.item.state=L"保留";p.item.reason=L"安定確認後に外部変更を検出";changed=true;continue;}p.revision=key;p.stable=0;}else ++p.stable;
-                    if(now-p.retryAt>config.retrySeconds*1000LL){p.item.state=L"保留";p.item.reason=L"書込み・ログ・時刻照合の期限超過："+p.item.reason;changed=true;continue;}
+                    if(now-p.retryAt>config.retrySeconds*1000LL){person_ocr::Forget(p.item.path);p.item.state=L"保留";p.item.reason=L"書込み・ログ・時刻照合の期限超過："+p.item.reason;changed=true;continue;}
                     if(p.stable<2||now-p.detected<config.graceSeconds*1000LL)continue;
                     auto extension=fs::path(p.item.path).extension().wstring();if(Same(extension,L".webp")){p.item.state=L"対象外";p.item.reason=L"Stage3A自動保存はPNG/JPEGのみ";changed=true;continue;}
                     if(!config.autoRecord){p.item.state=L"保留";p.item.reason=L"メタデータ自動記録OFF";changed=true;continue;}
                     auto editable=InspectEditable(p.item.path);auto decision=Correlate(p.item.path,editable.values[0],editable.values[3],p.detected,log);if(!decision.ready){p.item.reason=decision.reason;continue;}
+                    if(p.followup){decision.record.candidateStatus=L"skipped-burst";decision.record.candidateReason=L"連写の後続写真：同室者のみ記録";}
+                    else if(p.slotKnown&&p.slotInstance==decision.record.instance){if(!p.ocrSubmitted){if(!person_ocr::Submit(p.item.path,decision.record,log.timeline)){p.item.reason=L"OCR待ち行列待機";continue;}p.ocrSubmitted=true;}if(!person_ocr::Poll(p.item.path,decision.record)){p.item.reason=L"撮影前フレームをOCR処理中";continue;}}
+                    else {decision.record.candidateReason=L"撮影時インスタンスと連写判定が不整合";}
                     if(key!=ThumbnailCache::Key(p.item.path))continue;
                     {std::lock_guard<std::mutex> lock(mutex);if(stop)break;}
                     p.item.output=p.item.path;
@@ -69,7 +80,7 @@ void Monitor(Config config,bool synthetic=false){
                     p.item.reason=L"バックアップ作成・上書き保存待ち";Journal(pending);
                     MetadataEdit edit;edit.stage3Xml=RecordXml(decision.record);
                     auto warning=SaveMetadataOverwrite(p.item.path,editable.fingerprint,edit,true,config.backupLimit,Data(L"backups.json"));
-                    p.item.state=L"完了";p.item.reason=L"AB_バックアップを作成し、撮影画像へ参加者情報を保存（被写体確定ではありません）"+warning;changed=true;
+                    person_ocr::Forget(p.item.path);p.item.state=L"完了";p.item.reason=L"AB_バックアップを作成し、撮影画像へ参加者情報を保存（被写体確定ではありません）"+warning;changed=true;
                 }catch(const std::exception& e){p.item.reason=winrt::to_hstring(e.what()).c_str();if(now-p.retryAt>config.retrySeconds*1000LL){p.item.state=L"失敗";changed=true;}}
                 catch(const winrt::hresult_error& e){p.item.reason=ErrorText(e.code());if(now-p.retryAt>config.retrySeconds*1000LL){p.item.state=L"失敗";changed=true;}}
             }
@@ -78,6 +89,7 @@ void Monitor(Config config,bool synthetic=false){
             std::unique_lock<std::mutex> lock(mutex);wake.wait_for(lock,std::chrono::seconds(1),[]{return stop;});if(stop)break;
         }
     }catch(const std::exception& e){Publish(L"監視失敗："+std::wstring(winrt::to_hstring(e.what()).c_str()),pending);}catch(...){Publish(L"監視失敗：設定・記録・アクセス権を確認してください",pending);}
+    if(!synthetic)person_ocr::Stop();
     {std::lock_guard<std::mutex> lock(mutex);running=false;}if(SUCCEEDED(initialized))RoUninitialize();
 }
 void Start(const Config& c){Shutdown();if(c.logFolder.empty()||!fs::is_directory(c.photoFolder))throw std::runtime_error("Select log path and an existing photo folder");SaveConfig(c);{std::lock_guard<std::mutex> lock(mutex);stop=false;running=true;state=L"記録開始：基準一覧とログを読込み中";}auto activeConfig=c;activeConfig.autoRecord=true;activeConfig.backupLimit=app.backupLimit;thread=std::thread(Monitor,activeConfig,false);}
@@ -115,8 +127,9 @@ void RunMonitorTests(const fs::path& directory,std::ostream& report){
     struct Cleanup{~Cleanup(){Shutdown();testDataRoot.clear();}}cleanup;
     auto logPath=folder/L"output_log_2026-10-10_12-00-00.txt";auto switchedLog=folder/L"output_log_2026_10_10-12-01-00.txt";fs::remove(switchedLog);{std::ofstream file(logPath,std::ios::trunc);}
     Config config;config.logFolder=folder.wstring();config.photoFolder=input.wstring();config.outputFolder=output.wstring();config.selectedLog.clear();config.autoRecord=true;config.graceSeconds=1;config.retrySeconds=15;
+    auto priorBackups=ReadBackupLedger(Data(L"backups.json"));
     auto ignored=input/L"existing.png";fs::copy_file(directory.parent_path()/L"xmp-日本語.png",ignored,fs::copy_options::overwrite_existing);
-    auto switchedPhoto=input/L"sub"/L"new-session.png";fs::remove(switchedPhoto);
+    auto switchedPhoto=input/L"sub"/L"new-session.png",burstPhoto=input/L"sub"/L"burst-session.png";fs::remove(switchedPhoto);fs::remove(burstPhoto);
     auto fresh=input/L"sub"/L"fresh.png",destination=fresh;fs::create_directories(fresh.parent_path());fs::remove(fresh);fs::remove(folder/L"stage3-journal.json");
     {std::lock_guard<std::mutex> lock(mutex);stop=false;running=true;state=L"初期化";}thread=std::thread(Monitor,config,true);
     auto wait=[&](auto complete){auto deadline=GetTickCount64()+20000;while(!complete()){if(GetTickCount64()>deadline)throw std::runtime_error("Stage3 monitor timeout");std::this_thread::sleep_for(std::chrono::milliseconds(20));}};
@@ -129,14 +142,18 @@ void RunMonitorTests(const fs::path& directory,std::ostream& report){
     auto originalFingerprint=MetadataFingerprint(fresh.wstring());
     wait([&]{std::lock_guard<std::mutex> lock(mutex);return std::any_of(items.begin(),items.end(),[&](auto& item){return item.path==fresh.wstring()&&item.state==L"待機";});});
     {std::ofstream file(switchedLog);file<<winrt::to_string(lineTime(now-10000)+L" Log - [Behaviour] Joining wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:2\n"+lineTime(now-9000)+L" Log - [Behaviour] OnPlayerJoined B (usr_22222222-2222-2222-2222-222222222222)\n"+lineTime(now)+L" Log - [VRC Camera] Took screenshot to: "+switchedPhoto.wstring()+L"\n");}
-    fs::copy_file(directory.parent_path()/L"writer-alpha.png",switchedPhoto,fs::copy_options::overwrite_existing);
+    {std::ofstream file(switchedLog,std::ios::app);file<<winrt::to_string(lineTime(now+1000)+L" Log - [VRC Camera] Took screenshot to: "+burstPhoto.wstring()+L"\n");}
+    fs::copy_file(directory.parent_path()/L"writer-alpha.png",switchedPhoto,fs::copy_options::overwrite_existing);fs::copy_file(directory.parent_path()/L"writer-alpha.png",burstPhoto,fs::copy_options::overwrite_existing);
     wait([&]{std::lock_guard<std::mutex> lock(mutex);return std::any_of(items.begin(),items.end(),[&](auto& item){return item.path==fresh.wstring()&&item.state==L"完了";});});
     wait([&]{std::lock_guard<std::mutex> lock(mutex);return std::any_of(items.begin(),items.end(),[&](auto& item){return item.path==switchedPhoto.wstring()&&item.state==L"完了";});});
+    wait([&]{std::lock_guard<std::mutex> lock(mutex);return std::any_of(items.begin(),items.end(),[&](auto& item){return item.path==burstPhoto.wstring()&&item.state==L"完了";});});
+    require(ReadPhotoSummary(switchedPhoto.wstring()).values[10]==L"未観測"&&ReadPhotoSummary(burstPhoto.wstring()).values[9]==L"B"&&ReadPhotoSummary(burstPhoto.wstring()).values[10]==L"連写のため候補記録なし","v0.4.2 watcher first photo eligible and follow-up members only");
     Shutdown();require(ReadPhotoSummary(fresh.wstring()).values[9]==L"A"&&ReadPhotoSummary(switchedPhoto.wstring()).values[9]==L"B","v0.4.1 log switch preserves pending old session and records new session separately");
     require(fs::exists(destination)&&ReadPhotoSummary(ignored.wstring()).xmpDetail.find(L"InstanceMembers")==std::wstring::npos,"Stage3 monitor overwrites recursive addition and excludes initial baseline");
     auto backups=ReadBackupLedger(Data(L"backups.json"));require(std::any_of(backups.begin(),backups.end(),[&](const auto& backup){return backup.source==fs::absolute(fresh).wstring()&&MetadataFingerprint(backup.path)==originalFingerprint;}),"Stage3 mandatory AB backup preserves exact original");
-    require(Photos(input.wstring()).size()==3,"Stage3 excludes AB backups from photo detection");
-    auto restored=Restore();require(restored.size()==2&&std::all_of(restored.begin(),restored.end(),[](const auto& pair){return pair.second.item.state==L"完了";}),"Stage3 journal restores completed file without duplicate processing");
+    require(std::count_if(backups.begin(),backups.end(),[&](auto& backup){return backup.source==fs::absolute(burstPhoto).wstring()&&std::none_of(priorBackups.begin(),priorBackups.end(),[&](auto& prior){return prior.path==backup.path;});})==1,"v0.4.2 burst photo creates one mandatory backup");
+    require(Photos(input.wstring()).size()==4,"Stage3 excludes AB backups from photo detection");
+    auto restored=Restore();require(restored.size()==3&&std::all_of(restored.begin(),restored.end(),[](const auto& pair){return pair.second.item.state==L"完了";}),"Stage3 journal restores completed file without duplicate processing");
     require(ReadPhotoSummary(destination.wstring()).xmpDetail.find(L"InstanceMembers")!=std::wstring::npos,"Stage3 monitor output contains structured participant record");
 }
 void ShowMonitorDialog(){try{DialogState d;d.config=LoadConfig();struct Template{DLGTEMPLATE dialog;WORD menu,cls,title;}t{{WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_CENTER,0,0,0,0,470,390},0,0,0};DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&t.dialog,app.window,Dialog,reinterpret_cast<LPARAM>(&d));}catch(...){MessageBoxW(app.window,L"Stage3設定が読めません。元ファイルを保全し、監視は開始しません。",L"Stage3",MB_OK|MB_ICONERROR);}}

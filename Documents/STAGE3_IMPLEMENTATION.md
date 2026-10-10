@@ -1,6 +1,6 @@
-# Stage3 開発状況と保存スキーマ
+﻿# Stage3 開発状況と保存スキーマ
 
-2026-10-10。v0.4.1でStage3Aの表示・記録操作を整理。Stage3全体の完了宣言ではない。
+2026-10-10。v0.4.2でウィンドウ取得・Windows OCR・モデル候補記録を追加。Stage3全体の完了宣言ではない。
 仕様の順序は3A（ログと写真の対応）→3B（正解付きOCR評価）→3C（候補保存と手動確定）。ユーザー指定の実ログ・写真・OCR参考画像を読取り専用で参照。10月10日14:20:44の撮影イベントとPNGの保存先・時刻が対応し、参加者62件を復元（partial）。OCRの正解一覧と精度検証は未完了。合成試験を実環境の互換性・OCR精度の検証と扱わない。
 
 ## 固定スキーマ（バージョン1）
@@ -18,7 +18,7 @@
 | WorldID | 対象時刻のログのワールドID |
 | InstanceId | 接続文字列を直接保持しないインスタンス識別子 |
 | MemberListStatus | reconstructed / partial / unknown。reconstructedは取得ログからの復元のみを意味する |
-| CandidateStatus | not-observed / no-match / observed / ambiguous。3Aはnot-observed |
+| CandidateStatus | not-observed / no-match / observed / ambiguous / skipped-burst。3Aはnot-observed |
 | CandidateWindowSeconds | 秒数。3Aの予約値3、OCR未実行 |
 | InstanceMembers | rdf:Seq。各rdf:liは構造体でDisplayName・UserIdを持つ。未取得IDは空欄。同名を自動統合しない |
 | ModelCandidates | rdf:Seqの構造体配列。3Aは空配列とnot-observedを併記し「候補なし」と区別 |
@@ -45,7 +45,17 @@
 
 ログの入退室・インスタンス・写真イベント形式は[公開LogWatcher](https://github.com/vrcx-team/VRCX/blob/master/Dotnet/LogWatcher.cs)を参照して調査した。実装コードの移植ではない。現行ログ、写真保存ログがないカメラ設定、同秒境界・連写・外部編集・再起動復旧・CPU/I/O負荷は実環境確認が必要。
 
-OCR・実時間ウィンドウ取得・候補の採用／除外UIは3A検証後の3B/3Cで接続する。これらを実装済みと表示しない。
+v0.4.2でOCR・実時間ウィンドウ取得・候補記録を接続した。候補の採用／除外UIと正解付き精度校正は未完了。
 
 2026-10-10のユーザー指示により、初期仕様の出力コピー方式をバックアップ必須の上書き方式へ変更。実データ参照先は引き続き読取り専用で検証し、書込み試験はself-test-data内の合成画像のみを使用する。
 
+
+## v0.4.2 OCR実行経路
+
+記録ONと確認できたVRChatセッションを条件にWGC/D3D11で対象ウィンドウを取得する。GPU縮小後にグレー／黄色文字マスクを保持し、保持画像は実行中OCRの参照分も含め256MiB以内。GPU資源・OCR内部作業メモリ・文字結果はこの画像予算とは別。設定量が大きいほど縮小され、認識品質へ影響する。
+
+撮影検知で撮影前バッファをOCRジョブへ参照保持する。Windows OCRの認識結果はキャッシュし、完全一致優先／類似度0.92以上／次点差0.12以上／類似一致は別フレーム2回以上を暫定条件とする。候補は撮影前3秒でフレーム時点と撮影時点双方の参加者IDに含まれるもののみ。同名・競合、未来・古い観測を除外する。閾値の実精度校正は未完了。
+
+ModelCandidatesの各構造体にDisplayName、UserId、RawText、ObservedAt、ObservationCount、MatchMethod、MatchScore、Boundsを追加する。Windows OCRは信頼度を提供しないためOcrConfidenceは空とする。CandidateReasonで未取得／失敗などを補足する。後続写真はskipped-burst、正常認識で一致なしはno-match、未取得はnot-observed。最初だけ候補を記録するため未来10秒の確定待機を廃止し、既存の画像安定・ログ猶予は維持する。
+
+OCRタブはモード、FPS、期間、対象ウィンドウ、取得状態、生の認識文字を表示する。原文表示には照合用に生成した単語の組合せを混入させない。起動時はOFF、記録中は取得プレビュー、停止後は画像プレビュー。キャプチャー画像を自動でディスク保存しない。OSの言語モデル依存が残り、同梱OCRと候補採用／除外UI、正解付き精度検証は未完了。

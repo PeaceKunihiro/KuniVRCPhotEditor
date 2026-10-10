@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "MetadataWriterTests.h"
 #include "V031Tests.h"
 void RunV035Tests(const fs::path&,std::ostream&);
@@ -83,7 +83,7 @@ int SelfTest() {
         RunExtendedXmpTests(directory, report);
         RunMetadataWriterTests(directory, report);
         RunV031Tests(directory, report);
-        RunV035Tests(directory,report);stage3::RunTests(directory,report);
+        RunV035Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);
 { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -292,7 +292,7 @@ int UiTest() {
         SendMessageW(app.window, WM_NOTIFY, Images, reinterpret_cast<LPARAM>(&blank));
         { std::lock_guard<std::mutex> lock(app.mutex);
           require(std::none_of(app.jobs.begin(), app.jobs.end(), [](auto& job) { return job.kind == 3; }), "blank double click does not launch Photos"); }
-        require(TabCtrl_GetItemCount(app.metadataTabs) == 2 && TabCtrl_GetCurSel(app.metadataTabs) == 0, "simple and detailed tabs created with simple default");
+        require(TabCtrl_GetItemCount(app.metadataTabs) == 3 && TabCtrl_GetCurSel(app.metadataTabs) == 0, "simple/details/OCR tabs created with simple default");
         int xmpIndex = -1;
         for (int i = 0; i < static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"xmp-日本語.png") xmpIndex = i;
         require(xmpIndex >= 0, "XMP UI fixture found");
@@ -545,6 +545,9 @@ int UiTest() {
         SendMessageW(app.window,WM_COMMAND,RecordToggle,0);require(stage3::Recording()&&Text(GetDlgItem(app.window,RecordToggle))==L"記録停止","v0.4.1 record button enables recording while waiting for a log");
         for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();auto buttonColor=recordingPixel(RecordToggle,5,13);SendMessageW(app.window,WM_TIMER,RecordTimer,0);auto first=recordingPixel(RecordIndicator,12,13);SendMessageW(app.window,WM_TIMER,RecordTimer,0);auto second=recordingPixel(RecordIndicator,12,13);require(GetRValue(buttonColor)>GetBValue(buttonColor)&&first!=second&&(GetRValue(first)>GetBValue(first)||GetRValue(second)>GetBValue(second)),"v0.4.1 ON button is red and recording dot blinks in both themes");CaptureUiTest(directory/(dark?L"recording-night-on.png":L"recording-light-on.png"));}
         SendMessageW(app.window,WM_COMMAND,RecordToggle,0);SendMessageW(app.window,WM_TIMER,RecordTimer,0);auto offButton=recordingPixel(RecordToggle,5,13),offDot=recordingPixel(RecordIndicator,12,13);require(!stage3::Recording()&&Text(GetDlgItem(app.window,RecordToggle))==L"記録開始"&&GetBValue(offButton)>GetRValue(offButton)&&GetRValue(offDot)==GetGValue(offDot)&&GetGValue(offDot)==GetBValue(offDot),"v0.4.1 OFF button is blue and dot remains gray");
+        require(TabCtrl_GetItemCount(app.metadataTabs)==3,"v0.4.2 OCR tab exists");
+        for(auto placement:{L"right",L"left",L"bottom",L"none"}){app.layout=placement;TabCtrl_SetCurSel(app.metadataTabs,2);Layout();require((IsWindowVisible(GetDlgItem(app.window,1801))!=FALSE)==(app.layout!=L"none"),"OCR tab follows sidebar visibility");if(app.layout!=L"none")require(!IsWindowVisible(app.simple)&&!IsWindowVisible(app.details),"OCR tab hides metadata controls");}
+        app.layout=L"right";TabCtrl_SetCurSel(app.metadataTabs,2);Layout();auto before=person_ocr::GetSettings();SendMessageW(app.window,WM_COMMAND,1801,0);require(person_ocr::GetSettings().always!=before.always,"OCR mode toggle persists");SendMessageW(app.window,WM_COMMAND,1801,0);require(person_ocr::GetSettings().always==before.always,"OCR mode toggle restores");for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();RECT button{};auto mode=GetDlgItem(app.window,1801);GetWindowRect(mode,&button);POINT center{(button.left+button.right)/2,(button.top+button.bottom)/2};ScreenToClient(app.window,&center);require(ChildWindowFromPointEx(app.window,center,CWP_SKIPINVISIBLE)==mode,"OCR controls remain above tab page after theme repaint");CaptureUiTest(directory/(dark?L"ocr-night.png":L"ocr-light.png"));}app.darkTheme=false;ApplyTheme();
         app.layout=L"right";TabCtrl_SetCurSel(app.metadataTabs,0);auto participantSummary=ReadPhotoSummary((directory/L"stage3-tests"/L"display-names.png").wstring());ShowSummary(participantSummary);app.simpleScroll=100000;Layout();require(Text(app.simpleValues[9])==participantSummary.values[9]&&Text(app.simpleValues[10])==L"候補 & 名前","v0.4.1 sidebar receives structured participants and candidate names");CaptureUiTest(directory/L"participants-night.png");app.darkTheme=false;ApplyTheme();CaptureUiTest(directory/L"participants-light.png");
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;

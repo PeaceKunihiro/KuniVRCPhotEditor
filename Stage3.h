@@ -27,7 +27,8 @@ public:
     void Read(const std::filesystem::path& path);
     std::wstring Session()const{return identity+L":reset:"+std::to_wstring(resets);}
 };
-struct Record {std::wstring session,world,instance,timeSource,timeStatus,memberStatus,candidateStatus=L"not-observed";Time reference=0,detected=0;std::vector<Person> members;};
+struct Candidate {Person person;std::wstring raw,method,bounds;Time observed=0;unsigned count=0;double score=0;};
+struct Record {std::wstring session,world,instance,timeSource,timeStatus,memberStatus,candidateStatus=L"not-observed",candidateReason;Time reference=0,detected=0;std::vector<Person> members;std::vector<Candidate> candidates;};
 std::string RecordXml(const Record& record);
 struct Decision {bool ready=false;std::wstring reason;Record record;};
 Decision Correlate(const std::wstring& path,const std::wstring& date,const std::wstring& world,Time detected,const LogMonitor& log);

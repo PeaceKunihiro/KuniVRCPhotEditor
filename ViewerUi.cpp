@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 State app;
 void ShowSummary(const PhotoSummary& summary, const std::wstring& message) {
     app.summary = summary; app.simpleScroll = 0;
@@ -483,7 +483,8 @@ void Layout() {
     MoveWindow(app.details,page.left,page.top+68,std::max(1L,page.right-page.left),std::max(1L,page.bottom-page.top-68),TRUE);
     for(auto h:{app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(h,detailed?SW_SHOW:SW_HIDE);
     app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,detailed&&app.editing);
-    ShowWindow(app.details, detailed && !app.editing ? SW_SHOW : SW_HIDE); ShowWindow(app.simple, detailed ? SW_HIDE : SW_SHOW);
+    ShowWindow(app.details, detailed && !app.editing ? SW_SHOW : SW_HIDE); ShowWindow(app.simple, TabCtrl_GetCurSel(app.metadataTabs)==0 ? SW_SHOW : SW_HIDE);
+    LayoutOcrUi(page,!noSide&&TabCtrl_GetCurSel(app.metadataTabs)==2);
     LayoutSimple();
     if(noSide){for(auto h:{app.simple,app.details,app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(h,SW_HIDE);app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,false);}
     MoveWindow(app.status, 8, height - 28, width - 16, 24, TRUE);
@@ -691,7 +692,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - app.imageBytes); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
         app.preview = Control(L"KuniPreview", L"", WS_BORDER, 0);
         app.metadataTabs = Control(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, MetadataTabs);
-        for (auto label : { L"シンプル", L"詳細" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
+        for (auto label : { L"シンプル", L"詳細", L"OCR" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
         app.simple = Control(L"KuniSimple", L"", WS_VSCROLL | WS_CLIPCHILDREN, 0);
         SetWindowLongPtrW(app.simple, GWL_EXSTYLE, GetWindowLongPtrW(app.simple, GWL_EXSTYLE) | WS_EX_CONTROLPARENT);
         const wchar_t* labels[]{ L"ファイル名", L"容量", L"解像度", L"作成日時", L"撮影者", L"ワールド名", L"ワールドID", L"モデル", L"タグ", L"同室者", L"モデル候補" };
@@ -708,7 +709,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.saveButton=Control(L"BUTTON",L"保存",WS_TABSTOP,SaveMetadata);
         app.cancelButton=Control(L"BUTTON",L"キャンセル",WS_TABSTOP,CancelMetadata);
         app.editStatus=Control(L"STATIC",L"PNG/JPEG/WebPの上書き・別名コピー保存に対応。",SS_LEFT,0);
-        app.editorUi.Create(window);UpdateEditorControls();
+        app.editorUi.Create(window);CreateOcrUi();UpdateEditorControls();
         app.status = Control(L"STATIC", L"フォルダーを選択してください。", SS_LEFT, 0);
         RefreshHistory(); ApplyTheme(); Layout(); auto cpus=std::thread::hardware_concurrency();app.thumbnailWorkers.resize(cpus?std::clamp(cpus,1u,4u):2u);app.activeWorkers=static_cast<unsigned>(2+app.thumbnailWorkers.size());app.searchWorker=std::thread(SearchWorker); app.worker = std::thread(Worker, false);
         for (auto& worker : app.thumbnailWorkers) worker = std::thread(Worker, true);
@@ -723,12 +724,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_DRAWITEM: if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){UpdateRecordingControls(true);return 0;}
+        if(wparam==RecordTimer){UpdateRecordingControls(true);RefreshOcrUi();InvalidateRect(app.preview,nullptr,FALSE);return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize = { 760, 520 }; return 0;
+    case WM_APP+4: InvalidateRect(app.preview,nullptr,FALSE);return 0;
     case WM_COMMAND:
+        if(OcrCommand(LOWORD(wparam),HIWORD(wparam)))return 0;
         if(app.closing)return 0;
         FlushSelectionUpdate();
         switch (LOWORD(wparam)) {

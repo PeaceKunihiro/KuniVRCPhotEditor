@@ -248,7 +248,7 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path) {
     result.values[3] = ChooseDate(fields.date, result.values[0], created, modified);
     result.values[4] = fields.author; result.values[5] = fields.worldName; result.values[6] = fields.worldId; result.values[7] = fields.subjects; result.values[8] = fields.tags;
     auto display=[](const std::wstring& names,const std::wstring& status,bool candidate){
-        std::wstring prefix;if(status==L"not-observed")prefix=L"未観測";else if(status==L"no-match")prefix=L"候補なし";else if(status==L"partial")prefix=L"部分的な記録";else if(status==L"ambiguous")prefix=L"曖昧な記録";else if(status==L"unknown")prefix=L"取得状況不明";else if(!status.empty()&&status!=L"reconstructed"&&status!=L"observed")prefix=L"未対応の取得状態";
+        std::wstring prefix;if(status==L"skipped-burst")prefix=L"連写のため候補記録なし";else if(status==L"not-observed")prefix=L"未観測";else if(status==L"no-match")prefix=L"候補なし";else if(status==L"partial")prefix=L"部分的な記録";else if(status==L"ambiguous")prefix=L"曖昧な記録";else if(status==L"unknown")prefix=L"取得状況不明";else if(!status.empty()&&status!=L"reconstructed"&&status!=L"observed")prefix=L"未対応の取得状態";
         if(names.empty()&&status==L"reconstructed")prefix=L"記録された同室者なし";
         if(names.empty()&&candidate&&status==L"observed")prefix=L"候補情報不完全";
         return prefix.empty()?names:prefix+(names.empty()?L"":L"\r\n"+names);
