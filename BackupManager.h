@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "MetadataWriter.h"
 #include <filesystem>
 #include <vector>
@@ -9,5 +9,6 @@ void WriteBackupLedger(const std::filesystem::path& ledger,const std::vector<Bac
 std::vector<BackupCandidate> FindBackups(const std::wstring& folder,const std::filesystem::path& ledger);
 bool RecycleBackup(const std::wstring& path, std::wstring* error = nullptr);
 std::wstring SaveMetadataOverwrite(const std::wstring& source,const std::wstring& fingerprint,
-    const MetadataEdit& edit,bool backup,int limit,const std::filesystem::path& ledger);
-std::wstring PruneBackups(const std::wstring& folder,int limit,const std::filesystem::path& ledger);
+    const MetadataEdit& edit,bool backup,int limit,const std::filesystem::path& ledger,
+    const std::wstring& prepared = L"", const std::wstring& preparedFingerprint = L"", bool deferPrune = false);
+std::wstring PruneBackups(const std::wstring& folder,int limit,const std::filesystem::path& ledger,const std::vector<std::wstring>& protectedPaths = {});

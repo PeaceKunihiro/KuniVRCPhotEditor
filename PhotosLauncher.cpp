@@ -46,5 +46,5 @@ void RequestPhotos(int index){
     Counts(L"Windowsフォトを起動しています…");
     if(app.photosRequest)app.photosRequest(app.files[index]);else Queue({3,app.generation,0,index,app.files[index],L""},true);
 }
-void LaunchSelectedPhotos(){RequestPhotos(app.selected);}
+void LaunchSelectedPhotos(){FlushSelectionUpdate();RequestPhotos(app.selected);}
 

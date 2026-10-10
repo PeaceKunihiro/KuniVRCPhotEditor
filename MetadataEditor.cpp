@@ -1,12 +1,27 @@
 #include "MetadataEditor.h"
 #include <regex>
+#include <sstream>
+#include <vector>
+#include <algorithm>
+std::wstring NormalizeTags(const std::wstring& text) {
+    std::wistringstream stream(text);std::wstring line,result;std::vector<std::wstring> seen;
+    while(std::getline(stream,line)) {
+        auto begin=line.find_first_not_of(L" \t\r"),end=line.find_last_not_of(L" \t\r");
+        if(begin==std::wstring::npos)continue;line=line.substr(begin,end-begin+1);
+        if(std::find(seen.begin(),seen.end(),line)!=seen.end())continue;
+        seen.push_back(line);if(!result.empty())result+=L"\r\n";result+=line;
+    }
+    return result;
+}
 bool MetadataEdit::Changed() const {
     for (auto action : actions) if (action != EditAction::Keep) return true;
     return false;
 }
 std::wstring MetadataEdit::Validate() const {
-    for (size_t i=0; i<values.size(); ++i) if (actions[i] == EditAction::Set) {
+    for(size_t i=0;i<actions.size();++i)if(actions[i]==EditAction::Append&&i!=5)return L"追加できるのはタグだけです。";
+    for (size_t i=0; i<values.size(); ++i) if (actions[i] == EditAction::Set || actions[i] == EditAction::Append) {
         if (values[i].empty()) return L"空欄で保存せず、値を削除する操作を指定してください。";
+        if(i==5&&NormalizeTags(values[i]).empty())return L"タグを1つ以上入力してください。";
         if (values[i].size()>65536) return L"入力が長すぎます（各項目65536文字まで）。";
         for (size_t j=0;j<values[i].size();++j) {
             auto c=values[i][j];

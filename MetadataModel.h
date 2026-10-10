@@ -4,11 +4,11 @@
 #include <string>
 
 struct PhotoSummary {
-    std::array<std::wstring, 8> values{};
+    std::array<std::wstring, 9> values{};
     std::wstring notes, xmpDetail;
 };
 struct XmpFields {
-    std::wstring date, author, worldName, worldId, extendedGuid, subjects;
+    std::wstring date, author, worldName, worldId, extendedGuid, subjects, tags;
 };
 bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error);
 bool ValidXmpDate(const std::wstring& text);

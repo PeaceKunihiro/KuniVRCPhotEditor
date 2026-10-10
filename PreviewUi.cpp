@@ -1,4 +1,4 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_LBUTTONDBLCLK) { LaunchSelectedPhotos(); return 0; }
     if (message == WM_MOUSEWHEEL) {
@@ -16,9 +16,9 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         if (!p.data.empty()) {
             double scale = std::min(double(r.right) / p.width, double(r.bottom) / p.height);
             int width = int(p.width * scale), height = int(p.height * scale);
-            // PBGRA is composited against white for the GDI preview.
-            auto pixels = p.data;
-            for (size_t i = 0; i < pixels.size(); i += 4) for (int c = 0; c < 3; ++c) pixels[i + c] = BYTE(std::min(255, int(pixels[i + c]) + 255 - pixels[i + 3]));
+            // Composite PBGRA against the current UI theme without changing source pixels.
+            auto pixels = p.data;auto bg=ThemeBackground();int background[]{GetBValue(bg),GetGValue(bg),GetRValue(bg)};
+            for (size_t i = 0; i < pixels.size(); i += 4) for (int c = 0; c < 3; ++c) pixels[i + c] = BYTE(std::min(255, int(pixels[i + c]) + background[c]*(255-pixels[i + 3])/255));
             BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = p.width; info.bmiHeader.biHeight = -static_cast<LONG>(p.height);
             info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
             SetStretchBltMode(dc, HALFTONE); StretchDIBits(dc, (r.right - width) / 2, (r.bottom - height) / 2, width, height, 0, 0, p.width, p.height, pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);

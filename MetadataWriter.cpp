@@ -1,6 +1,7 @@
-﻿#define NOMINMAX
+#define NOMINMAX
 #include "MetadataWriter.h"
 #include "ExtendedXmp.h"
+#include "WebPMetadata.h"
 #include <msxml6.h>
 #include <wrl/client.h>
 #include <winrt/base.h>
@@ -13,8 +14,8 @@ namespace {
 constexpr size_t Limit=16*1024*1024;
 const char Standard[]="http://ns.adobe.com/xap/1.0/";
 const char Extension[]="http://ns.adobe.com/xmp/extension/";
-const wchar_t* Names[]{L"xmp:CreateDate",L"xmp:Author",L"vrc:WorldDisplayName",L"vrc:WorldID",L"kpe:Subjects"};
-const wchar_t* Uris[]{L"http://ns.adobe.com/xap/1.0/",L"http://ns.adobe.com/xap/1.0/",L"http://ns.vrchat.com/vrc/1.0/",L"http://ns.vrchat.com/vrc/1.0/",L"urn:kunivrcphoteditor:metadata:1.0"};
+const wchar_t* Names[]{L"xmp:CreateDate",L"xmp:Author",L"vrc:WorldDisplayName",L"vrc:WorldID",L"kpe:Subjects",L"dc:subject"};
+const wchar_t* Uris[]{L"http://ns.adobe.com/xap/1.0/",L"http://ns.adobe.com/xap/1.0/",L"http://ns.vrchat.com/vrc/1.0/",L"http://ns.vrchat.com/vrc/1.0/",L"urn:kunivrcphoteditor:metadata:1.0",L"http://purl.org/dc/elements/1.1/"};
 struct Bstr { BSTR value; Bstr(const std::wstring& s):value(SysAllocStringLen(s.data(),static_cast<UINT>(s.size()))) { if(!value) throw std::bad_alloc(); } ~Bstr(){SysFreeString(value);} operator BSTR() const {return value;} };
 struct Handle { HANDLE value=INVALID_HANDLE_VALUE; ~Handle(){if(value!=INVALID_HANDLE_VALUE) CloseHandle(value);} };
 void Check(BOOL result) { if(!result) winrt::throw_last_error(); }
@@ -51,7 +52,7 @@ ComPtr<IXMLDOMDocument2> Dom(const std::string& xml) {
     winrt::check_hresult(doc->put_preserveWhiteSpace(VARIANT_TRUE));
     VARIANT v{};v.vt=VT_BOOL;v.boolVal=VARIANT_TRUE;winrt::check_hresult(doc->setProperty(Bstr(L"ProhibitDTD"),v));
     VARIANT_BOOL ok=VARIANT_FALSE;winrt::check_hresult(doc->loadXML(Bstr(Wide(xml)),&ok));if(!ok)throw std::runtime_error("Invalid XMP document");
-    v.vt=VT_BSTR;Bstr ns(L"xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmlns:vrc='http://ns.vrchat.com/vrc/1.0/' xmlns:kpe='urn:kunivrcphoteditor:metadata:1.0' xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#' xmlns:note='http://ns.adobe.com/xmp/note/'");v.bstrVal=ns.value;
+    v.vt=VT_BSTR;Bstr ns(L"xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmlns:vrc='http://ns.vrchat.com/vrc/1.0/' xmlns:kpe='urn:kunivrcphoteditor:metadata:1.0' xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#' xmlns:note='http://ns.adobe.com/xmp/note/' xmlns:dc='http://purl.org/dc/elements/1.1/'");v.bstrVal=ns.value;
     winrt::check_hresult(doc->setProperty(Bstr(L"SelectionNamespaces"),v));return doc;
 }
 std::string Xml(IXMLDOMDocument2* doc){BSTR s{};winrt::check_hresult(doc->get_xml(&s));std::wstring text(s,SysStringLen(s));SysFreeString(s);return Utf8(text);}
@@ -71,11 +72,11 @@ ComPtr<IXMLDOMNode> Element(IXMLDOMDocument2* doc,const wchar_t* name,const wcha
 const std::string Empty="<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about=''/></rdf:RDF></x:xmpmeta>";
 std::string Change(const std::string& xml,const MetadataEdit& edit,bool add,bool stripReference=true){
     auto doc=Dom(xml);if(stripReference)Remove(doc.Get(),L"note:HasExtendedXMP");
-    for(size_t i=0;i<5;++i)if(edit.actions[i]!=EditAction::Keep)Remove(doc.Get(),Names[i]);
+    for(size_t i=0;i<6;++i)if(edit.actions[i]!=EditAction::Keep)Remove(doc.Get(),Names[i]);
     if(add){ComPtr<IXMLDOMNode> description;doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description);if(!description)throw std::runtime_error("Unsupported XMP RDF structure");
-        for(size_t i=0;i<5;++i)if(edit.actions[i]==EditAction::Set){auto node=Element(doc.Get(),Names[i],Uris[i]);
-            if(i!=4)winrt::check_hresult(node->put_text(Bstr(edit.values[i])));
-            else {auto seq=Element(doc.Get(),L"rdf:Seq",L"http://www.w3.org/1999/02/22-rdf-syntax-ns#");size_t start=0;
+        for(size_t i=0;i<6;++i)if(edit.actions[i]==EditAction::Set){auto node=Element(doc.Get(),Names[i],Uris[i]);
+            if(i<4)winrt::check_hresult(node->put_text(Bstr(edit.values[i])));
+            else {auto seq=Element(doc.Get(),i==5?L"rdf:Bag":L"rdf:Seq",L"http://www.w3.org/1999/02/22-rdf-syntax-ns#");size_t start=0;
                 while(start<edit.values[i].size()){size_t end=edit.values[i].find(L'\n',start);auto value=edit.values[i].substr(start,end==std::wstring::npos?end:end-start);if(!value.empty()&&value.back()==L'\r')value.pop_back();
                     if(!value.empty()){auto li=Element(doc.Get(),L"rdf:li",L"http://www.w3.org/1999/02/22-rdf-syntax-ns#");winrt::check_hresult(li->put_text(Bstr(value)));winrt::check_hresult(seq->appendChild(li.Get(),nullptr));}
                     if(end==std::wstring::npos)break;start=end+1;}
@@ -83,7 +84,7 @@ std::string Change(const std::string& xml,const MetadataEdit& edit,bool add,bool
             winrt::check_hresult(description->appendChild(node.Get(),nullptr));}
     }return Xml(doc.Get());
 }
-struct Container {bool png=false;std::vector<std::string> parts;std::vector<bool> xmp;std::string standard,extended;};
+struct Container {bool png=false,webp=false;std::vector<std::string> parts;std::vector<bool> xmp;std::string standard,extended;};
 Container Inspect(const std::string& bytes){
     Container c;std::vector<std::string> extension;std::vector<std::string> standards;
     if(bytes.compare(0,8,"\x89PNG\r\n\x1a\n",8)==0){c.png=true;c.parts.push_back(bytes.substr(0,8));c.xmp.push_back(false);size_t p=8;bool end=false;
@@ -104,7 +105,8 @@ Container Inspect(const std::string& bytes){
             else if(marker==0xe1&&data.compare(0,sizeof(Extension),Extension,sizeof(Extension))==0){extension.push_back(data);xmp=true;}
             c.parts.push_back(bytes.substr(start,p+n-start));c.xmp.push_back(xmp);p+=n;}
         if(!scan)throw std::runtime_error("JPEG scan missing");
-    }else throw std::runtime_error("Only PNG and JPEG can be edited");
+    }else if(bytes.substr(0,4)=="RIFF"&&bytes.substr(8,4)=="WEBP"){c.webp=true;InspectWebPChunks(bytes,c.parts,c.xmp,standards);}
+    else throw std::runtime_error("Only PNG, JPEG and WebP can be edited");
     if(standards.size()>1)throw std::runtime_error("Multiple standard XMP packets cannot be edited safely");
     if(!standards.empty())c.standard=standards.front();
     if(!c.standard.empty())Dom(c.standard);
@@ -117,29 +119,39 @@ Container Inspect(const std::string& bytes){
 std::string Chunk(const std::string& type,const std::string& data){std::string s;Put32(s,static_cast<uint32_t>(data.size()));s+=type+data;Put32(s,CRC(type+data));return s;}
 std::string App1(const std::string& data){if(data.size()>65533)throw std::runtime_error("JPEG APP1 too large");std::string s="\xff\xe1";size_t n=data.size()+2;s+=char(n>>8);s+=char(n);return s+data;}
 std::string Fingerprint(const std::string& bytes){return XmpMd5(bytes);}
-std::array<std::wstring,5> Values(const Container& c){XmpFields f;std::wstring error;
-    for(const auto& s:{c.standard,c.extended})if(!s.empty()){XmpFields p;if(!ParseXmp(s,p,error))throw std::runtime_error("XMP parse");if(f.date.empty())f.date=p.date;if(f.author.empty())f.author=p.author;if(f.worldName.empty())f.worldName=p.worldName;if(f.worldId.empty())f.worldId=p.worldId;if(f.subjects.empty())f.subjects=p.subjects;}
-    return {f.date,f.author,f.worldName,f.worldId,f.subjects};}
-std::string Preserved(const Container& c){std::string s;for(size_t i=0;i<c.parts.size();++i)if(!c.xmp[i])s+=c.parts[i];return s;}
+std::array<std::wstring,6> Values(const Container& c){XmpFields f;std::wstring error;
+    for(const auto& s:{c.standard,c.extended})if(!s.empty()){XmpFields p;if(!ParseXmp(s,p,error))throw std::runtime_error("XMP parse");if(f.date.empty())f.date=p.date;if(f.author.empty())f.author=p.author;if(f.worldName.empty())f.worldName=p.worldName;if(f.worldId.empty())f.worldId=p.worldId;if(f.subjects.empty())f.subjects=p.subjects;if(f.tags.empty())f.tags=p.tags;}
+    return {f.date,f.author,f.worldName,f.worldId,f.subjects,f.tags};}
+std::string Preserved(const Container& c){std::string s;for(size_t i=0;i<c.parts.size();++i)if(!c.xmp[i]&&!(c.webp&&(i==0||c.parts[i].substr(0,4)=="VP8X")))s+=c.parts[i];return s;}
 }
 std::wstring MetadataFingerprint(const std::wstring& path){return Wide(Fingerprint(ReadFileBytes(path)));}
+void ValidateMetadataDestination(const std::wstring& source,const std::wstring& destination){
+    auto c=Inspect(ReadFileBytes(source));auto extension=fs::path(destination).extension().wstring();
+    std::transform(extension.begin(),extension.end(),extension.begin(),towlower);
+    if((c.png&&extension!=L".png")||(c.webp&&extension!=L".webp")||(!c.png&&!c.webp&&extension!=L".jpg"&&extension!=L".jpeg"))throw std::runtime_error("Destination format must match source");
+    if(!fs::is_directory(fs::path(destination).parent_path()))throw std::runtime_error("Destination folder does not exist");
+}
 EditableMetadata InspectEditable(const std::wstring& path){
     auto bytes=ReadFileBytes(path);auto c=Inspect(bytes);
     if(!c.standard.empty()){auto doc=Dom(c.standard);ComPtr<IXMLDOMNode> description;winrt::check_hresult(doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description));if(!description)throw std::runtime_error("Unsupported XMP RDF structure; view only");}
     return {Values(c),Wide(Fingerprint(bytes))};
 }
-void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination,const std::wstring& expected,const MetadataEdit& edit,bool allowLockedRename){
+void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination,const std::wstring& expected,const MetadataEdit& requested,bool allowLockedRename){
+    MetadataEdit edit=requested;
     auto error=edit.Validate();if(!error.empty())throw std::runtime_error(Utf8(error));if(!edit.Changed())throw std::runtime_error("No metadata changes");
     if(fs::exists(destination))throw std::runtime_error("Destination already exists; overwrite is disabled");
     Handle input;input.value=CreateFileW(source.c_str(),GENERIC_READ,FILE_SHARE_READ|(allowLockedRename?FILE_SHARE_DELETE:0),nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);Check(input.value!=INVALID_HANDLE_VALUE);
     auto original=ReadHandle(input.value);if(Wide(Fingerprint(original))!=expected)throw std::runtime_error("Source changed; reload before saving");auto c=Inspect(original);
+    if(edit.actions[5]==EditAction::Append){edit.values[5]=NormalizeTags(Values(c)[5]+L"\n"+edit.values[5]);edit.actions[5]=EditAction::Set;}
+    if(edit.actions[5]==EditAction::Set)edit.values[5]=NormalizeTags(edit.values[5]);
+    if(auto validation=edit.Validate();!validation.empty())throw std::runtime_error(Utf8(validation));
     auto extension=fs::path(destination).extension().wstring();std::transform(extension.begin(),extension.end(),extension.begin(),towlower);
-    if((c.png&&extension!=L".png")||(!c.png&&extension!=L".jpg"&&extension!=L".jpeg"))throw std::runtime_error("Destination format must match source");
+    if((c.png&&extension!=L".png")||(c.webp&&extension!=L".webp")||(!c.png&&!c.webp&&extension!=L".jpg"&&extension!=L".jpeg"))throw std::runtime_error("Destination format must match source");
     std::string standard=Change(c.standard.empty()?Empty:c.standard,edit,true),extended;
     if(!c.extended.empty())extended=Change(c.extended,edit,false);
     std::string metadata;
     if(c.png){std::string data="XML:com.adobe.xmp";data.append(5,'\0');data+=standard;metadata=Chunk("iTXt",data);}
-    else {if(standard.size()+sizeof(Standard)>65533){if(!extended.empty())throw std::runtime_error("Standard XMP exceeds APP1 with existing extension");extended=standard;standard=Empty;}
+    else if(!c.webp){if(standard.size()+sizeof(Standard)>65533){if(!extended.empty())throw std::runtime_error("Standard XMP exceeds APP1 with existing extension");extended=standard;standard=Empty;}
         if(!extended.empty()){auto doc=Dom(standard);ComPtr<IXMLDOMNode> description;doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description);if(!description)throw std::runtime_error("XMP description missing");auto ref=Element(doc.Get(),L"note:HasExtendedXMP",L"http://ns.adobe.com/xmp/note/");auto guid=XmpMd5(extended);winrt::check_hresult(ref->put_text(Bstr(Wide(guid))));winrt::check_hresult(description->appendChild(ref.Get(),nullptr));standard=Xml(doc.Get());
             for(size_t off=0;off<extended.size();){size_t n=std::min<size_t>(65000,extended.size()-off);std::string part(Extension,sizeof(Extension));part+=guid;Put32(part,static_cast<uint32_t>(extended.size()));Put32(part,static_cast<uint32_t>(off));part+=extended.substr(off,n);metadata+=App1(part);off+=n;}}
         metadata=App1(std::string(Standard,sizeof(Standard))+standard)+metadata;}
@@ -147,13 +159,14 @@ void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination
     std::string output;bool inserted=false;for(size_t i=0;i<c.parts.size();++i){if(c.xmp[i])continue;
         bool location=c.png?c.parts[i].size()>=8&&c.parts[i].substr(4,4)=="IEND":i>0;
         if(!inserted&&location){output+=metadata;inserted=true;}output+=c.parts[i];}
+    if(c.webp){output=WriteWebPXmp(c.parts,c.xmp,standard);inserted=true;}
     if(!inserted)throw std::runtime_error("Metadata insertion failed");
     auto verify=Inspect(output);if(Preserved(c)!=Preserved(verify))throw std::runtime_error("Image data preservation failed");
-    auto actual=Values(verify),before=Values(c);for(size_t i=0;i<5;++i){auto wanted=edit.actions[i]==EditAction::Set?edit.values[i]:edit.actions[i]==EditAction::Remove?L"":before[i];
-        if(i==4){auto normalize=[](std::wstring s){s.erase(std::remove(s.begin(),s.end(),L'\r'),s.end());while(!s.empty()&&s.back()==L'\n')s.pop_back();return s;};if(normalize(actual[i])!=normalize(wanted))throw std::runtime_error("Subjects verification failed");}
+    auto actual=Values(verify),before=Values(c);for(size_t i=0;i<6;++i){auto wanted=edit.actions[i]==EditAction::Set?edit.values[i]:edit.actions[i]==EditAction::Remove?L"":before[i];
+        if(i>=4){auto normalize=[](std::wstring s){s.erase(std::remove(s.begin(),s.end(),L'\r'),s.end());while(!s.empty()&&s.back()==L'\n')s.pop_back();return s;};if(normalize(actual[i])!=normalize(wanted))throw std::runtime_error("Subjects verification failed");}
         else if(actual[i]!=wanted)throw std::runtime_error("Edited metadata verification failed");}
     // Serializing the same DOM after removing edited properties must preserve all other XML.
-    MetadataEdit mask=edit;for(size_t i=0;i<5;++i)if(mask.actions[i]!=EditAction::Keep)mask.actions[i]=EditAction::Remove;
+    MetadataEdit mask=edit;for(size_t i=0;i<6;++i)if(mask.actions[i]!=EditAction::Keep)mask.actions[i]=EditAction::Remove;
     auto oldStandard=Change(c.standard.empty()?Empty:c.standard,mask,false);
     auto newStandard=Change(verify.standard,mask,false);
     bool promoted=c.extended.empty()&&!verify.extended.empty()&&standard!=Change(c.standard.empty()?Empty:c.standard,edit,true);

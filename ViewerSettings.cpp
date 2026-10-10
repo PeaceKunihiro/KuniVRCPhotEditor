@@ -43,7 +43,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     settings.saveHistory = object.GetNamedBoolean(L"saveFolderHistory", true);
     settings.last = object.GetNamedString(L"lastFolder", L"");
     settings.layout = object.GetNamedString(L"sideView", L"right");
-    if (settings.layout != L"right" && settings.layout != L"left" && settings.layout != L"bottom") throw std::runtime_error("layout");
+    if (settings.layout != L"right" && settings.layout != L"left" && settings.layout != L"bottom" && settings.layout != L"none") throw std::runtime_error("layout");
     auto paths = [&](const wchar_t* key, std::vector<std::wstring>& list, size_t limit) {
         if (!object.HasKey(key)) return;
         // Restoring saved addresses must not probe every remote/missing folder.

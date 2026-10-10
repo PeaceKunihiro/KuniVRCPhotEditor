@@ -1,6 +1,10 @@
-﻿#include "ViewerRuntime.h"
-void Select(int index) {
-    app.editing=false; app.metadataReady=false; app.previewFailed=false; app.editError.clear(); app.editable={}; SetWindowTextW(app.editStatus,L"PNG/JPEGの上書き・別名コピー保存に対応。");UpdateEditorControls(); Layout();
+#include "ViewerRuntime.h"
+void ScheduleSelectionUpdate(){if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
+void FlushSelectionUpdate(){if(!app.selectionPending)return;app.selectionPending=false;int index=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);if(index<0||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))index=ListView_GetNextItem(app.list,-1,LVNI_SELECTED);Select(index,false);}
+void Select(int index,bool reveal) {
+    app.selectionPending=false;++app.selectionRefreshes;bool wasEditing=app.editing;
+    if(app.batchLoading)StopActivity();app.batchLoading=false;app.batchFiles.clear();app.batchMetadata.clear();app.batchCompleted.clear();
+    app.editing=false; app.metadataReady=false; app.previewFailed=false; app.editError.clear(); app.editable={}; SetWindowTextW(app.editStatus,L"PNG/JPEG/WebPの上書き・別名コピー保存に対応。");UpdateEditorControls();if(wasEditing)Layout();
     app.selected = index; app.previewPixels = {}; ++app.selection; app.currentSelection = app.selection;
     InvalidateRect(app.preview, nullptr, TRUE);
     if (index < 0) { SetWindowTextW(app.details, L"画像を選択してください。"); ShowSummary({}, L"画像を選択してください。"); Counts(); return; }
@@ -11,11 +15,12 @@ void Select(int index) {
     SetWindowTextW(app.details, L"プレビュー・メタデータを読み込んでいます…"); Counts(L"読込み中");
     { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind == 2; }), app.jobs.end()); }
     Queue({ 2, app.generation, app.selection, index, app.files[index], L"" }, true);
-    ListView_EnsureVisible(app.list,index,FALSE);ScheduleThumbnails();
+    if(reveal)ListView_EnsureVisible(app.list,index,FALSE);ScheduleThumbnails();
 }
 void OpenFolder(const std::wstring& path, bool reload, const std::wstring& preserveOverride) {
+    FlushSelectionUpdate();
     if (!GuardTransition([path,reload,preserveOverride]{OpenFolder(path,reload,preserveOverride);})) return;
-    CancelSearch();if(!reload){app.appliedQuery.clear();SetWindowTextW(app.searchEdit,L"");}
+    if(app.batchLoading){StopActivity();app.batchLoading=false;}CancelSearch();if(!reload){app.appliedQuery.clear();SetWindowTextW(app.searchEdit,L"");}
     app.editing=false; UpdateEditorControls(); Layout();
     try {
         auto normalized = Normalize(path);
@@ -30,7 +35,9 @@ void OpenFolder(const std::wstring& path, bool reload, const std::wstring& prese
 }
 
 void StartSave() {
+    FlushSelectionUpdate();
     if(!app.editing||app.saving||app.backupBusy||app.selected<0)return;
+    if(!app.batchFiles.empty()){StartBatchSave();return;}
     auto edit=app.editorUi.Read();if(!edit.Changed())return;auto error=edit.Validate();if(!error.empty()){SetWindowTextW(app.editStatus,error.c_str());return;}
     std::wstring destination;
     int mode=2;
@@ -55,7 +62,7 @@ void StartSave() {
     if(destinationError){app.afterSave={};SetWindowTextW(app.editStatus,L"保存先を確認できません。アクセス権とパスを確認してください。");return;}
     if(exists&&!overwrite){app.afterSave={};SetWindowTextW(app.editStatus,L"既存ファイルには上書きできません。別の名前を指定してください。");return;}
     Job job{4,app.generation,app.selection,app.selected,source,L""};job.edit=edit;job.fingerprint=app.editable.fingerprint;job.destination=destination;job.overwrite=overwrite;job.autoBackup=app.autoBackup;job.backupLimit=app.backupLimit;job.preserve=(app.settings.parent_path()/L"backups.json").wstring();
-    CancelSearch();app.saving=true;app.editorUi.Enable(false);SetWindowTextW(app.editStatus,L"保存中…コピーを検証しています。");UpdateEditorControls();Queue(std::move(job),true);
+    CancelSearch();SetActivity(L"保存中：コピー検証・上書き処理を実行しています…");app.saving=true;app.editorUi.Enable(false);SetWindowTextW(app.editStatus,L"保存中…コピーを検証しています。");UpdateEditorControls();Queue(std::move(job),true);
 }
 bool GuardTransition(std::function<void()> action) {
     if(app.transitionBypass)return true;if(app.saving||app.backupBusy)return false;

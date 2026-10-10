@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "MetadataEditor.h"
+void ValidateMetadataDestination(const std::wstring& source, const std::wstring& destination);
 EditableMetadata InspectEditable(const std::wstring& path);
 // Creates a verified copy; never replaces any existing destination.
 void SaveMetadataCopy(const std::wstring& source, const std::wstring& destination,

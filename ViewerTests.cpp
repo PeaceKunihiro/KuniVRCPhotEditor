@@ -1,6 +1,11 @@
 #include "ViewerRuntime.h"
 #include "MetadataWriterTests.h"
 #include "V031Tests.h"
+void RunV035Tests(const fs::path&,std::ostream&);
+void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
+    if(index>=0&&(state&LVIS_SELECTED)&&(mask&LVIS_SELECTED)){LVITEMW reset{};reset.stateMask=LVIS_SELECTED|LVIS_FOCUSED;SendMessageW(list,LVM_SETITEMSTATE,-1,reinterpret_cast<LPARAM>(&reset));}
+    LVITEMW item{};item.state=state;item.stateMask=mask;SendMessageW(list,LVM_SETITEMSTATE,index,reinterpret_cast<LPARAM>(&item));if(index>=0&&(state&LVIS_SELECTED))ListView_EnsureVisible(list,index,FALSE);FlushSelectionUpdate();
+}
 int SelfTest() {
     auto directory = app.settings.parent_path() / L"self-test-data";
     fs::create_directories(directory);
@@ -16,6 +21,11 @@ int SelfTest() {
         bool rejected = false; try { ReadThumbnailWidth(legacy); } catch (...) { rejected = true; }
         require(rejected, "invalid thumbnail width rejected");
         require(IsPhotosId(L"Microsoft.Windows.Photos_8wekyb3d8bbwe!App") && !IsPhotosId(L"Other.Photos_8wekyb3d8bbwe!App") && !IsPhotosId(L"Microsoft.Windows.Photos_8wekyb3d8bbwe!"), "Photos app identity filter");
+        ViewerSettings noSide;noSide.layout=L"none";require(ParseViewerSettings(SerializeViewerSettings(noSide)).layout==L"none","side view none settings round trip");
+        Pixels opaque{1,1,{17,31,91,255}},transparent{1,1,{0,0,0,0}};
+        for(bool dark:{false,true}){app.darkTheme=dark;auto background=ThemeBackground();
+            auto pixel=[&](const Pixels& source,int x,int y){auto bitmap=Thumbnail(source,64);HDC dc=CreateCompatibleDC(nullptr);auto old=SelectObject(dc,bitmap);auto color=GetPixel(dc,x,y);SelectObject(dc,old);DeleteObject(bitmap);DeleteDC(dc);return color;};
+            require(pixel(opaque,0,0)==background&&pixel(transparent,31,23)==background,"thumbnail padding and transparency use theme background");require(pixel(opaque,31,23)==RGB(91,31,17),"theme composition preserves opaque image color");}app.darkTheme=false;
         app.settings = directory / L"settings.json";
         app.settingsProtected = false;
         app.saveHistory = true; app.cacheMB = 100; app.bookmarks.clear();
@@ -73,6 +83,7 @@ int SelfTest() {
         RunExtendedXmpTests(directory, report);
         RunMetadataWriterTests(directory, report);
         RunV031Tests(directory, report);
+        RunV035Tests(directory,report);
 { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -138,7 +149,7 @@ LRESULT CALLBACK CountLabelPaint(HWND window, UINT message, WPARAM wp, LPARAM lp
     return DefSubclassProc(window, message, wp, lp);
 }
 struct LabelPaintProbe {
-    std::array<int, 8> counts{};
+    std::array<int, 9> counts{};
     LabelPaintProbe() {
         for (size_t i = 0; i < counts.size(); ++i)
             if (!SetWindowSubclass(app.simpleLabels[i], CountLabelPaint, 32, reinterpret_cast<DWORD_PTR>(&counts[i])))
@@ -160,7 +171,7 @@ int UiTest() {
             if (GetTickCount64() > deadline) throw std::runtime_error("async UI timeout");
             MsgWaitForMultipleObjectsEx(0, nullptr, 20, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
             MSG message{};
-            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { if(!IsDialogMessageW(app.window,&message)){TranslateMessage(&message); DispatchMessageW(&message);} }
         }
     };
     try {
@@ -173,9 +184,26 @@ int UiTest() {
         OpenFolder(directory.wstring());
         wait([] { return !app.folderPending && !app.files.empty() && ThumbnailsReady(); });
         require(ListView_GetItemCount(app.list) >= 20, "async folder and thumbnail loading");
+        require(app.thumbnailWorkers.size()>=1&&app.thumbnailWorkers.size()<=4&&app.thumbnailPeak<=app.thumbnailWorkers.size()&&(app.thumbnailWorkers.size()==1||app.thumbnailPeak>=2),"CPU bounded thumbnail workers execute concurrent image jobs");
         require(app.files.size() > 650 && app.loaded < static_cast<int>(app.files.size()) && app.wantedLast - app.wantedFirst < ThumbnailSlots, "large folder loads viewport before offscreen images");
         require(SendMessageW(app.history,CB_GETCURSEL,0,0)==0 && Same(Text(app.history),app.folder), "history refresh restores current folder selection");
         ShowWindow(app.window,SW_SHOWNOACTIVATE);
+        auto selectionClick=[&](int index,bool shift){ListView_EnsureVisible(app.list,index,FALSE);RECT icon{};ListView_GetItemRect(app.list,index,&icon,LVIR_ICON);auto point=MAKELPARAM((icon.left+icon.right)/2,(icon.top+icon.bottom)/2);BYTE saved[256]{},keys[256]{};GetKeyboardState(saved);std::copy(std::begin(saved),std::end(saved),keys);keys[VK_SHIFT]=shift?0x80:0;keys[VK_CONTROL]=0;SetKeyboardState(keys);PostMessageW(app.list,WM_LBUTTONUP,shift?MK_SHIFT:0,point);SendMessageW(app.list,WM_LBUTTONDOWN,MK_LBUTTON|(shift?MK_SHIFT:0),point);SendMessageW(app.list,WM_LBUTTONUP,shift?MK_SHIFT:0,point);SetKeyboardState(saved);};
+        for(int amount:{50,250,600}) {
+            auto refreshes=app.selectionRefreshes;auto started=GetTickCount64();ListView_SetItemState(app.list,-1,0,LVIS_SELECTED);for(int i=0;i<amount;++i)ListView_SetItemState(app.list,i,LVIS_SELECTED,LVIS_SELECTED);
+            require(ListView_GetSelectedCount(app.list)==amount&&app.selectionRefreshes==refreshes,"large native selection notifications do not synchronously refresh viewer");
+            wait([&]{return !app.selectionPending;});require(app.selectionRefreshes==refreshes+1,"large selection commits viewer refresh once");
+            refreshes=app.selectionRefreshes;selectionClick(3,false);report<<"INFO: click selected="<<ListView_GetSelectedCount(app.list)<<" refresh_delta="<<app.selectionRefreshes-refreshes<<'\n';require(ListView_GetSelectedCount(app.list)==1&&app.selectionRefreshes==refreshes,"single click promptly clears large selection without per-item viewer refresh");wait([&]{return !app.selectionPending;});require(app.selectionRefreshes==refreshes+1&&app.selected==3,"single click refreshes final focused image once");
+            report<<"INFO: selection and single click count="<<amount<<" elapsed_ms="<<GetTickCount64()-started<<'\n';
+        }
+        selectionClick(0,false);wait([]{return !app.selectionPending;});selectionClick(500,true);require(ListView_GetSelectedCount(app.list)==501,"Shift click selects entire range across offscreen anchor");bool completeRange=true;for(int i=0;i<=500;++i)if(!(ListView_GetItemState(app.list,i,LVIS_SELECTED)&LVIS_SELECTED))completeRange=false;require(completeRange,"offscreen Shift range includes every intermediate image");wait([]{return !app.selectionPending;});
+        selectionClick(600,false);wait([]{return !app.selectionPending;});selectionClick(100,true);require(ListView_GetSelectedCount(app.list)==501,"reverse Shift click includes offscreen intermediate range");wait([]{return !app.selectionPending;});TestSelectItem(app.list,0,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        ListView_SetItemState(app.list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);
+        int selectedForEdit=0;for(int i=0;i<static_cast<int>(app.files.size())&&selectedForEdit<80;++i)if(fs::path(app.files[i]).filename().wstring().find(L"grid-")==0){ListView_SetItemState(app.list,i,LVIS_SELECTED,LVIS_SELECTED);++selectedForEdit;}
+        FlushSelectionUpdate();BeginMetadataEdit();require(app.batchLoading&&!app.activityText.empty()&&Text(app.status).find(L"0 / 80")!=std::wstring::npos,"80-image edit displays loading immediately");
+        auto animation=Text(app.status);SendMessageW(app.window,WM_TIMER,ActivityTimer,0);require(Text(app.status)!=animation,"loading animation advances while UI remains responsive");
+        wait([]{return !app.batchLoading;});require(app.editing&&app.batchMetadata.size()==80&&app.activityText.empty(),"80-image editor loads all metadata and stops animation");
+        app.editing=false;app.batchFiles.clear();app.batchMetadata.clear();UpdateEditorControls();Layout();TestSelectItem(app.list,0,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
         SetWindowSubclass(app.history,LegacyComboDraw,39,0);
         SendMessageW(app.history,CB_SHOWDROPDOWN,TRUE,0);
         bool legacyBlank=!ComboPopupHasText(app.history);
@@ -221,7 +249,7 @@ int UiTest() {
         require(std::wstring(tooltip) == longName,"infotip contains full Japanese filename and extension");
         auto brokenItem = std::find_if(app.files.begin(), app.files.end(), [](auto& path) { return fs::path(path).filename() == L"broken.png"; }); require(brokenItem != app.files.end(), "broken thumbnail fixture listed"); tip.iItem = static_cast<int>(brokenItem - app.files.begin()); ListView_EnsureVisible(app.list, tip.iItem, FALSE); ScheduleThumbnails(); wait([&] { return app.thumbnailDone[tip.iItem]; }); SendMessageW(app.window,WM_NOTIFY,Images,reinterpret_cast<LPARAM>(&tip));
         require(std::wstring(tooltip).find(L"読込みエラー") != std::wstring::npos,"infotip retains failed-thumbnail status");
-        ListView_SetItemState(app.list, 3, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        TestSelectItem(app.list, 3, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         wait([] { return !app.previewPixels.data.empty(); });
         wait([] { return Text(app.details).find(L"読み込んでいます") == std::wstring::npos; });
         auto selected = app.files[app.selected]; auto details = Text(app.details);
@@ -266,7 +294,7 @@ int UiTest() {
         int xmpIndex = -1;
         for (int i = 0; i < static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"xmp-日本語.png") xmpIndex = i;
         require(xmpIndex >= 0, "XMP UI fixture found");
-        ListView_SetItemState(app.list, xmpIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        TestSelectItem(app.list, xmpIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         wait([] { return !app.previewPixels.data.empty() && app.summary.values[4] == L"撮影者 & テスト"; });
         require(Text(app.simpleValues[0]) == L"xmp-日本語.png" && Text(app.simpleValues[2]) == L"320 × 160 px" && Text(app.simpleValues[3]).find(L"XMP") != std::wstring::npos && Text(app.simpleValues[5]) == L"日本語ワールド" && Text(app.simpleValues[6]) == L"wrld_test" && Text(app.simpleValues[7]).empty(), "simple tab eight fields match selected image");
         auto selectionGeneration = app.selection; auto summary = app.summary; auto detailedText = Text(app.details);
@@ -313,7 +341,7 @@ int UiTest() {
         int webpIndex = -1;
         for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"webp-透過.WEBP") webpIndex = i;
         require(webpIndex >= 0, "uppercase WebP included in enumeration");
-        ListView_SetItemState(app.list, webpIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        TestSelectItem(app.list, webpIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         wait([] { return !app.previewPixels.data.empty() && app.summary.values[4] == L"WebP撮影者"; });
         require(app.summary.values[2] == L"320 × 160 px" && Text(app.details).find(L"WebP") != std::wstring::npos, "WebP selected preview and metadata");
         for (int i=0; i<static_cast<int>(app.files.size()); i+=40) {
@@ -347,7 +375,7 @@ int UiTest() {
         require(app.files.empty() && readSettings().history.empty(), "load button uses edited address while history OFF");
         LoadAddress(directory.wstring()); wait([] { return ThumbnailsReady(); });
         auto webpPath = (directory / L"webp-透過.WEBP").wstring();
-        for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (Same(app.files[i],webpPath)) ListView_SetItemState(app.list,i,LVIS_SELECTED | LVIS_FOCUSED,LVIS_SELECTED | LVIS_FOCUSED);
+        for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (Same(app.files[i],webpPath)) TestSelectItem(app.list,i,LVIS_SELECTED | LVIS_FOCUSED,LVIS_SELECTED | LVIS_FOCUSED);
         wait([] { return !app.previewPixels.data.empty(); });
         auto selectedPath = app.files[app.selected]; auto cacheEpoch = app.cache.Ticket();
         SetWindowTextW(app.path,directory.c_str()); SendMessageW(app.window,WM_COMMAND,OpenPath,0);
@@ -382,7 +410,7 @@ int UiTest() {
         int extendedIndex = -1;
         for (int i=0; i<static_cast<int>(app.files.size()); ++i) if (fs::path(app.files[i]).filename() == L"extended-日本語.jpg") extendedIndex = i;
         require(extendedIndex >= 0,"Extended XMP UI fixture found");
-        ListView_SetItemState(app.list,extendedIndex,LVIS_SELECTED | LVIS_FOCUSED,LVIS_SELECTED | LVIS_FOCUSED);
+        TestSelectItem(app.list,extendedIndex,LVIS_SELECTED | LVIS_FOCUSED,LVIS_SELECTED | LVIS_FOCUSED);
         wait([] { return !app.previewPixels.data.empty() && app.summary.values[4] == L"拡張撮影者"; });
         require(Text(app.simpleValues[5]) == L"拡張ワールド" && Text(app.details).find(L"検証成功") != std::wstring::npos,"Extended XMP updates simple and detailed tabs");
         int editableIndex=-1;
@@ -391,7 +419,7 @@ int UiTest() {
         ListView_EnsureVisible(app.list,editableIndex,FALSE);ScheduleThumbnails();wait([]{return ThumbnailsReady();});
         auto displayed=DisplayedThumbnail(editableIndex);require(!displayed.data.empty(),"selected thumbnail exists before metadata read");
         app.metadataDelayMs=500;
-        ListView_SetItemState(app.list,editableIndex,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        TestSelectItem(app.list,editableIndex,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
         require(!app.metadataReady && app.previewPixels.data==displayed.data,"preview uses exact displayed thumbnail before delayed XMP");
         require(!IsWindowEnabled(app.editButton),"edit disabled during metadata loading");
         wait([]{return app.metadataReady;});app.metadataDelayMs=0;
@@ -415,7 +443,7 @@ int UiTest() {
         app.confirmChanges=[]{return 3;};
         SendMessageW(app.window,WM_CLOSE,0,0);
         require(!app.stopping && app.editing,"cancel unsaved close preserves running editor");
-        ListView_SetItemState(app.list,editableIndex==0?1:0,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        TestSelectItem(app.list,editableIndex==0?1:0,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
         require(app.selected==editedSelection && app.editing && Text(authorInput)==L"編集UI & 日本語","cancel unsaved image switch preserves selected edit");
         OpenFolder(directory.wstring(),true);
         require(app.editing && app.selected==editedSelection && Text(authorInput)==L"編集UI & 日本語" && !app.folderPending,"cancel unsaved folder switch retains edit");
@@ -427,7 +455,7 @@ int UiTest() {
         require(app.editing && app.editorUi.Read().Changed() && !app.folderPending && Text(app.editStatus).find(L"保存失敗")!=std::wstring::npos,"save failure preserves edits and cancels transition");
         auto uiOutput=directory/L"Stage2-ui-saved.jpg";fs::remove(uiOutput);
         app.chooseSavePath=[&]{return uiOutput.wstring();};app.afterSave={};StartSave();
-        require(app.saving && !GuardTransition([]{}) && !IsWindowEnabled(app.cancelButton),"save blocks transitions and multiple saves");
+        require(!app.activityText.empty()&&Text(app.status).find(L"保存")!=std::wstring::npos,"single save shows activity immediately");require(app.saving && !GuardTransition([]{}) && !IsWindowEnabled(app.cancelButton),"save blocks transitions and multiple saves");
         wait([&]{return !app.saving && !app.folderPending && app.selected>=0 && Same(app.files[app.selected],uiOutput.wstring()) && app.metadataReady;});
         require(Text(app.simpleValues[4])==L"編集UI & 日本語" && !app.editing,"save reloads and selects completed copy");
         int photosRequests=0;std::wstring photosPath;app.photosRequest=[&](const std::wstring& path){++photosRequests;photosPath=path;};
@@ -451,11 +479,11 @@ int UiTest() {
         app.metadataSearch=true;StartSearch(L"拡張撮影者");wait([]{return !app.searching;});require(std::any_of(app.files.begin(),app.files.end(),[](auto& p){return fs::path(p).filename()==L"extended-日本語.jpg";}),"metadata search matches Extended XMP author");
         StartSearch(L"no-match");CancelSearch();StartSearch(L"WebP撮影者");wait([]{return !app.searching;});require(std::any_of(app.files.begin(),app.files.end(),[](auto& p){return fs::path(p).filename()==L"webp-透過.WEBP";})&&app.appliedQuery==L"WebP撮影者","cancelled search cannot replace newer metadata results");
         app.metadataSearch=false;StartSearch(L"");wait([]{return !app.searching;});
-        for(int i=0;i<static_cast<int>(app.files.size());++i)if(fs::path(app.files[i]).filename()==L"xmp-日本語.png")ListView_SetItemState(app.list,i,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        for(int i=0;i<static_cast<int>(app.files.size());++i)if(fs::path(app.files[i]).filename()==L"xmp-日本語.png")TestSelectItem(app.list,i,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
         wait([]{return app.metadataReady;});SetWindowPos(app.window,nullptr,0,0,1180,800,SWP_NOMOVE|SWP_NOZORDER);Layout();
         for(bool dark:{true,false}){app.darkTheme=dark;ApplyTheme();require(ListView_GetBkColor(app.list)==ThemeBackground()&&ListView_GetTextColor(app.list)==ThemeForeground(),"theme updates list background and text");for(auto layout:{L"left",L"right",L"bottom"}){app.layout=layout;Layout();RECT r{};GetWindowRect(app.details,&r);require(r.right>r.left&&r.bottom>r.top,"side pane remains valid after theme and placement changes");CaptureUiTest(directory/(std::wstring(dark?L"night-":L"light-")+layout+L".png"));}}
         StartSearch(L"Stage2-ui-saved");wait([]{return !app.searching;});require(app.files.size()==1,"overwrite UI fixture found through filter");
-        ListView_SetItemState(app.list,0,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});
+        TestSelectItem(app.list,0,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});
         SendMessageW(app.window,WM_COMMAND,EditMetadata,0);SetWindowTextW(authorInput,L"上書きUI & 検証");app.chooseSaveMode=[]{return 1;};app.confirmChanges=[]{return 3;};
         auto beforeSearch=app.searchGeneration;StartSearch(L"grid");require(app.searchGeneration==beforeSearch&&app.editing,"cancel unsaved search retains edited image");
         auto originalHash=MetadataFingerprint(uiOutput.wstring());StartSave();wait([&]{return !app.saving&&!app.folderPending&&!app.searching&&app.selected>=0&&app.metadataReady&&app.summary.values[4]==L"上書きUI & 検証";});
@@ -465,11 +493,51 @@ int UiTest() {
         auto v3=readSettings();app.autoBackup=false;app.backupLimit=7;app.darkTheme=true;app.metadataSearch=true;SaveSettings();v3=readSettings();require(!v3.autoBackup&&v3.backupLimit==7&&v3.darkTheme&&v3.metadataSearch,"v0.3.1 options persist independently");app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;SaveSettings();ApplyTheme();
         auto checked=directory/L"AB_ui-checked.jpg",unchecked=directory/L"AB_ui-unchecked.jpg";fs::copy_file(source,checked,fs::copy_options::overwrite_existing);fs::copy_file(source,unchecked,fs::copy_options::overwrite_existing);OpenFolder(directory.wstring(),true);wait([]{return !app.folderPending&&!app.searching;});
         auto checkedItem=std::find_if(app.files.begin(),app.files.end(),[&](auto& p){return Same(p,checked.wstring());});require(checkedItem!=app.files.end(),"backup deletion fixture listed");
-        ListView_SetItemState(app.list,static_cast<int>(checkedItem-app.files.begin()),LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});
+        TestSelectItem(app.list,static_cast<int>(checkedItem-app.files.begin()),LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});
         auto candidates=FindBackups(app.folder,directory/L"backups.json");
         SendMessageW(app.window,WM_COMMAND,EditMetadata,0);SetWindowTextW(authorInput,L"削除前の未保存変更");app.confirmChanges=[]{return 3;};
         SubmitBackupDeletion(candidates,{checked.wstring()});require(!app.backupBusy&&app.editing&&fs::exists(checked),"cancel unsaved selected-backup deletion preserves original and edit");
         app.confirmChanges=[]{return 2;};SubmitBackupDeletion(candidates,{checked.wstring()});require(app.backupBusy&&app.selected<0&&!app.editing,"selected-backup deletion clears preview after discard confirmation");app.confirmChanges={};wait([]{return !app.backupBusy&&!app.folderPending&&!app.searching;});require(!fs::exists(checked)&&fs::exists(unchecked),"background backup deletion removes checked file and retains unchecked file");wait([&]{std::error_code cleanupError;fs::remove(unchecked,cleanupError);if(cleanupError&&cleanupError.value()!=ERROR_SHARING_VIOLATION)throw std::system_error(cleanupError);return !cleanupError;});fs::remove(directory/L"backups.json");
+        auto batchUi=directory/L"v035-ui-batch",batchCopies=batchUi/L"copies";fs::create_directories(batchCopies);
+        for(auto name:{L"sample.jpg",L"sample-日本語.png",L"v035-source-0.webp"}){fs::copy_file(directory/name,batchUi/name,fs::copy_options::overwrite_existing);auto p=fs::path(name);fs::remove(batchCopies/(p.stem().wstring()+L"_edited"+p.extension().wstring()));}
+        OpenFolder(batchUi.wstring());wait([]{return !app.folderPending&&ThumbnailsReady();});
+        require(!(GetWindowLongPtrW(app.list,GWL_STYLE)&LVS_SINGLESEL),"list supports Ctrl and Shift multiple selection");
+        app.updatingSelection=true;
+        for(int i=0;i<3;++i){LVITEMW item{};item.state=LVIS_SELECTED;item.stateMask=LVIS_SELECTED;SendMessageW(app.list,LVM_SETITEMSTATE,i,reinterpret_cast<LPARAM>(&item));}
+        app.updatingSelection=false;Select(0);wait([]{return app.metadataReady;});
+        BeginMetadataEdit();wait([]{return !app.batchLoading;});
+        require(app.editing&&app.batchFiles.size()==3&&ListView_GetSelectedCount(app.list)==3,"three mixed-format selected images enter batch editor");
+        require(!IsWindowEnabled(GetDlgItem(app.editorUi.Window(),1000))&&app.editorUi.Read().actions[0]==EditAction::Keep&&Text(GetDlgItem(app.editorUi.Window(),1001)).empty(),"batch capture date disabled and mixed author is not a literal saved value");
+        SetWindowTextW(GetDlgItem(app.editorUi.Window(),1001),L"一括UI撮影者");SetWindowTextW(GetDlgItem(app.editorUi.Window(),1005),L"UI追加タグ");SendMessageW(GetDlgItem(app.editorUi.Window(),1105),CB_SETCURSEL,3,0);
+        for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();for(auto layout:{L"left",L"right",L"bottom"}){app.layout=layout;Layout();CaptureUiTest(directory/(std::wstring(dark?L"batch-night-":L"batch-light-")+layout+L".png"));}}
+        app.darkTheme=false;app.layout=L"right";ApplyTheme();Layout();
+        app.confirmChanges=[]{return 3;};TestSelectItem(app.list,0,0,LVIS_SELECTED);require(app.editing&&ListView_GetSelectedCount(app.list)==3,"cancel unsaved batch deselection preserves selected targets");app.confirmChanges={};
+        app.chooseSaveMode=[]{return 2;};app.chooseBatchFolder=[&]{return batchCopies.wstring();};app.confirmBatch=[](const Job&){return true;};
+        auto batchBefore=app.batchMetadata;StartSave();require(!app.activityText.empty(),"batch save shows preflight activity immediately");require(app.saving&&IsWindowEnabled(app.cancelButton),"batch save enables between-file cancellation");
+        wait([]{return !app.saving&&!app.folderPending&&ThumbnailsReady();});require(app.activityText.empty(),"batch save completion stops animation");
+        require(!app.editing&&app.files.size()==3&&ListView_GetSelectedCount(app.list)==3,"batch copy reload restores multiple selection");
+        for(auto& path:app.files){auto saved=InspectEditable(path);require(saved.values[1]==L"一括UI撮影者"&&saved.values[5].find(L"UI追加タグ")!=std::wstring::npos,"batch UI applies author and appends searchable tags");}
+        app.metadataSearch=true;SetWindowTextW(app.searchEdit,L"UI追加タグ");SetFocus(app.searchEdit);
+        MSG enter{};enter.hwnd=app.searchEdit;enter.message=WM_KEYDOWN;enter.wParam=VK_RETURN;
+        require((SendMessageW(app.searchEdit,WM_GETDLGCODE,VK_RETURN,reinterpret_cast<LPARAM>(&enter))&DLGC_WANTMESSAGE)!=0,"search edit requests Enter from dialog manager");
+        MSG tab=enter;tab.wParam=VK_TAB;require(!(SendMessageW(app.searchEdit,WM_GETDLGCODE,VK_TAB,reinterpret_cast<LPARAM>(&tab))&DLGC_WANTMESSAGE),"search edit retains normal Tab navigation");
+        for(int modifier:{0,VK_CONTROL,VK_SHIFT}) {
+            BYTE original[256]{};GetKeyboardState(original);BYTE keys[256]{};std::copy(std::begin(original),std::end(original),keys);if(modifier)keys[modifier]=0x80;SetKeyboardState(keys);
+            auto before=app.searchGeneration;bool consumed=IsDialogMessageW(app.window,&enter);if(!consumed){TranslateMessage(&enter);DispatchMessageW(&enter);}SetKeyboardState(original);
+            require(app.searchGeneration>before,"Enter Ctrl+Enter Shift+Enter reach search through dialog message path");
+            wait([]{return !app.searching;});require(app.files.size()==3&&app.appliedQuery==L"UI追加タグ","Enter searches tag metadata across PNG JPEG WebP");
+        }
+        auto queuedBefore=app.searchGeneration;PostMessageW(app.searchEdit,WM_KEYDOWN,VK_RETURN,0);wait([&]{return app.searchGeneration>queuedBefore&&!app.searching;});require(app.files.size()==3,"queued Enter searches through normal UI message pump");
+        auto searchEpoch=app.searchGeneration;SendMessageW(app.searchEdit,WM_KEYDOWN,VK_RETURN,1LL<<30);require(app.searchGeneration==searchEpoch,"search Enter auto-repeat does not start duplicate job");
+        SetWindowTextW(app.searchEdit,L"");SendMessageW(app.searchEdit,WM_KEYDOWN,VK_RETURN,0);wait([]{return !app.searching;});require(app.files.size()==3&&app.appliedQuery.empty(),"empty Enter restores all files");app.metadataSearch=false;
+        app.chooseSaveMode={};app.chooseBatchFolder={};app.confirmBatch={};
+        ShowWindow(app.window,SW_SHOWNOACTIVATE);auto gallerySelected=app.selected;RECT narrow{},expanded{};GetWindowRect(app.list,&narrow);
+        for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();SendMessageW(app.placement,CB_SETCURSEL,3,0);SendMessageW(app.window,WM_COMMAND,MAKEWPARAM(Placement,CBN_SELCHANGE),reinterpret_cast<LPARAM>(app.placement));
+            GetWindowRect(app.list,&expanded);require(app.layout==L"none"&&!IsWindowVisible(app.preview)&&!IsWindowVisible(app.metadataTabs)&&!IsWindowVisible(app.simple)&&!IsWindowVisible(app.details)&&expanded.right-expanded.left>narrow.right-narrow.left&&app.selected==gallerySelected,"no side view hides pane and expands gallery while keeping selection");
+            wait([]{return ThumbnailsReady();});CaptureUiTest(directory/(dark?L"gallery-night.png":L"gallery-light.png"));require(ParseViewerSettings(SerializeViewerSettings(ViewerSettings{128,100,true,true,dark,false,10,L"",L"none"})).layout==L"none","gallery setting persists");}
+        SendMessageW(app.placement,CB_SETCURSEL,0,0);SendMessageW(app.window,WM_COMMAND,MAKEWPARAM(Placement,CBN_SELCHANGE),reinterpret_cast<LPARAM>(app.placement));app.darkTheme=false;ApplyTheme();wait([]{return app.selected>=0&&app.metadataReady&&ThumbnailsReady();});
+        BeginMetadataEdit();wait([]{return !app.batchLoading;});SetWindowTextW(GetDlgItem(app.editorUi.Window(),1001),L"非表示前の変更");app.confirmChanges=[]{return 3;};SendMessageW(app.placement,CB_SETCURSEL,3,0);SendMessageW(app.window,WM_COMMAND,MAKEWPARAM(Placement,CBN_SELCHANGE),reinterpret_cast<LPARAM>(app.placement));require(app.layout==L"right"&&app.editing&&IsWindowVisible(app.editorUi.Window()),"cancel hiding sidebar protects unsaved metadata edit");
+        app.confirmChanges=[]{return 2;};SendMessageW(app.placement,CB_SETCURSEL,3,0);SendMessageW(app.window,WM_COMMAND,MAKEWPARAM(Placement,CBN_SELCHANGE),reinterpret_cast<LPARAM>(app.placement));require(app.layout==L"none"&&!app.editing&&!IsWindowVisible(app.editorUi.Window()),"discard confirmation permits hiding editor");app.confirmChanges={};
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
