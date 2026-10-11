@@ -51,7 +51,7 @@ constexpr UINT_PTR ThumbnailTimer = 2;
 constexpr UINT_PTR ActivityTimer = 3;
 constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
-enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator };
+enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView };
 struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; };
 struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
 struct State {
@@ -160,6 +160,9 @@ void RunBatchJob(const Job& job,Result& result,const std::function<void(size_t)>
 std::wstring BatchResultCounts(size_t total,size_t success,bool failed);
 LRESULT CALLBACK SearchEditProc(HWND,UINT,WPARAM,LPARAM,UINT_PTR,DWORD_PTR);
 void SubmitBackupDeletion(const std::vector<BackupCandidate>& candidates, const std::vector<std::wstring>& selected);
+void ResetViewer();
+std::wstring QuickHelpText();
+void ShowQuickHelp(const std::function<void(HWND)>& inspect = {});
 void OpenFolder(const std::wstring& path, bool reload = false, const std::wstring& preserveOverride = L"");
 HBITMAP Thumbnail(const Pixels& pixels, int width = 128);
 void UpdateThumbnailSpacing();

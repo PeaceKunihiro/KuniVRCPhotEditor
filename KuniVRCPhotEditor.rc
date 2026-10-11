@@ -16,11 +16,11 @@ BEGIN
   BLOCK "040904B0"
   BEGIN
    VALUE "FileDescription", "KuniVRCPhotEditor"
-   VALUE "FileVersion", "0.4.8.0"
+   VALUE "FileVersion", "0.4.9.0"
    VALUE "InternalName", "KuniVRCPhotEditor"
    VALUE "OriginalFilename", "KuniVRCPhotEditor.exe"
    VALUE "ProductName", "KuniVRCPhotEditor"
-   VALUE "ProductVersion", "0.4.8"
+   VALUE "ProductVersion", "0.4.9"
   END
  END
  BLOCK "VarFileInfo"
@@ -28,3 +28,5 @@ BEGIN
   VALUE "Translation", 0x0409, 1200
  END
 END
+
+1900 RCDATA "Stable\\readme.md"

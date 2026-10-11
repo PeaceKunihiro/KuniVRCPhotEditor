@@ -74,3 +74,16 @@ bool GuardTransition(std::function<void()> action) {
     if(choice==1){app.afterSave=std::move(action);StartSave();if(!app.saving)app.afterSave={};}
     return false;
 }
+
+void ResetViewer() {
+    if(app.saving||app.backupBusy)return;
+    FlushSelectionUpdate();
+    if(!GuardTransition([]{ResetViewer();}))return;
+    CancelSearch();StopActivity();
+    ++app.generation;app.currentGeneration=app.generation;
+    {std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind!=3;}),app.jobs.end());}
+    app.wake.notify_all();app.folderPending=false;app.folder.clear();app.last.clear();app.allFiles.clear();app.restoreSelection.clear();app.appliedQuery.clear();
+    SetWindowTextW(app.path,L"");SetWindowTextW(app.searchEdit,L"");SendMessageW(app.history,CB_SETCURSEL,-1,0);
+    CommitDisplay({},L"");app.selectionPending=false;app.cache.Clear();
+    Layout();SaveSettings();Counts(L"フォルダーを選択してください。");
+}

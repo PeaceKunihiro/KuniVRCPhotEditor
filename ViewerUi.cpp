@@ -435,18 +435,18 @@ void Layout() {
     // Move the toolbar as one batch and discard copied pixels from old positions.
     // Sequential MoveWindow(..., TRUE) can repaint while siblings still overlap.
     struct ToolbarPosition { HWND window; int x, y, width, height; };
-    bool wrap=width<848;int recordingY=wrap?110:76,placementX=wrap?8:width-332;int listTop=wrap?144:110;
+    bool wrap=width<700;int recordingY=wrap?110:76,placementX=wrap?8:width-332;int listTop=wrap?144:110;
     const ToolbarPosition toolbar[]{
-        { app.path, 8, 8, std::max(80, width - 176), 26 },
-        { GetDlgItem(app.window, OpenPath), width - 160, 8, 64, 26 },
-        { GetDlgItem(app.window, Browse), width - 88, 8, 80, 26 },
+        { app.path, 8, 8, std::max(80, width - 248), 26 },
+        { GetDlgItem(app.window, OpenPath), width - 232, 8, 64, 26 },
+        { GetDlgItem(app.window, Browse), width - 160, 8, 80, 26 },
+        { GetDlgItem(app.window, ResetView), width-72,8,64,26 },
         { app.history, 8, 42, std::max(120,width/3), 280 },
         { app.searchEdit, 16+std::max(120,width/3),42,std::max(100,width-96-std::max(120,width/3)),26 },
         { app.searchButton,width-72,42,64,26 },
         { GetDlgItem(app.window, Bookmarks),8,76,120,26 },
         { GetDlgItem(app.window, Options),136,76,116,26 },
-        { GetDlgItem(app.window, PersonSettings),260,76,144,26 },
-        { GetDlgItem(app.window, Help),412,76,88,26 },
+        { GetDlgItem(app.window, Help),260,76,88,26 },
         { app.placement,placementX,recordingY,172,180 },
         { GetDlgItem(app.window,RecordToggle),placementX+180,recordingY,104,26 },
         { GetDlgItem(app.window,RecordIndicator),placementX+292,recordingY,24,26 }
@@ -641,13 +641,14 @@ HMENU BuildOptionsMenu() {
     AppendMenuW(menu,MF_STRING|(app.metadataSearch?MF_CHECKED:0),7,app.metadataSearch?L"メタデータ検索モード: ON":L"メタデータ検索モード: OFF");
 
     AppendMenuW(menu,MF_STRING|(app.autoThumbnails?MF_CHECKED:0),9,app.autoThumbnails?L"サムネイルサイズ自動化: ON":L"サムネイルサイズ自動化: OFF");
+    AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,8,L"記録設定…");
     return menu;
 }
 void OptionsMenu() {
     auto menu = BuildOptionsMenu();
     RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
     auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if(action==8)stage3::ShowMonitorDialog();
+    if(action==8){stage3::ShowMonitorDialog();UpdateRecordingControls();}
     else if (action >= 3) NewOptionsAction(static_cast<int>(action));
     else if (action == 1) {
         int mb = app.cacheMB;
@@ -686,7 +687,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"ロード", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
         Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
-        Control(L"BUTTON",L"人物記録設定 ▼",WS_TABSTOP,PersonSettings);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);
+        Control(L"BUTTON",L"リセット",WS_TABSTOP,ResetView);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);
         Control(L"BUTTON",L"記録開始",WS_TABSTOP|BS_OWNERDRAW,RecordToggle);Control(L"STATIC",L"記録状態",SS_OWNERDRAW,RecordIndicator);SetTimer(window,RecordTimer,500,nullptr);
         app.searchEdit=Control(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,SearchEdit);
         SendMessageW(app.searchEdit,EM_SETCUEBANNER,TRUE,reinterpret_cast<LPARAM>(L"検索文字列（Enter／ボタンで実行）"));
@@ -763,8 +764,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             if(app.saving&&!app.batchFiles.empty()){app.cancelBatch=true;SetWindowTextW(app.editStatus,L"現在の画像の保存完了後に中止します…");}else if(!app.saving){app.editing=false;app.batchLoading=false;app.batchFiles.clear();app.batchMetadata.clear();SetWindowTextW(app.editStatus,L"編集をキャンセルしました。");UpdateEditorControls();Layout();}break;
         case SearchButton: if(app.searching)CancelSearch();else StartSearch(Text(app.searchEdit));break;
         case RecordToggle: stage3::ToggleRecording();UpdateRecordingControls();Counts();break;
-        case PersonSettings: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"参加者自動記録の設定…");RECT r{};GetWindowRect(GetDlgItem(window,PersonSettings),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)stage3::ShowMonitorDialog();UpdateRecordingControls();break;}
-        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");AppendMenuW(menu,MF_STRING,2,L"アップデートを確認…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();if(action==2)ShowUpdateChecker(window);break;}
+        case ResetView: ResetViewer();break;
+
+        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");AppendMenuW(menu,MF_STRING,2,L"アップデートを確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();if(action==2)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
         case Options: OptionsMenu(); break;
@@ -830,7 +832,25 @@ void UpdateEditorControls() {
     EnableWindow(app.editButton,app.metadataReady && !app.previewPixels.data.empty() && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && app.selected>=0);
     EnableWindow(app.saveButton,app.editing && !app.saving && !app.backupBusy && edit.Changed() && edit.Validate().empty());
     EnableWindow(app.cancelButton,app.editing && (!app.saving||!app.batchFiles.empty()) && !app.backupBusy);SetWindowTextW(app.cancelButton,app.saving&&!app.batchFiles.empty()?L"一括保存中止":L"キャンセル");
-    for(int id:{OpenPath,Browse,History,Bookmarks,SearchButton,Options})EnableWindow(GetDlgItem(app.window,id),!app.saving&&!app.backupBusy);
+    for(int id:{OpenPath,Browse,ResetView,History,Bookmarks,SearchButton,Options})EnableWindow(GetDlgItem(app.window,id),!app.saving&&!app.backupBusy);
     if(app.editing && !app.saving){auto error=edit.Validate();if(!error.empty())SetWindowTextW(app.editStatus,error.c_str());}
     else if(!app.editError.empty() && !app.editing)SetWindowTextW(app.editStatus,(L"編集不可: "+app.editError).c_str());
 }
+
+std::wstring QuickHelpText(){
+    auto module=GetModuleHandleW(nullptr);auto resource=FindResourceW(module,MAKEINTRESOURCEW(1900),RT_RCDATA);
+    if(!resource)return L"説明文を読み込めませんでした。";
+    auto data=static_cast<const char*>(LockResource(LoadResource(module,resource)));auto size=SizeofResource(module,resource);
+    auto length=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,data,size,nullptr,0);std::wstring text(length,L'\0');
+    if(length)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,data,size,text.data(),length);
+    std::wstring output;for(auto c:text){if(c==L'\n'&&(output.empty()||output.back()!=L'\r'))output+=L'\r';output+=c;}return output;
+}
+namespace {
+INT_PTR CALLBACK QuickHelpDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
+    if(m==WM_INITDIALOG){SetWindowLongPtrW(h,DWLP_USER,lp);if(lp)SetTimer(h,49,100,nullptr);SetWindowTextW(h,L"簡単な使い方");RECT area{};GetClientRect(h,&area);auto text=QuickHelpText();auto c=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",text.c_str(),WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,8,8,std::max(1L,area.right-16),std::max(1L,area.bottom-16),h,reinterpret_cast<HMENU>(1901),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);SetFocus(c);SendMessageW(c,EM_SETSEL,0,0);return FALSE;}
+    if(m==WM_TIMER&&wp==49){KillTimer(h,49);auto inspect=reinterpret_cast<const std::function<void(HWND)>*>(GetWindowLongPtrW(h,DWLP_USER));RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);(*inspect)(h);EndDialog(h,IDOK);return TRUE;}
+    if(m==WM_SIZE){RECT r{};GetClientRect(h,&r);MoveWindow(GetDlgItem(h,1901),8,8,std::max(1L,r.right-16),std::max(1L,r.bottom-16),TRUE);return TRUE;}
+    if(m==WM_CLOSE||(m==WM_COMMAND&&(LOWORD(wp)==IDCANCEL||LOWORD(wp)==IDOK))){EndDialog(h,IDCANCEL);return TRUE;}return FALSE;
+}
+}
+void ShowQuickHelp(const std::function<void(HWND)>& inspect){struct Template{DLGTEMPLATE dialog;WORD menu,cls,title;} t{{WS_POPUP|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|DS_MODALFRAME|DS_CENTER,0,0,0,0,360,300},0,0,0};DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&t.dialog,app.window,QuickHelpDialog,inspect?reinterpret_cast<LPARAM>(&inspect):0);}
