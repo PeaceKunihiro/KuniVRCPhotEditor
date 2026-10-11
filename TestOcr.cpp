@@ -1,6 +1,7 @@
 #include "ViewerRuntime.h"
 #include "TestOcr.h"
 #include "WindowCapture.h"
+#include "NativeTileOcr.h"
 #include <winrt/Windows.Media.Ocr.h>
 #include <winrt/Windows.Globalization.h>
 #include <winrt/Windows.Graphics.Imaging.h>
@@ -17,10 +18,11 @@ void Notify(){if(app.window)PostMessageW(app.window,WM_APP+4,0,0);}
 std::wstring Trim(std::wstring text){while(!text.empty()&&iswspace(text.back()))text.pop_back();auto i=text.find_first_not_of(L" \t\r\n");return i==text.npos?L"":text.substr(i);}
 void Receive(Pixels&& p,uint64_t version){std::lock_guard<std::mutex> lock(guard);if(stopping||version!=generation)return;pending=std::make_shared<Pixels>(std::move(p));preview=pending;signal.notify_all();Notify();}
 Pixels ReadImage(const std::wstring& path){
-    if(_wcsicmp(fs::path(path).extension().c_str(),L".webp")==0){auto p=ReadWebP(path,4096,4096);if(uint64_t(p.sourceWidth)*p.sourceHeight>16*1024*1024)throw std::runtime_error("Test OCR image limit: 16Mi pixels");return {p.width,p.height,std::move(p.pixels)};}
+    if(_wcsicmp(fs::path(path).extension().c_str(),L".webp")==0){auto info=ReadWebP(path,0,0);if(uint64_t(info.sourceWidth)*info.sourceHeight>16*1024*1024)throw std::runtime_error("Test OCR image limit: 16Mi pixels");bool high=person_ocr::GetSettings().highPrecision;auto p=ReadWebP(path,high?info.sourceWidth:4096,high?info.sourceHeight:4096);return {p.width,p.height,std::move(p.pixels)};}
     ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));ComPtr<IWICBitmapDecoder> decoder;winrt::check_hresult(factory->CreateDecoderFromFilename(path.c_str(),nullptr,GENERIC_READ,WICDecodeMetadataCacheOnLoad,&decoder));ComPtr<IWICBitmapFrameDecode> frame;winrt::check_hresult(decoder->GetFrame(0,&frame));UINT w{},h{};frame->GetSize(&w,&h);if(uint64_t(w)*h>16*1024*1024)throw std::runtime_error("Test OCR image limit: 16Mi pixels");return Decode(factory.Get(),frame.Get(),w,h);
 }
 std::wstring Recognize(const Pixels& p,uint64_t version){
+    if(person_ocr::GetSettings().highPrecision){std::vector<BYTE> gray(size_t(p.width)*p.height);for(size_t i=0;i<gray.size();++i){auto q=p.data.data()+i*4;gray[i]=BYTE((q[2]*77+q[1]*150+q[0]*29)>>8);}auto lines=person_ocr::RecognizeNativeTiles(p.width,p.height,gray,[&]{std::lock_guard<std::mutex> lock(guard);return stopping||version!=generation;});std::wstring text;std::set<std::wstring> unique;for(auto& line:lines)if(line.original&&unique.insert(line.text).second&&text.size()<60000)text+=line.text+L"\r\n";return text.substr(0,60000);}
     using namespace winrt::Windows;std::vector<Media::Ocr::OcrEngine> engines;
     for(auto lang:{L"ja",L"en"}){auto e=Media::Ocr::OcrEngine::TryCreateFromLanguage(Globalization::Language(lang));if(e)engines.push_back(e);}
     if(engines.empty()){auto e=Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();if(e)engines.push_back(e);}
@@ -46,7 +48,7 @@ void Work(HWND target,int fps,int seconds,std::wstring path,uint64_t version,boo
     try{winrt::check_hresult(initialized);
         std::shared_ptr<Pixels> cached;
         if(!path.empty()){Receive(ReadImage(path),version);std::lock_guard<std::mutex> lock(guard);cached=preview;}
-        else capture=std::make_unique<WindowCapture>(target,fps,1,[version](Pixels&& p,stage3::Time){Receive(std::move(p),version);},true);
+        else capture=std::make_unique<WindowCapture>(target,fps,1,[version](Pixels&& p,stage3::Time){Receive(std::move(p),version);},true,person_ocr::GetSettings().highPrecision);
         for(;;){std::shared_ptr<Pixels> image;{std::unique_lock<std::mutex> lock(guard);signal.wait_for(lock,std::chrono::milliseconds(100),[]{return stopping||pending;});if(stopping)break;image=std::move(pending);if(image)status=L"テストOCR処理中（保存なし）";}
             if(capture){auto error=capture->Error();if(!error.empty()||!IsWindow(target)||IsIconic(target)){std::lock_guard<std::mutex> lock(guard);status=error.empty()?L"対象ウィンドウ待ち／最小化":error;preview.reset();pending.reset();Notify();}}
             if(!image)continue;auto startedAt=std::chrono::steady_clock::now();if(!path.empty()){std::lock_guard<std::mutex> lock(guard);if(stopping||version!=generation)break;imageStarts.push_back(GetTickCount64());if(imageStarts.size()>8)imageStarts.erase(imageStarts.begin());}Notify();auto result=Recognize(*image,version);{std::lock_guard<std::mutex> lock(guard);if(!stopping&&version==generation){raw=std::move(result);status=L"テストOCR完了（推測・保存なし）";Notify();}}

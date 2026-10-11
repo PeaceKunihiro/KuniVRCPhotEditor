@@ -81,7 +81,7 @@ struct State {
     MetadataEditorUi editorUi; EditableMetadata editable;
     bool editing=false, saving=false, metadataReady=false, transitionBypass=false;
     std::wstring editError; std::function<void()> afterSave;
-    std::function<int()> confirmChanges;
+    std::function<int()> confirmChanges;std::function<bool()> confirmHighOcr;
     std::function<std::wstring()> chooseSavePath;
     std::function<void(const std::wstring&)> photosRequest;
     std::atomic<unsigned> metadataDelayMs{0};
@@ -224,4 +224,5 @@ bool TestBackupCheckboxes();
 struct WorkerLifetime { ~WorkerLifetime(){--app.activeWorkers;} };
 
 void CreateOcrUi();void LayoutOcrUi(RECT page,bool visible);void RefreshOcrUi();bool OcrCommand(int id,int code);
+bool DrawOcrButton(DRAWITEMSTRUCT* draw);
 bool OcrTestSource();std::shared_ptr<const Pixels> OcrTestPreview();std::wstring OcrTestStatus();void StopOcrUi();

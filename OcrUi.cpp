@@ -1,8 +1,8 @@
 #include "ViewerRuntime.h"
 #include "TestOcr.h"
 namespace {
-constexpr int Mode=1801,Apply=1802,Target=1803,Output=1804,TestRun=1805,FpsField=1806;
-HWND mode{},fps{},seconds{},apply{},target{},status{},raw{},fpsLabel{},secondsLabel{},output{},testRun{};
+constexpr int Mode=1801,Apply=1802,Target=1803,Output=1804,TestRun=1805,FpsField=1806,High=1807;
+HWND high{},mode{},fps{},seconds{},apply{},target{},status{},raw{},fpsLabel{},secondsLabel{},output{},testRun{};
 std::vector<person_ocr::Window> windows;
 std::wstring previousRaw,previousStatus,lastImage;
 int source=0;bool names=false,imageRunning=false;HWND testWindow{},normalWindow{};ULONGLONG refreshed=0;
@@ -18,6 +18,7 @@ void CreateOcrUi(){
     source=0;names=false;imageRunning=false;testWindow=nullptr;normalWindow=nullptr;refreshed=0;lastImage.clear();previousRaw.clear();previousStatus.clear();
     person_ocr::LoadSettings(app.settings.parent_path());auto settings=person_ocr::GetSettings();
     mode=Control(L"BUTTON",settings.always?L"常にOCR":L"撮影時OCR",WS_TABSTOP,Mode);
+    high=Control(L"BUTTON",settings.highPrecision?L"高精度：ON":L"高精度：OFF",WS_TABSTOP|BS_OWNERDRAW,High);
     fpsLabel=Control(L"STATIC",L"読み取りFPS (5–15)",SS_LEFT,0);
     secondsLabel=Control(L"STATIC",L"バッファ秒 (1–30)",SS_LEFT,0);
     fps=Control(L"EDIT",std::to_wstring(settings.fps).c_str(),WS_BORDER|WS_TABSTOP|ES_NUMBER,FpsField);
@@ -33,6 +34,7 @@ void CreateOcrUi(){
 void LayoutOcrUi(RECT page,bool visible){
     int x=page.left,y=page.top,w=std::max(1L,page.right-page.left);
     MoveWindow(mode,x,y,std::min(w,130),26,TRUE);
+    MoveWindow(high,x+std::min(w,130)+8,y,std::max(1,std::min(120,w-138)),26,TRUE);
     MoveWindow(target,x,y+30,w,250,TRUE);
     MoveWindow(fpsLabel,x,y+62,w/2,22,TRUE);MoveWindow(secondsLabel,x+w/2,y+62,w-w/2,22,TRUE);
     MoveWindow(fps,x,y+86,std::max(30,w/2-8),24,TRUE);MoveWindow(seconds,x+w/2,y+86,std::max(30,w/2),24,TRUE);
@@ -40,7 +42,7 @@ void LayoutOcrUi(RECT page,bool visible){
     MoveWindow(apply,x,y+114,std::min(w,120),26,TRUE);MoveWindow(output,w<280?x:x+128,y+resultY,buttonWidth,26,TRUE);
     MoveWindow(testRun,x,y+resultY+30,std::min(w,180),26,TRUE);MoveWindow(status,x,y+resultY+60,w,60,TRUE);
     MoveWindow(raw,x,y+resultY+124,w,std::max(1L,page.bottom-y-resultY-124),TRUE);
-    for(auto h:{mode,target,fpsLabel,secondsLabel,fps,seconds,apply,output,testRun,status,raw}){ShowWindow(h,visible?SW_SHOW:SW_HIDE);if(visible)SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);}
+    for(auto h:{mode,high,target,fpsLabel,secondsLabel,fps,seconds,apply,output,testRun,status,raw}){ShowWindow(h,visible?SW_SHOW:SW_HIDE);if(visible)SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);}
     EnableWindow(testRun,source!=0);RefreshOcrUi();
 }
 void RefreshOcrUi(){
@@ -57,9 +59,10 @@ void RefreshOcrUi(){
     EnableWindow(mode,source==0);EnableWindow(seconds,source==0);EnableWindow(secondsLabel,source==0);EnableWindow(fps,source!=2);EnableWindow(fpsLabel,source!=2);EnableWindow(apply,source!=2);
 }
 bool OcrCommand(int id,int code){
-    if(id!=Mode&&id!=Apply&&id!=Target&&id!=Output&&id!=TestRun)return false;
+    if(id!=High&&id!=Mode&&id!=Apply&&id!=Target&&id!=Output&&id!=TestRun)return false;
     try{
-        if(id==Output){names=!names;SetWindowTextW(output,names?L"OCR結果：名前":L"OCR結果：認識");previousRaw=L"\x1";}
+        if(id==High){auto value=person_ocr::GetSettings();if(!value.highPrecision){bool approved=app.confirmHighOcr?app.confirmHighOcr():MessageBoxW(app.window,L"高精度OCRは原寸画像を分割して認識します。CPU・メモリー負荷が増え、VRChatのFPSが低下する場合があります。有効にしますか？",L"高精度OCR",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)==IDYES;if(!approved)return true;}bool active=source==1&&test_ocr::Active();bool image=source==2&&imageRunning;test_ocr::Stop();value.highPrecision=!value.highPrecision;person_ocr::SetSettings(value);SetWindowTextW(high,value.highPrecision?L"高精度：ON":L"高精度：OFF");InvalidateRect(high,nullptr,TRUE);previousRaw=L"\x1";if(active)test_ocr::Capture(testWindow,value.fps,value.seconds);if(image)RecognizeImage();}
+        else if(id==Output){names=!names;SetWindowTextW(output,names?L"OCR結果：名前":L"OCR結果：認識");previousRaw=L"\x1";}
         else if(id==TestRun){if(source==2){if(imageRunning){imageRunning=false;test_ocr::PauseImage();}else{imageRunning=true;RecognizeImage();}}else if(source==1){if(test_ocr::Active())test_ocr::Stop();else if(testWindow){auto s=person_ocr::GetSettings();test_ocr::Capture(testWindow,s.fps,s.seconds);}else MessageBoxW(app.window,L"対象ウィンドウをプルダウンから選択してください。",L"テストキャプチャ",MB_OK);}}
         else if(id==Target&&code==CBN_SELCHANGE){auto index=SendMessageW(target,CB_GETCURSEL,0,0);if(index<0)return true;if(index<3){test_ocr::Stop();imageRunning=false;source=int(index);testWindow=nullptr;lastImage.clear();if(source==0){normalWindow=nullptr;person_ocr::SelectWindow(nullptr);}FillTargets();}
             else if(size_t(index-3)<windows.size()){auto h=windows[index-3].handle;if(source==1){testWindow=h;auto s=person_ocr::GetSettings();test_ocr::Capture(h,s.fps,s.seconds);}else{test_ocr::Stop();lastImage.clear();imageRunning=false;source=0;normalWindow=h;person_ocr::SelectWindow(h);}}}
@@ -68,3 +71,5 @@ bool OcrCommand(int id,int code){
     }catch(const std::exception&){MessageBoxW(app.window,L"FPSは5～15、期間は1～30秒です。対象ウィンドウ・設定保存先も確認してください。",L"OCR設定",MB_OK|MB_ICONWARNING);}
     catch(const winrt::hresult_error& e){MessageBoxW(app.window,e.message().c_str(),L"OCR設定",MB_OK|MB_ICONWARNING);}return true;
 }
+
+bool DrawOcrButton(DRAWITEMSTRUCT* draw){if(draw->CtlID!=High)return false;int saved=SaveDC(draw->hDC);bool on=person_ocr::GetSettings().highPrecision;auto color=on?RGB(255,100,100):RGB(80,175,255);if(draw->itemState&ODS_SELECTED)color=on?RGB(220,75,75):RGB(55,145,225);auto brush=CreateSolidBrush(color);FillRect(draw->hDC,&draw->rcItem,brush);DeleteObject(brush);FrameRect(draw->hDC,&draw->rcItem,GetSysColorBrush(COLOR_GRAYTEXT));auto font=SendMessageW(draw->hwndItem,WM_GETFONT,0,0);if(font)SelectObject(draw->hDC,reinterpret_cast<HGDIOBJ>(font));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,RGB(0,0,0));auto rect=draw->rcItem;auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(draw->hDC,&rect);}RestoreDC(draw->hDC,saved);return true;}

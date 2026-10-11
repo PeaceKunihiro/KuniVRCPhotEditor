@@ -735,7 +735,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: ApplyTheme();return 0;
     case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
-    case WM_DRAWITEM: if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
+    case WM_DRAWITEM: if(DrawOcrButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
     case WM_SETCURSOR: {POINT p{};GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&app.splitter,p)){SetCursor(LoadCursorW(nullptr,app.layout==L"bottom"?IDC_SIZENS:IDC_SIZEWE));return TRUE;}break;}
     case WM_LBUTTONDOWN: {POINT p{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)};if(PtInRect(&app.splitter,p)){app.draggingSplitter=true;SetCapture(window);return 0;}break;}
     case WM_MOUSEMOVE: if(app.draggingSplitter){RECT r{};GetClientRect(window,&r);if(app.layout==L"bottom")app.sideHeight=std::clamp(int(r.bottom-36-GET_Y_LPARAM(lparam)),120,10000);else app.sideWidth=std::clamp(app.layout==L"left"?GET_X_LPARAM(lparam)-8:int(r.right-8-GET_X_LPARAM(lparam)),280,std::max(280,int(r.right)-176));Layout();return 0;}break;

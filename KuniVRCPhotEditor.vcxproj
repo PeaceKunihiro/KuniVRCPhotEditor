@@ -251,4 +251,4 @@
     <ClCompile Include="TestOcr.cpp" />
     <ClInclude Include="TestOcr.h" />
   </ItemGroup>
-<ItemGroup><ClCompile Include="UpdateChecker.cpp"/><ClInclude Include="UpdateChecker.h"/><ClInclude Include="AppVersion.h"/></ItemGroup><ItemGroup><ClCompile Include="V048Features.cpp"/><ClInclude Include="V048Features.h"/></ItemGroup></Project>
+<ItemGroup><ClCompile Include="UpdateChecker.cpp"/><ClInclude Include="UpdateChecker.h"/><ClInclude Include="AppVersion.h"/></ItemGroup><ItemGroup><ClCompile Include="V048Features.cpp"/><ClInclude Include="V048Features.h"/></ItemGroup><ItemGroup><ClCompile Include="NativeTileOcr.cpp"/><ClInclude Include="NativeTileOcr.h"/></ItemGroup></Project>
