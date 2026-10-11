@@ -92,6 +92,7 @@ struct State {
     std::vector<std::wstring> bookmarks;
     int cacheMB = 100, slotLimit = ThumbnailSlots;
     size_t imageBytes = 0;
+    bool residentMode=false,residentOcr=false;
     bool diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
     bool saveHistory = true;
     bool thumbnailBudgetLimited = false;
@@ -230,4 +231,7 @@ struct WorkerLifetime { ~WorkerLifetime(){--app.activeWorkers;} };
 
 void CreateOcrUi();void LayoutOcrUi(RECT page,bool visible);void RefreshOcrUi();bool OcrCommand(int id,int code);
 bool DrawOcrButton(DRAWITEMSTRUCT* draw);
+bool OcrImageSource();
 bool OcrTestSource();std::shared_ptr<const Pixels> OcrTestPreview();std::wstring OcrTestStatus();void StopOcrUi();
+
+bool TrayMessage(HWND,UINT,WPARAM,LPARAM);void TrayUpdate();void TrayShutdown();void RunV0413UiTests(const fs::path&,std::ostream&);

@@ -70,7 +70,7 @@ void LoadSettings() {
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
-        app.diskCache=settings.diskCache;app.diskCacheMiB=settings.diskCacheMiB;app.diskCacheMinutes=settings.diskCacheMinutes;app.diskCacheVisits=settings.diskCacheVisits;
+        app.residentMode=settings.residentMode;app.residentOcr=settings.residentOcr;app.diskCache=settings.diskCache;app.diskCacheMiB=settings.diskCacheMiB;app.diskCacheMinutes=settings.diskCacheMinutes;app.diskCacheVisits=settings.diskCacheVisits;
         app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
     } catch (...) {
         app.settingsProtected = true;
@@ -83,7 +83,7 @@ void SaveSettings() {
         ViewerSettings settings;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
-        settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
+        settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
         settings.autoBackup=app.autoBackup;settings.backupLimit=app.backupLimit;settings.darkTheme=app.darkTheme;settings.metadataSearch=app.metadataSearch;
         settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
         auto bytes = SerializeViewerSettings(settings);
@@ -426,7 +426,7 @@ void Results() {
 }
 namespace {
 bool recordBlink=false;
-void UpdateRecordingControls(bool tick=false){auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=GetDlgItem(app.window,RecordToggle);auto text=on?L"記録停止":L"記録開始";if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(GetDlgItem(app.window,RecordIndicator),nullptr,FALSE);}
+void UpdateRecordingControls(bool tick=false){TrayUpdate();auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=GetDlgItem(app.window,RecordToggle);auto text=stage3::Stopping()?L"停止処理中…":on?L"記録停止":L"記録開始";EnableWindow(button,!stage3::Stopping());if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(GetDlgItem(app.window,RecordIndicator),nullptr,FALSE);}
 bool DrawRecording(DRAWITEMSTRUCT* draw){if(draw->CtlID!=RecordToggle&&draw->CtlID!=RecordIndicator)return false;int saved=SaveDC(draw->hDC);bool on=stage3::Recording();auto rect=draw->rcItem;
     if(draw->CtlID==RecordIndicator){FillRect(draw->hDC,&rect,ThemeBrush());auto brush=CreateSolidBrush(on&&recordBlink?RGB(220,35,35):RGB(135,135,135));auto oldBrush=SelectObject(draw->hDC,brush);auto oldPen=SelectObject(draw->hDC,GetStockObject(NULL_PEN));int size=std::min(rect.right-rect.left,rect.bottom-rect.top)-10;int x=(rect.left+rect.right-size)/2,y=(rect.top+rect.bottom-size)/2;Ellipse(draw->hDC,x,y,x+size,y+size);SelectObject(draw->hDC,oldBrush);SelectObject(draw->hDC,oldPen);DeleteObject(brush);}
     else {auto color=on?RGB(185,25,25):RGB(0,90,190);if(draw->itemState&ODS_SELECTED)color=on?RGB(140,15,15):RGB(0,65,140);auto brush=CreateSolidBrush(color);FillRect(draw->hDC,&rect,brush);DeleteObject(brush);FrameRect(draw->hDC,&rect,GetSysColorBrush(COLOR_GRAYTEXT));auto font=SendMessageW(draw->hwndItem,WM_GETFONT,0,0);if(font)SelectObject(draw->hDC,reinterpret_cast<HGDIOBJ>(font));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,RGB(255,255,255));auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(draw->hDC,&rect);}}
@@ -637,6 +637,8 @@ INT_PTR ShowCacheLimitDialog(int& mb) {
 }
 HMENU BuildOptionsMenu() {
     auto menu = CreatePopupMenu();
+    AppendMenuW(menu,MF_STRING|(app.residentMode?MF_CHECKED:0),13,app.residentMode?L"常駐モード: ON":L"常駐モード: OFF");
+    AppendMenuW(menu,MF_STRING|(app.residentOcr?MF_CHECKED:0),14,app.residentOcr?L"常駐OCR: ON（次回記録開始から）":L"常駐OCR: OFF（次回記録開始から）");
     auto label = L"画像サムネイルキャッシュ上限: " + std::to_wstring(app.cacheMB) + L" MB…";
     AppendMenuW(menu, MF_STRING, 1, label.c_str());
     AppendMenuW(menu,MF_STRING|(app.diskCache?MF_CHECKED:0),12,app.diskCache?L"ディスクキャッシュ: ON…":L"ディスクキャッシュ: OFF…");
@@ -690,6 +692,8 @@ HWND Control(LPCWSTR type, LPCWSTR text, DWORD style, int id) {
     SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE); return control;
 }
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if(app.closing&&(message==WM_COMMAND||message==WM_TIMER))return 0;
+    if(TrayMessage(window,message,wparam,lparam))return 0;
     switch (message) {
     case WM_CREATE: {
         ConfigureDiskCache();
@@ -815,7 +819,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
             }
         } return 0;
-    case WM_APP+3: if(!app.closing)Counts();return 0;
+    case WM_APP+3: if(!app.closing){UpdateRecordingControls();RefreshOcrUi();Counts();}return 0;
     case WM_SELECTION: if(!app.closing)FlushSelectionUpdate();return 0;
     case WM_RESULTS: if(!app.closing)Results(); return 0;
     case WM_CLOSE: {
@@ -823,7 +827,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if(app.closing)return 0;
         if(!GuardTransition([window]{SendMessageW(window,WM_CLOSE,0,0);}))return 0;
         KillTimer(window, ZoomTimer);
-        KillTimer(window, ThumbnailTimer);StopActivity();StopOcrUi();stage3::Shutdown(); app.closing = true;
+        KillTimer(window, ThumbnailTimer);StopActivity();app.closing=true;StopOcrUi();stage3::Shutdown();TrayShutdown();
         if (app.thumbnailWidth != app.activeThumbnailWidth) SaveSettings();
         CancelSearch();{std::lock_guard<std::mutex> lock(app.mutex);app.stopping=true;}app.wake.notify_all();
         // COM teardown may call back into the UI STA. Keep it pumping until workers finish.

@@ -16,11 +16,11 @@ BEGIN
   BLOCK "040904B0"
   BEGIN
    VALUE "FileDescription", "KuniVRCPhotEditor"
-   VALUE "FileVersion", "0.4.12.0"
+   VALUE "FileVersion", "0.4.13.0"
    VALUE "InternalName", "KuniVRCPhotEditor"
    VALUE "OriginalFilename", "KuniVRCPhotEditor.exe"
    VALUE "ProductName", "KuniVRCPhotEditor"
-   VALUE "ProductVersion", "0.4.12"
+   VALUE "ProductVersion", "0.4.13"
   END
  END
  BLOCK "VarFileInfo"

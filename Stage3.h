@@ -33,12 +33,13 @@ std::string RecordXml(const Record& record,bool saveUserIds=false);
 struct Decision {bool ready=false;std::wstring reason;Record record;};
 Decision Correlate(const std::wstring& path,const std::wstring& date,const std::wstring& world,Time detected,const LogMonitor& log);
 Decision CorrelateSteam(const std::wstring& path,Time detected,const LogMonitor& log);
-struct Config {std::wstring logFolder,photoFolder,outputFolder,selectedLog;bool autoRecord=false,autoStart=true;std::wstring steamFolder;DWORD processId=0;int graceSeconds=5,retrySeconds=60,backupLimit=10;bool saveUserIds=false,saveGroupIds=true;};
+struct Config {std::wstring logFolder,photoFolder,outputFolder,selectedLog;bool autoRecord=false,autoStart=false;std::wstring steamFolder;DWORD processId=0;int graceSeconds=5,retrySeconds=60,backupLimit=10;bool saveUserIds=false,saveGroupIds=true;bool ocrEnabled=false;};
 struct Item {std::wstring path,state,reason,output;};
 bool SeparateFolders(const std::filesystem::path& input,const std::filesystem::path& output);
 void EvaluateReferences(const std::filesystem::path& log,const std::filesystem::path& photos,const std::filesystem::path& samples,std::ostream& report);
 void RunMonitorTests(const std::filesystem::path& directory,std::ostream& report);
 void ShowMonitorDialog();std::wstring MonitorStatus();void Shutdown();void RunTests(const std::filesystem::path& directory,std::ostream& report);
+bool RecordingOcr();bool Stopping();void RequestStop();
 bool Recording();void ToggleRecording();void AutoTick();
 std::filesystem::path LatestLog(const std::filesystem::path& folder);
 }
