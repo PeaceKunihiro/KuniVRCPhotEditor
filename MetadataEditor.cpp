@@ -1,4 +1,4 @@
-#include "MetadataEditor.h"
+﻿#include "MetadataEditor.h"
 #include <regex>
 #include <sstream>
 #include <vector>
@@ -14,11 +14,17 @@ std::wstring NormalizeTags(const std::wstring& text) {
     return result;
 }
 bool MetadataEdit::Changed() const {
-    if(!stage3Xml.empty())return true;
+    if(!stage3Xml.empty()||editCandidates)return true;
     for (auto action : actions) if (action != EditAction::Keep) return true;
     return false;
 }
 std::wstring MetadataEdit::Validate() const {
+    if(editCandidates){
+        if(!stage3Xml.empty())return L"自動記録と手動候補編集は同時に指定できません。";
+        if(candidates.size()>4096||additionalCandidates.size()>65536)return L"モデル候補が入力上限を超えています。";
+        MetadataEdit textCheck;textCheck.actions[1]=EditAction::Set;textCheck.values[1]=additionalCandidates.empty()?L"候補":additionalCandidates;
+        if(auto error=textCheck.Validate();!error.empty())return error;
+    }
     if(stage3Xml.size()>1024*1024)return L"Stage3 metadata limit exceeded";
     for(size_t i=0;i<actions.size();++i)if(actions[i]==EditAction::Append&&i!=5)return L"追加できるのはタグだけです。";
     for (size_t i=0; i<values.size(); ++i) if (actions[i] == EditAction::Set || actions[i] == EditAction::Append) {

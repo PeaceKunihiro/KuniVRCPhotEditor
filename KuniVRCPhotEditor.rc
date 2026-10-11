@@ -1,4 +1,4 @@
-#include "AppVersion.h"
+﻿#include "AppVersion.h"
 #include "resource.h"
 #include <winres.h>
 IDI_APP_ICON ICON "Assets\\KuniVRCPhotEditor.ico"
@@ -16,11 +16,11 @@ BEGIN
   BLOCK "040904B0"
   BEGIN
    VALUE "FileDescription", "KuniVRCPhotEditor"
-   VALUE "FileVersion", "0.4.13.0"
+   VALUE "FileVersion", "0.4.14.0"
    VALUE "InternalName", "KuniVRCPhotEditor"
    VALUE "OriginalFilename", "KuniVRCPhotEditor.exe"
    VALUE "ProductName", "KuniVRCPhotEditor"
-   VALUE "ProductVersion", "0.4.13"
+   VALUE "ProductVersion", "0.4.14"
   END
  END
  BLOCK "VarFileInfo"

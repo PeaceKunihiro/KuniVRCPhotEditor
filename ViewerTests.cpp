@@ -1,4 +1,4 @@
-#include "TestOcr.h"
+﻿#include "TestOcr.h"
 #include "V048Features.h"
 #include "UpdateChecker.h"
 #include "ViewerRuntime.h"
@@ -572,6 +572,18 @@ int UiTest() {
         app.editable=InspectEditable((directory/L"v048-record.png").wstring());app.editorUi.Load(app.editable);app.editing=true;SetWindowTextW(GetDlgItem(app.editorUi.Window(),1001),L"reset unsaved");app.confirmChanges=[]{return 3;};auto beforeReset=app.generation;ResetViewer();require(app.generation==beforeReset&&app.editing,"v0.4.9 reset cancellation preserves unsaved edit");app.confirmChanges={};app.editing=false;
         app.saving=true;ResetViewer();require(app.generation==beforeReset,"v0.4.9 reset blocked during saving");app.saving=false;app.backupBusy=true;ResetViewer();require(app.generation==beforeReset,"v0.4.9 reset blocked during backup");app.backupBusy=false;
         auto recent=app.recent;auto bookmarks=app.bookmarks;auto generation=app.generation;app.editing=false;app.folderPending=true;Result stale;stale.job={0,generation};stale.files={L"stale.png"};{std::lock_guard<std::mutex> lock(app.mutex);app.results.push_back(stale);}ResetViewer();Results();require(app.files.empty()&&app.allFiles.empty()&&app.folder.empty()&&app.last.empty()&&!app.folderPending&&Text(app.path).empty()&&SendMessageW(app.history,CB_GETCURSEL,0,0)==CB_ERR&&app.recent==recent&&app.bookmarks==bookmarks,"v0.4.9 reset clears view and rejects stale enumeration while preserving history");CaptureUiTest(directory/L"v049-reset.png");}
+        {
+            auto metadata=InspectEditable((directory/L"stage3-tests"/L"v0414-record-writer-alpha.png").wstring());
+            app.editorUi.Load(metadata);app.editing=true;app.layout=L"right";TabCtrl_SetCurSel(app.metadataTabs,1);Layout();ApplyTheme();
+            auto list=GetDlgItem(app.editorUi.Window(),1011),manual=GetDlgItem(app.editorUi.Window(),1012);
+            require(ListView_GetItemCount(list)==3&&ListView_GetCheckState(list,0)&&ListView_GetCheckState(list,1)&&!ListView_GetCheckState(list,2)&&!app.editorUi.Read().Changed(),"v0.4.14 existing and orphan candidates checked without creating edits");
+            ListView_SetCheckState(list,2,TRUE);require(app.editorUi.Read().editCandidates&&app.editorUi.Read().candidates.size()==3&&IsWindowEnabled(app.saveButton),"v0.4.14 checkbox changes notify save controls");ListView_SetCheckState(list,2,FALSE);require(!app.editorUi.Read().Changed(),"v0.4.14 reverting checkbox clears dirty state");
+            SetWindowTextW(manual,L"追加候補");require(app.editorUi.Read().additionalCandidates==L"追加候補"&&app.editorUi.Read().editCandidates,"v0.4.14 manual candidate entry marks changes");SetWindowTextW(manual,L"");
+            for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();for(auto layout:{L"left",L"right",L"bottom"}){app.layout=layout;Layout();SendMessageW(app.editorUi.Window(),WM_VSCROLL,SB_TOP,0);SendMessageW(app.editorUi.Window(),WM_MOUSEWHEEL,MAKEWPARAM(0,static_cast<WORD>(-9*WHEEL_DELTA)),0);RECT r{};GetWindowRect(list,&r);require(r.right>r.left&&r.bottom>r.top&&ListView_GetTextColor(list)==ThemeForeground(),"v0.4.14 candidate list lays out and follows theme");CaptureUiTest(directory/(std::wstring(L"v0414-")+(dark?L"night-":L"light-")+layout+L".png"));}}
+            app.editorUi.LoadBatch({metadata,metadata});require(!IsWindowEnabled(list)&&!IsWindowEnabled(manual)&&!app.editorUi.Read().editCandidates&&!IsWindowVisible(list),"v0.4.14 batch editing hides and disables candidate editing");
+            app.editorUi.Load(InspectEditable((directory/L"writer-alpha.png").wstring()));require(ListView_GetItemCount(list)==0&&Text(manual).empty()&&!app.editorUi.Read().Changed(),"v0.4.14 switching image resets candidate choices and manual text");
+            app.editing=false;app.darkTheme=false;ApplyTheme();
+        }
         RunV0412UiTests(directory,report);RunV0413UiTests(directory,report);
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;

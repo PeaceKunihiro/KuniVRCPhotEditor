@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include <imm.h>
 #include <future>
 #pragma comment(lib,"imm32.lib")
@@ -54,6 +54,7 @@ void RunBatchJob(const Job& job,Result& result,const std::function<void(size_t)>
         if(done!=job.files.size())result.metadata.clear();
         return;
     }
+    if(job.edit.editCandidates)throw std::runtime_error("Model candidates can only be edited for a single image");
     if(job.edit.actions[0]!=EditAction::Keep)throw std::runtime_error("Batch editing cannot change capture date");
     if(job.files.size()!=job.metadata.size()||job.files.size()!=job.destinations.size())throw std::runtime_error("Invalid batch snapshot");
     auto validation=job.edit.Validate();if(!validation.empty())throw std::runtime_error(winrt::to_string(validation));

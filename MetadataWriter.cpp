@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "MetadataWriter.h"
 #include "ExtendedXmp.h"
 #include "WebPMetadata.h"
@@ -70,8 +70,68 @@ void Remove(IXMLDOMDocument2* doc,const std::wstring& name){
 }
 ComPtr<IXMLDOMNode> Element(IXMLDOMDocument2* doc,const wchar_t* name,const wchar_t* uri){VARIANT type{};type.vt=VT_I4;type.lVal=NODE_ELEMENT;ComPtr<IXMLDOMNode> n;winrt::check_hresult(doc->createNode(type,Bstr(name),Bstr(uri),&n));return n;}
 const std::string Empty="<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about=''/></rdf:RDF></x:xmpmeta>";
-std::string Change(const std::string& xml,const MetadataEdit& edit,bool add,bool stripReference=true){
-    auto doc=Dom(xml);if(stripReference)Remove(doc.Get(),L"note:HasExtendedXMP");
+std::wstring NodeText(IXMLDOMNode* node,const wchar_t* path){
+    ComPtr<IXMLDOMNode> field;winrt::check_hresult(node->selectSingleNode(Bstr(path),&field));
+    if(!field)return {};BSTR text{};winrt::check_hresult(field->get_text(&text));std::wstring value(text,SysStringLen(text));SysFreeString(text);return value;
+}
+std::vector<CandidateChoice> People(IXMLDOMNode* record,bool existing){
+    const auto path=existing?L"kpe:ModelCandidates":L"kpe:InstanceMembers";
+    ComPtr<IXMLDOMNodeList> arrays;winrt::check_hresult(record->selectNodes(Bstr(path),&arrays));long count{};arrays->get_length(&count);
+    if(count>1)throw std::runtime_error("Multiple participant arrays; candidate editing unavailable");
+    std::vector<CandidateChoice> result;if(!count)return result;
+    ComPtr<IXMLDOMNode> array,seq;arrays->get_item(0,&array);array->selectSingleNode(Bstr(L"rdf:Seq"),&seq);
+    ComPtr<IXMLDOMNodeList> sequences;array->selectNodes(Bstr(L"rdf:Seq"),&sequences);long seqCount{};sequences->get_length(&seqCount);
+    if(!seq||seqCount!=1)throw std::runtime_error("Invalid participant array; candidate editing unavailable");
+    ComPtr<IXMLDOMNodeList> rows;seq->selectNodes(Bstr(L"rdf:li"),&rows);rows->get_length(&count);
+    if(count>4096)throw std::runtime_error("Participant list too large; candidate editing unavailable");
+    for(long i=0;i<count;++i){ComPtr<IXMLDOMNode> row;rows->get_item(i,&row);auto name=NodeText(row.Get(),L"kpe:DisplayName");if(name.empty())throw std::runtime_error("Participant name missing; candidate editing unavailable");result.push_back({name,NodeText(row.Get(),L"kpe:UserId"),existing,static_cast<size_t>(i)});}
+    return result;
+}
+void RemoveCandidateProperties(IXMLDOMNode* record){
+    if(!record)return;ComPtr<IXMLDOMNodeList> nodes;winrt::check_hresult(record->selectNodes(Bstr(L"kpe:ModelCandidates | kpe:CandidateStatus | kpe:CandidateReason"),&nodes));long count{};nodes->get_length(&count);for(long i=count-1;i>=0;--i){ComPtr<IXMLDOMNode> node;nodes->get_item(i,&node);winrt::check_hresult(record->removeChild(node.Get(),nullptr));}
+}
+void MarkResource(IXMLDOMDocument2* doc,IXMLDOMNode* node){
+    constexpr auto rdf=L"http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+    ComPtr<IXMLDOMElement> element;winrt::check_hresult(node->QueryInterface(IID_PPV_ARGS(&element)));VARIANT value{};value.vt=VT_BSTR;Bstr uri(rdf);value.bstrVal=uri.value;winrt::check_hresult(element->setAttribute(Bstr(L"xmlns:rdf"),value));
+    VARIANT type{};type.vt=VT_I4;type.lVal=NODE_ATTRIBUTE;ComPtr<IXMLDOMNode> attribute;winrt::check_hresult(doc->createNode(type,Bstr(L"rdf:parseType"),Bstr(rdf),&attribute));winrt::check_hresult(attribute->put_text(Bstr(L"Resource")));ComPtr<IXMLDOMNamedNodeMap> attributes;winrt::check_hresult(node->get_attributes(&attributes));winrt::check_hresult(attributes->setNamedItem(attribute.Get(),nullptr));
+}
+void CandidateChange(IXMLDOMDocument2* doc,const MetadataEdit& edit,bool add,bool mask){
+    if(!edit.editCandidates)return;
+    ComPtr<IXMLDOMNode> record;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord"),&record);
+    if(mask){
+        RemoveCandidateProperties(record.Get());
+        if(edit.createCaptureRecord)Remove(doc,L"kpe:CaptureRecord");return;
+    }
+    if(!record){if(!add||!edit.createCaptureRecord)return;
+        ComPtr<IXMLDOMNode> description;doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description);if(!description)throw std::runtime_error("XMP description missing");
+        record=Element(doc,L"kpe:CaptureRecord",Uris[4]);MarkResource(doc,record.Get());winrt::check_hresult(description->appendChild(record.Get(),nullptr));
+    }
+    auto members=People(record.Get(),false),candidates=People(record.Get(),true);
+    std::vector<ComPtr<IXMLDOMNode>> kept;
+    for(auto& selected:edit.candidates){auto& source=selected.existing?candidates:members;
+        if(selected.index>=source.size()||selected.name!=source[selected.index].name||selected.id!=source[selected.index].id)throw std::runtime_error("Candidate selection no longer matches source");
+        ComPtr<IXMLDOMNode> row;auto path=std::wstring(selected.existing?L"kpe:ModelCandidates":L"kpe:InstanceMembers")+L"/rdf:Seq/rdf:li["+std::to_wstring(selected.index+1)+L"]";
+        record->selectSingleNode(Bstr(path),&row);ComPtr<IXMLDOMNode> clone;winrt::check_hresult(row->cloneNode(VARIANT_TRUE,&clone));
+        if(!selected.existing){auto method=Element(doc,L"kpe:MatchMethod",Uris[4]);method->put_text(Bstr(L"manual-selection"));clone->appendChild(method.Get(),nullptr);}
+        kept.push_back(clone);
+    }
+    auto names=NormalizeTags(edit.additionalCandidates);size_t begin=0;
+    while(begin<names.size()){auto end=names.find(L"\r\n",begin);auto name=names.substr(begin,end==std::wstring::npos?end:end-begin);
+        // An explicitly selected person already represents this name. Do not invent a second identity.
+        if(std::none_of(edit.candidates.begin(),edit.candidates.end(),[&](auto& p){return p.name==name;})){
+            auto row=Element(doc,L"rdf:li",L"http://www.w3.org/1999/02/22-rdf-syntax-ns#");MarkResource(doc,row.Get());
+            auto field=Element(doc,L"kpe:DisplayName",Uris[4]);field->put_text(Bstr(name));row->appendChild(field.Get(),nullptr);field=Element(doc,L"kpe:MatchMethod",Uris[4]);field->put_text(Bstr(L"manual-input"));row->appendChild(field.Get(),nullptr);kept.push_back(row);
+        }
+        if(end==std::wstring::npos)break;begin=end+2;
+    }
+    if(kept.size()>4096)throw std::runtime_error("Too many model candidates");
+    RemoveCandidateProperties(record.Get());
+    auto array=Element(doc,L"kpe:ModelCandidates",Uris[4]);auto seq=Element(doc,L"rdf:Seq",L"http://www.w3.org/1999/02/22-rdf-syntax-ns#");for(auto& row:kept)winrt::check_hresult(seq->appendChild(row.Get(),nullptr));array->appendChild(seq.Get(),nullptr);record->appendChild(array.Get(),nullptr);
+    auto status=Element(doc,L"kpe:CandidateStatus",Uris[4]);status->put_text(Bstr(kept.empty()?L"no-match":L"manual-edited"));record->appendChild(status.Get(),nullptr);
+    auto reason=Element(doc,L"kpe:CandidateReason",Uris[4]);reason->put_text(Bstr(L"ユーザーによるモデル候補編集"));record->appendChild(reason.Get(),nullptr);
+}
+std::string Change(const std::string& xml,const MetadataEdit& edit,bool add,bool stripReference=true,bool maskCandidates=false){
+    auto doc=Dom(xml);CandidateChange(doc.Get(),edit,add,maskCandidates);if(stripReference)Remove(doc.Get(),L"note:HasExtendedXMP");
     for(size_t i=0;i<6;++i)if(edit.actions[i]!=EditAction::Keep)Remove(doc.Get(),Names[i]);
     if(!edit.stage3Xml.empty()){
         if(add){ComPtr<IXMLDOMNode> existing;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord | //@kpe:CaptureRecord"),&existing);if(existing)throw std::runtime_error("Automatic record already exists; manual data is preserved");
@@ -140,7 +200,13 @@ void ValidateMetadataDestination(const std::wstring& source,const std::wstring& 
 EditableMetadata InspectEditable(const std::wstring& path){
     auto bytes=ReadFileBytes(path);auto c=Inspect(bytes);
     if(!c.standard.empty()){auto doc=Dom(c.standard);ComPtr<IXMLDOMNode> description;winrt::check_hresult(doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description));if(!description)throw std::runtime_error("Unsupported XMP RDF structure; view only");}
-    EditableMetadata result{Values(c),Wide(Fingerprint(bytes))};for(auto& packet:{c.standard,c.extended})if(!packet.empty()){XmpFields fields;std::wstring error;if(ParseXmp(packet,fields,error))result.recordReference+=fields.recordReference;}return result;
+    EditableMetadata result{Values(c),Wide(Fingerprint(bytes))};long records=0;
+    for(auto& packet:{c.standard,c.extended})if(!packet.empty()){
+        XmpFields fields;std::wstring error;if(ParseXmp(packet,fields,error))result.recordReference+=fields.recordReference;
+        auto doc=Dom(packet);ComPtr<IXMLDOMNodeList> nodes;doc->selectNodes(Bstr(L"//kpe:CaptureRecord | //@kpe:CaptureRecord"),&nodes);long count{};nodes->get_length(&count);records+=count;
+        if(count==1){ComPtr<IXMLDOMNode> record;nodes->get_item(0,&record);try{DOMNodeType type{};record->get_nodeType(&type);if(type!=NODE_ELEMENT)throw std::runtime_error("Unsupported capture record");result.members=People(record.Get(),false);result.candidates=People(record.Get(),true);}catch(...){result.candidatesEditable=false;result.candidateError=L"記録形式が不正なため候補編集はできません。詳細表示で確認してください。";}}
+    }
+    if(records>1){result.candidatesEditable=false;result.candidateError=L"複数の人物記録があるため候補編集はできません。";}return result;
 }
 void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination,const std::wstring& expected,const MetadataEdit& requested,bool allowLockedRename){
     MetadataEdit edit=requested;
@@ -154,6 +220,7 @@ void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination
     auto extension=fs::path(destination).extension().wstring();std::transform(extension.begin(),extension.end(),extension.begin(),towlower);
     if((c.png&&extension!=L".png")||(c.webp&&extension!=L".webp")||(!c.png&&!c.webp&&extension!=L".jpg"&&extension!=L".jpeg"))throw std::runtime_error("Destination format must match source");
     if(!edit.stage3Xml.empty())for(auto& packet:{c.standard,c.extended})if(!packet.empty()){auto doc=Dom(packet);ComPtr<IXMLDOMNode> existing;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord | //@kpe:CaptureRecord"),&existing);if(existing)throw std::runtime_error("Automatic record already exists; original annotations are preserved");}
+    if(edit.editCandidates){auto metadata=InspectEditable(source);if(!metadata.candidatesEditable)throw std::runtime_error(Utf8(metadata.candidateError));long records=0;for(auto& packet:{c.standard,c.extended})if(!packet.empty()){auto doc=Dom(packet);ComPtr<IXMLDOMNodeList> nodes;doc->selectNodes(Bstr(L"//kpe:CaptureRecord"),&nodes);long count{};nodes->get_length(&count);records+=count;}edit.createCaptureRecord=records==0;}
     std::string standard=Change(c.standard.empty()?Empty:c.standard,edit,true),extended;
     if(!c.extended.empty())extended=Change(c.extended,edit,false);
     std::string metadata;
@@ -170,16 +237,21 @@ void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination
     if(!inserted)throw std::runtime_error("Metadata insertion failed");
     auto verify=Inspect(output);if(Preserved(c)!=Preserved(verify))throw std::runtime_error("Image data preservation failed");
     if(!edit.stage3Xml.empty()){auto doc=Dom(verify.standard.empty()?verify.extended:verify.standard);ComPtr<IXMLDOMNode> record;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord"),&record);if(!record&& !verify.extended.empty()){doc=Dom(verify.extended);doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord"),&record);}if(!record)throw std::runtime_error("Stage3 reread verification failed");}
+    if(edit.editCandidates){
+        std::vector<CandidateChoice> actualCandidates;for(auto& packet:{verify.standard,verify.extended})if(!packet.empty()){auto doc=Dom(packet);ComPtr<IXMLDOMNode> record;doc->selectSingleNode(Bstr(L"//kpe:CaptureRecord"),&record);if(record)actualCandidates=People(record.Get(),true);}
+        auto wanted=edit.candidates;auto names=NormalizeTags(edit.additionalCandidates);size_t begin=0;while(begin<names.size()){auto end=names.find(L"\r\n",begin);auto name=names.substr(begin,end==std::wstring::npos?end:end-begin);if(std::none_of(edit.candidates.begin(),edit.candidates.end(),[&](auto& p){return p.name==name;}))wanted.push_back({name,L""});if(end==std::wstring::npos)break;begin=end+2;}
+        if(actualCandidates.size()!=wanted.size())throw std::runtime_error("Model candidates verification failed");for(size_t i=0;i<wanted.size();++i)if(actualCandidates[i].name!=wanted[i].name||actualCandidates[i].id!=wanted[i].id)throw std::runtime_error("Model candidate identity verification failed");
+    }
     auto actual=Values(verify),before=Values(c);for(size_t i=0;i<6;++i){auto wanted=edit.actions[i]==EditAction::Set?edit.values[i]:edit.actions[i]==EditAction::Remove?L"":before[i];
         if(i>=4){auto normalize=[](std::wstring s){s.erase(std::remove(s.begin(),s.end(),L'\r'),s.end());while(!s.empty()&&s.back()==L'\n')s.pop_back();return s;};if(normalize(actual[i])!=normalize(wanted))throw std::runtime_error("Subjects verification failed");}
         else if(actual[i]!=wanted)throw std::runtime_error("Edited metadata verification failed");}
     // Serializing the same DOM after removing edited properties must preserve all other XML.
     MetadataEdit mask=edit;for(size_t i=0;i<6;++i)if(mask.actions[i]!=EditAction::Keep)mask.actions[i]=EditAction::Remove;
-    auto oldStandard=Change(c.standard.empty()?Empty:c.standard,mask,false);
-    auto newStandard=Change(verify.standard,mask,false);
+    auto oldStandard=Change(c.standard.empty()?Empty:c.standard,mask,false,true,true);
+    auto newStandard=Change(verify.standard,mask,false,true,true);
     bool promoted=c.extended.empty()&&!verify.extended.empty()&&standard!=Change(c.standard.empty()?Empty:c.standard,edit,true);
-    if(promoted){if(Change(verify.extended,mask,false)!=oldStandard)throw std::runtime_error("Unknown XML preservation failed");}
-    else {if(oldStandard!=newStandard)throw std::runtime_error("Unknown XML preservation failed");if(!c.extended.empty()&&Change(c.extended,mask,false)!=Change(verify.extended,mask,false))throw std::runtime_error("Extended XML preservation failed");}
+    if(promoted){if(Change(verify.extended,mask,false,true,true)!=oldStandard)throw std::runtime_error("Unknown XML preservation failed");}
+    else {if(oldStandard!=newStandard)throw std::runtime_error("Unknown XML preservation failed");if(!c.extended.empty()&&Change(c.extended,mask,false,true,true)!=Change(verify.extended,mask,false,true,true))throw std::runtime_error("Extended XML preservation failed");}
     GUID guid{};winrt::check_hresult(CoCreateGuid(&guid));wchar_t id[40]{};StringFromGUID2(guid,id,40);auto temp=destination+L"."+id+L".tmp";
     try{Handle file;file.value=CreateFileW(temp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);Check(file.value!=INVALID_HANDLE_VALUE);DWORD done{};Check(WriteFile(file.value,output.data(),static_cast<DWORD>(output.size()),&done,nullptr));if(done!=output.size())throw std::runtime_error("Incomplete write");Check(FlushFileBuffers(file.value));CloseHandle(file.value);file.value=INVALID_HANDLE_VALUE;
         auto reread=ReadFileBytes(temp);if(reread!=output)throw std::runtime_error("Saved file verification failed");Inspect(reread);

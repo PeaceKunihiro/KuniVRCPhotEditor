@@ -1,9 +1,13 @@
-#pragma once
+﻿#pragma once
 #include "MetadataEditor.h"
 #include <windows.h>
 #include <vector>
 class MetadataEditorUi {
-    HWND panel{}, message{},reference{},referenceLabel{};
+    HWND panel{}, message{},reference{},referenceLabel{},candidateLabel{},candidateList{},manualLabel{},manualCandidates{};
+    std::vector<CandidateChoice> candidateOptions;
+    std::vector<bool> candidateChecked;
+    bool candidatesEditable=true;
+    int ContentHeight() const { return batch?680:1040; }
     std::array<HWND,6> labels{}, inputs{}, choices{};
     int scroll=0;
     bool loading=false;
