@@ -19,6 +19,8 @@ GitHub用
 KuniVRCPhotEditor
 [Description]
 
+26.10/11　v0.4.12で必要十分な機能を有していると判断し、一旦の区切り
+26.10/9　開発開始
 
 
 
