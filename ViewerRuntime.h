@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
 #include "Stage3.h"
@@ -70,7 +70,7 @@ struct State {
     std::vector<std::wstring> allFiles;
     std::wstring appliedQuery;
     bool metadataSearch=false, searching=false, autoBackup=true, darkTheme=false, backupBusy=false;
-    int backupLimit=10;
+    int backupLimit=10; bool autoThumbnails=true; int sideWidth=400,sideHeight=300,manualThumbnailWidth=128; RECT splitter{}; bool draggingSplitter=false;
     unsigned searchGeneration=0;std::atomic<unsigned> currentSearchGeneration{0};
     std::thread searchWorker;
     std::function<int()> chooseSaveMode;
@@ -221,3 +221,4 @@ bool TestBackupCheckboxes();
 struct WorkerLifetime { ~WorkerLifetime(){--app.activeWorkers;} };
 
 void CreateOcrUi();void LayoutOcrUi(RECT page,bool visible);void RefreshOcrUi();bool OcrCommand(int id,int code);
+bool OcrTestSource();std::shared_ptr<const Pixels> OcrTestPreview();std::wstring OcrTestStatus();void StopOcrUi();

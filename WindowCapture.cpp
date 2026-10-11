@@ -1,4 +1,4 @@
-﻿#define NOMINMAX
+#define NOMINMAX
 #include "WindowCapture.h"
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -23,7 +23,7 @@ struct WindowCapture::Core : std::enable_shared_from_this<Core> {
     winrt::com_ptr<ID3D11Texture2D> input,output,staging;winrt::com_ptr<ID3D11ShaderResourceView> view;winrt::com_ptr<ID3D11UnorderedAccessView> uav;UINT sourceWidth=0,sourceHeight=0,outputWidth=0,outputHeight=0;
     winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice projected{nullptr};
     Capture::GraphicsCaptureItem item{nullptr};Capture::Direct3D11CaptureFramePool pool{nullptr};Capture::GraphicsCaptureSession session{nullptr};winrt::event_token token{};
-    int fps=5,seconds=10;stage3::Time offset=0,last=0;std::function<void(Pixels&&,stage3::Time)> receive;
+    bool native=false;int fps=5,seconds=10;stage3::Time offset=0,last=0;std::function<void(Pixels&&,stage3::Time)> receive;
     void Initialize(HWND window){
         if(!Capture::GraphicsCaptureSession::IsSupported())throw std::runtime_error("Windows Graphics Capture unavailable");
         D3D_FEATURE_LEVEL feature{};winrt::check_hresult(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT,nullptr,0,D3D11_SDK_VERSION,device.put(),&feature,context.put()));
@@ -46,7 +46,7 @@ struct WindowCapture::Core : std::enable_shared_from_this<Core> {
             if(time-last<1000/fps){frame.Close();return;}last=time;
             // GPU downscale before readback; preserve full window aspect ratio.
             double pixelBudget=256.0*1024*1024/(fps*seconds*2)*0.7;
-            double scale=std::min({1.0,1920.0/size.Width,1080.0/size.Height,std::sqrt(pixelBudget/(double(size.Width)*size.Height))});UINT width=std::max(1U,static_cast<UINT>(size.Width*scale)),height=std::max(1U,static_cast<UINT>(size.Height*scale));
+            double scale=std::min({1.0,1920.0/size.Width,1080.0/size.Height,std::sqrt(pixelBudget/(double(size.Width)*size.Height))});if(native)scale=std::min({1.0,4096.0/size.Width,4096.0/size.Height,std::sqrt(16.0*1024*1024/(double(size.Width)*size.Height))});UINT width=std::max(1U,static_cast<UINT>(size.Width*scale)),height=std::max(1U,static_cast<UINT>(size.Height*scale));
             if(sourceWidth!=sourceDesc.Width||sourceHeight!=sourceDesc.Height||outputWidth!=width||outputHeight!=height){input=nullptr;output=nullptr;staging=nullptr;view=nullptr;uav=nullptr;
             D3D11_TEXTURE2D_DESC sourceCopy=sourceDesc;sourceCopy.Usage=D3D11_USAGE_DEFAULT;sourceCopy.BindFlags=D3D11_BIND_SHADER_RESOURCE;sourceCopy.CPUAccessFlags=0;sourceCopy.MiscFlags=0;winrt::check_hresult(device->CreateTexture2D(&sourceCopy,nullptr,input.put()));winrt::check_hresult(device->CreateShaderResourceView(input.get(),nullptr,view.put()));
             D3D11_TEXTURE2D_DESC desc{};desc.Width=width;desc.Height=height;desc.MipLevels=1;desc.ArraySize=1;desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.SampleDesc.Count=1;desc.Usage=D3D11_USAGE_DEFAULT;desc.BindFlags=D3D11_BIND_UNORDERED_ACCESS;winrt::check_hresult(device->CreateTexture2D(&desc,nullptr,output.put()));winrt::check_hresult(device->CreateUnorderedAccessView(output.get(),nullptr,uav.put()));
@@ -58,6 +58,6 @@ context->CopyResource(staging.get(),output.get());D3D11_MAPPED_SUBRESOURCE mappe
     }
     void Close(){closed=true;try{if(pool)pool.FrameArrived(token);}catch(...){}Capture::GraphicsCaptureSession ending{nullptr};Capture::Direct3D11CaptureFramePool frames{nullptr};{std::lock_guard<std::mutex> lock(mutex);ending=session;frames=pool;session=nullptr;pool=nullptr;}try{if(ending)ending.Close();if(frames)frames.Close();}catch(...){}}
 };
-WindowCapture::WindowCapture(HWND window,int fps,int seconds,std::function<void(Pixels&&,stage3::Time)> receive){core=std::make_shared<Core>();core->fps=fps;core->seconds=seconds;core->receive=std::move(receive);try{core->Initialize(window);}catch(...){core->Close();throw;}}
+WindowCapture::WindowCapture(HWND window,int fps,int seconds,std::function<void(Pixels&&,stage3::Time)> receive,bool native){core=std::make_shared<Core>();core->native=native;core->fps=fps;core->seconds=seconds;core->receive=std::move(receive);try{core->Initialize(window);}catch(...){core->Close();throw;}}
 WindowCapture::~WindowCapture(){if(core)core->Close();}
 std::wstring WindowCapture::Error()const{std::lock_guard<std::mutex> lock(core->mutex);return core->error;}

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -19,10 +19,12 @@ public:
 std::vector<stage3::Candidate> Match(const std::vector<Observation>& observations,const stage3::Record& record);
 Settings GetSettings();void LoadSettings(const std::filesystem::path& folder);void SetSettings(Settings settings);
 std::vector<Window> Windows();void SelectWindow(HWND window);
-void Start(HWND owner);void Stop();void Context(DWORD pid,const std::wstring& session,const std::wstring& instance);
+void Start(HWND owner);void Stop();void Context(DWORD pid,const std::wstring& session,const std::wstring& instance,const std::vector<stage3::Person>& members={});
 bool Submit(const std::wstring& key,const stage3::Record& record,const stage3::InstanceTimeline& timeline);
+bool SubmitImage(const std::wstring& key,const stage3::Record& record,const stage3::InstanceTimeline& timeline);
 bool Poll(const std::wstring& key,stage3::Record& record);void Forget(const std::wstring& key);
 std::shared_ptr<const Pixels> Preview();std::wstring Status();std::wstring Raw();
+std::wstring Names();
 void RunCaptureTests(std::ostream& report);
 void RunTests(const std::filesystem::path& folder,std::ostream& report);
 }

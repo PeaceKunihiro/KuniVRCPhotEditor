@@ -1,4 +1,4 @@
-﻿#define NOMINMAX
+#define NOMINMAX
 #include "Stage3.h"
 #include "MetadataModel.h"
 #include <regex>
@@ -10,7 +10,7 @@ std::wstring Escape(const std::wstring& value){std::wstring out;for(auto c:value
 std::string RecordXml(const Record& r){
     std::wstring xml=L"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about='' xmlns:kpe='urn:kunivrcphoteditor:metadata:1.0'><kpe:CaptureRecord rdf:parseType='Resource'>";
     auto field=[&](const wchar_t* name,const std::wstring& value){xml+=L"<kpe:"+std::wstring(name)+L">"+Escape(value)+L"</kpe:"+name+L">";};
-    field(L"SchemaVersion",L"1");field(L"ToolVersion",L"0.4.3");field(L"ReferenceTime",Iso(r.reference));field(L"DetectedAt",Iso(r.detected));field(L"ReferenceTimeSource",r.timeSource);field(L"TimeStatus",r.timeStatus);field(L"SessionId",r.session);field(L"WorldID",r.world);field(L"InstanceId",r.instance);field(L"MemberListStatus",r.memberStatus);field(L"CandidateStatus",r.candidateStatus);field(L"CandidateWindowSeconds",L"3");if(!r.candidateReason.empty())field(L"CandidateReason",r.candidateReason);
+    field(L"SchemaVersion",L"1");field(L"ToolVersion",L"0.4.5");field(L"ReferenceTime",Iso(r.reference));field(L"DetectedAt",Iso(r.detected));field(L"ReferenceTimeSource",r.timeSource);field(L"TimeStatus",r.timeStatus);field(L"SessionId",r.session);field(L"WorldID",r.world);field(L"InstanceId",r.instance);field(L"MemberListStatus",r.memberStatus);field(L"CandidateStatus",r.candidateStatus);field(L"CandidateWindowSeconds",L"3");if(!r.candidateReason.empty())field(L"CandidateReason",r.candidateReason);
     xml+=L"<kpe:InstanceMembers><rdf:Seq>";for(auto& p:r.members){xml+=L"<rdf:li rdf:parseType='Resource'>";field(L"DisplayName",p.name);field(L"UserId",p.id);xml+=L"</rdf:li>";}xml+=L"</rdf:Seq></kpe:InstanceMembers><kpe:ModelCandidates><rdf:Seq>";for(auto& candidate:r.candidates){xml+=L"<rdf:li rdf:parseType='Resource'>";field(L"DisplayName",candidate.person.name);field(L"UserId",candidate.person.id);field(L"RawText",candidate.raw);field(L"ObservedAt",Iso(candidate.observed));field(L"ObservationCount",std::to_wstring(candidate.count));field(L"MatchMethod",candidate.method);field(L"MatchScore",std::to_wstring(candidate.score));field(L"OcrConfidence",L"");field(L"Bounds",candidate.bounds);xml+=L"</rdf:li>";}xml+=L"</rdf:Seq></kpe:ModelCandidates></kpe:CaptureRecord></rdf:Description></rdf:RDF></x:xmpmeta>";return winrt::to_string(xml);
 }
 Decision Correlate(const std::wstring& path,const std::wstring& date,const std::wstring& world,Time detected,const LogMonitor& log){
@@ -25,6 +25,16 @@ Decision Correlate(const std::wstring& path,const std::wstring& date,const std::
     if(snapshot.status==L"unknown"){d.reason=L"対象時刻のインスタンスが不明";return d;}
     if(!world.empty()&&world!=snapshot.world){d.reason=L"画像とログのワールドIDが矛盾";return d;}
     d.ready=true;d.record.session=log.Session();d.record.world=snapshot.world;d.record.instance=snapshot.instance;d.record.reference=target;d.record.detected=detected;d.record.timeSource=source;d.record.timeStatus=L"estimated";d.record.memberStatus=snapshot.status;d.record.members=snapshot.members;return d;
+}
+Decision CorrelateSteam(const std::wstring& path,Time detected,const LogMonitor& log){
+    Decision d;std::wsmatch m;auto name=std::filesystem::path(path).filename().wstring();Time time=0;
+    if(std::regex_match(name,m,std::wregex(LR"(^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})_[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase)))time=ParseTime(m[1].str()+L"-"+m[2].str()+L"-"+m[3].str()+L" "+m[4].str()+L":"+m[5].str()+L":"+m[6].str());
+    else if(std::regex_match(name,m,std::wregex(LR"(^VRChat[_-]([0-9]{4}-[0-9]{2}-[0-9]{2})[_-]([0-9]{2}-[0-9]{2}-[0-9]{2})(\.[0-9]{1,7})_[0-9]+x[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase)))time=ParseTime(m[1].str()+L" "+m[2].str()+m[3].str());
+    if(!time||std::abs(detected-time)>15000){d.reason=L"F12画像の命名日時が不明／検出時刻から15秒超：保留";return d;}
+    WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(path.c_str(),GetFileExInfoStandard,&info)){d.reason=L"F12画像の更新日時を取得できません";return d;}ULARGE_INTEGER stamp{};stamp.LowPart=info.ftLastWriteTime.dwLowDateTime;stamp.HighPart=info.ftLastWriteTime.dwHighDateTime;
+    if(std::abs(Time(stamp.QuadPart/10000)-time)>5000){d.reason=L"F12画像の命名日時と更新日時が矛盾：保留";return d;}
+    auto snapshot=log.timeline.At(time);if(snapshot.ambiguous||snapshot.instance.empty()||snapshot.status==L"unknown"){d.reason=L"F12撮影時点の参加者情報が不明／曖昧";return d;}
+    d.ready=true;d.record.session=log.Session();d.record.world=snapshot.world;d.record.instance=snapshot.instance;d.record.reference=time;d.record.detected=detected;d.record.timeSource=L"screenshot-filename";d.record.timeStatus=L"estimated";d.record.memberStatus=snapshot.status;d.record.members=snapshot.members;return d;
 }
 bool SeparateFolders(const std::filesystem::path& input,const std::filesystem::path& output){
     if(input.empty()||output.empty())return false;std::error_code a,b;auto left=std::filesystem::weakly_canonical(input,a),right=std::filesystem::weakly_canonical(output,b);if(a||b)return false;

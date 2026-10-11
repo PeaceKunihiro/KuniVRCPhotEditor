@@ -7,6 +7,7 @@ struct ViewerSettings {
     int backupLimit=10;
     std::wstring last, layout = L"right";
     std::vector<std::wstring> history, bookmarks;
+    bool autoThumbnails=true; int sideWidth=400,sideHeight=300;
 };
 std::wstring NormalizeFolderAddress(const std::wstring& path);
 bool SameFolderAddress(const std::wstring& a, const std::wstring& b);

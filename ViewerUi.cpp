@@ -1,4 +1,5 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
+#include <windowsx.h>
 State app;
 void ShowSummary(const PhotoSummary& summary, const std::wstring& message) {
     app.summary = summary; app.simpleScroll = 0;
@@ -65,6 +66,7 @@ void LoadSettings() {
         app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
+        app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
         app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
     } catch (...) {
         app.settingsProtected = true;
@@ -75,7 +77,8 @@ void SaveSettings() {
     if (app.settingsProtected) return;
     try {
         ViewerSettings settings;
-        settings.thumbnailWidth = app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
+        settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
+        settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.autoBackup=app.autoBackup;settings.backupLimit=app.backupLimit;settings.darkTheme=app.darkTheme;settings.metadataSearch=app.metadataSearch;
         settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
         auto bytes = SerializeViewerSettings(settings);
@@ -287,6 +290,7 @@ int WheelThumbnailWidth(int width, int& remainder, int delta) {
 }
 LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) {
     if (message == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL)) {
+        if(app.autoThumbnails){app.autoThumbnails=false;app.thumbnailWidth=std::clamp(((app.activeThumbnailWidth+16)/32)*32,64,256);SaveSettings();}
         int width = WheelThumbnailWidth(app.thumbnailWidth, app.zoomWheel, GET_WHEEL_DELTA_WPARAM(wparam));
         if (width != app.thumbnailWidth) {
             app.thumbnailWidth = width;
@@ -458,12 +462,13 @@ void Layout() {
     bool noSide=app.layout==L"none";
     for(auto h:{app.preview,app.metadataTabs})ShowWindow(h,noSide?SW_HIDE:SW_SHOW);
     if (noSide) {}
-    else if (app.layout == L"bottom") { int split = listTop + std::max(80, (height - listTop - 36) / 2); list.bottom = split - 4; side.top = split + 4; }
+    else if (app.layout == L"bottom") { int split = std::max(listTop+80,height-36-std::clamp(app.sideHeight,120,std::max(120,height-listTop-116))); list.bottom = split - 4; side.top = split + 4; }
     else {
-        int sideWidth = std::clamp(width * 2 / 5, 280, 540);
+        int sideWidth = std::clamp(app.sideWidth,280,std::max(280,width-176));
         if (app.layout == L"left") { side.right = 8 + sideWidth; list.left = side.right + 8; }
         else { side.left = width - 8 - sideWidth; list.right = side.left - 8; }
     }
+    app.splitter=noSide?RECT{}:app.layout==L"bottom"?RECT{8,list.bottom,width-8,side.top}:app.layout==L"left"?RECT{side.right,listTop,list.left,height-36}:RECT{list.right,listTop,side.left,height-36};
     MoveWindow(app.list, list.left, list.top, std::max(1L, list.right - list.left), std::max(1L, list.bottom - list.top), TRUE);
     if (app.layout == L"bottom") {
         int previewWidth = (side.right - side.left) / 3;
@@ -488,6 +493,7 @@ void Layout() {
     LayoutSimple();
     if(noSide){for(auto h:{app.simple,app.details,app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(h,SW_HIDE);app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,false);}
     MoveWindow(app.status, 8, height - 28, width - 16, 24, TRUE);
+    if(app.autoThumbnails){int available=std::max(64L,list.right-list.left-GetSystemMetrics(SM_CXVSCROLL)-4);int columns=std::max(1,(available+263)/264);int desired=std::clamp(available/columns-8,64,256);if(desired!=app.thumbnailWidth){app.thumbnailWidth=desired;SetTimer(app.window,ZoomTimer,150,nullptr);}}
     ArrangeImages();
     // Erase the vacated button locations as well as repainting the controls.
     RECT toolbarArea{ 0, 0, width, height-30 };
@@ -629,6 +635,7 @@ HMENU BuildOptionsMenu() {
     AppendMenuW(menu,MF_STRING|(app.darkTheme?MF_CHECKED:0),6,app.darkTheme?L"ナイトモード: ON（ダーク）":L"ナイトモード: OFF（ライト）");
     AppendMenuW(menu,MF_STRING|(app.metadataSearch?MF_CHECKED:0),7,app.metadataSearch?L"メタデータ検索モード: ON":L"メタデータ検索モード: OFF");
 
+    AppendMenuW(menu,MF_STRING|(app.autoThumbnails?MF_CHECKED:0),9,app.autoThumbnails?L"サムネイルサイズ自動化: ON":L"サムネイルサイズ自動化: OFF");
     return menu;
 }
 void OptionsMenu() {
@@ -717,14 +724,19 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if (!app.last.empty()) { SetWindowTextW(app.path, app.last.c_str()); OpenFolder(app.last); }
         return 0;
     }
-    case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());return 1;}
+    case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: ApplyTheme();return 0;
     case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
     case WM_DRAWITEM: if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
+    case WM_SETCURSOR: {POINT p{};GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&app.splitter,p)){SetCursor(LoadCursorW(nullptr,app.layout==L"bottom"?IDC_SIZENS:IDC_SIZEWE));return TRUE;}break;}
+    case WM_LBUTTONDOWN: {POINT p{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)};if(PtInRect(&app.splitter,p)){app.draggingSplitter=true;SetCapture(window);return 0;}break;}
+    case WM_MOUSEMOVE: if(app.draggingSplitter){RECT r{};GetClientRect(window,&r);if(app.layout==L"bottom")app.sideHeight=std::clamp(int(r.bottom-36-GET_Y_LPARAM(lparam)),120,10000);else app.sideWidth=std::clamp(app.layout==L"left"?GET_X_LPARAM(lparam)-8:int(r.right-8-GET_X_LPARAM(lparam)),280,std::max(280,int(r.right)-176));Layout();return 0;}break;
+    case WM_LBUTTONUP: if(app.draggingSplitter){app.draggingSplitter=false;ReleaseCapture();SaveSettings();return 0;}break;
+    case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){UpdateRecordingControls(true);RefreshOcrUi();InvalidateRect(app.preview,nullptr,FALSE);return 0;}
+        if(wparam==RecordTimer){stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();InvalidateRect(app.preview,nullptr,FALSE);return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
@@ -793,7 +805,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if(app.closing)return 0;
         if(!GuardTransition([window]{SendMessageW(window,WM_CLOSE,0,0);}))return 0;
         KillTimer(window, ZoomTimer);
-        KillTimer(window, ThumbnailTimer);StopActivity();stage3::Shutdown(); app.closing = true;
+        KillTimer(window, ThumbnailTimer);StopActivity();StopOcrUi();stage3::Shutdown(); app.closing = true;
         if (app.thumbnailWidth != app.activeThumbnailWidth) SaveSettings();
         CancelSearch();{std::lock_guard<std::mutex> lock(app.mutex);app.stopping=true;}app.wake.notify_all();
         // COM teardown may call back into the UI STA. Keep it pumping until workers finish.

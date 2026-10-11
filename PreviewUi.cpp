@@ -1,8 +1,8 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
-    if (message == WM_LBUTTONDBLCLK) { if(stage3::Recording())return 0; LaunchSelectedPhotos(); return 0; }
+    if (message == WM_LBUTTONDBLCLK) { if(stage3::Recording()||OcrTestSource())return 0; LaunchSelectedPhotos(); return 0; }
     if (message == WM_MOUSEWHEEL) {
-        if (app.saving || stage3::Recording()) return 0;
+        if (app.saving || stage3::Recording() || OcrTestSource()) return 0;
         if (app.selected < 0 || app.files.empty()) return 0;
         app.wheel += GET_WHEEL_DELTA_WPARAM(wparam);
         int index = app.selected;
@@ -12,8 +12,8 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     }
     if (message == WM_PAINT) {
         PAINTSTRUCT paint{}; HDC dc = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r); FillRect(dc, &r, ThemeBrush());
-        auto live=stage3::Recording()?person_ocr::Preview():std::shared_ptr<const Pixels>{};
-        Pixels empty;auto& p=stage3::Recording()?(live?*live:empty):app.previewPixels;
+        auto live=OcrTestSource()?OcrTestPreview():stage3::Recording()?person_ocr::Preview():std::shared_ptr<const Pixels>{};
+        Pixels empty;auto& p=(stage3::Recording()||OcrTestSource())?(live?*live:empty):app.previewPixels;
         if (!p.data.empty()) {
             double scale = std::min(double(r.right) / p.width, double(r.bottom) / p.height);
             int width = int(p.width * scale), height = int(p.height * scale);
@@ -23,7 +23,7 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = p.width; info.bmiHeader.biHeight = -static_cast<LONG>(p.height);
             info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
             SetStretchBltMode(dc, HALFTONE); StretchDIBits(dc, (r.right - width) / 2, (r.bottom - height) / 2, width, height, 0, 0, p.width, p.height, pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
-        } else { SetTextColor(dc,ThemeForeground());SetBkMode(dc, TRANSPARENT); DrawTextW(dc, stage3::Recording()?person_ocr::Status().c_str():app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
+        } else { SetTextColor(dc,ThemeForeground());SetBkMode(dc, TRANSPARENT); DrawTextW(dc, OcrTestSource()?OcrTestStatus().c_str():stage3::Recording()?person_ocr::Status().c_str():app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
         EndPaint(window, &paint); return 0;
     }
     return DefWindowProcW(window, message, wparam, lparam);

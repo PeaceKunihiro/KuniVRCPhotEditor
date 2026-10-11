@@ -35,6 +35,8 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
         return static_cast<int>(n);
     };
     settings.thumbnailWidth = number(L"thumbnailWidth", 128, 64, 256, 32);
+    settings.autoThumbnails=object.GetNamedBoolean(L"autoThumbnails",false);
+    settings.sideWidth=number(L"sideWidth",400,280,10000,1);settings.sideHeight=number(L"sideHeight",300,120,10000,1);
     settings.cacheMB = number(L"thumbnailCacheMB", 100, 16, 2048, 1);
     settings.autoBackup=object.GetNamedBoolean(L"autoBackup",true);
     settings.darkTheme=object.GetNamedBoolean(L"darkTheme",false);
@@ -65,6 +67,8 @@ std::string SerializeViewerSettings(const ViewerSettings& settings) {
     object.Insert(L"lastFolder", JsonValue::CreateStringValue(settings.saveHistory ? settings.last : L""));
     object.Insert(L"sideView", JsonValue::CreateStringValue(settings.layout));
     object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(settings.thumbnailWidth));
+    object.Insert(L"autoThumbnails",JsonValue::CreateBooleanValue(settings.autoThumbnails));
+    object.Insert(L"sideWidth",JsonValue::CreateNumberValue(settings.sideWidth));object.Insert(L"sideHeight",JsonValue::CreateNumberValue(settings.sideHeight));
     object.Insert(L"thumbnailCacheMB", JsonValue::CreateNumberValue(settings.cacheMB));
     object.Insert(L"autoBackup",JsonValue::CreateBooleanValue(settings.autoBackup));
     object.Insert(L"darkTheme",JsonValue::CreateBooleanValue(settings.darkTheme));

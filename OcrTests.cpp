@@ -1,5 +1,6 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 #include "WindowCapture.h"
+#include "TestOcr.h"
 #include <chrono>
 #include <stdexcept>
 namespace person_ocr {
@@ -13,7 +14,7 @@ void EngineTest(std::ostream& report){
 void CaptureTest(std::ostream& report){
     WNDCLASSW cls{};cls.lpfnWndProc=TestWindow;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"KuniOcrPrivateTest";RegisterClassW(&cls);HWND window=CreateWindowExW(0,cls.lpszClassName,L"Kuni OCR test fixture",WS_OVERLAPPEDWINDOW,20,20,640,300,nullptr,nullptr,cls.hInstance,nullptr);if(!window)throw std::runtime_error("OCR test window create");ShowWindow(window,SW_SHOWNOACTIVATE);UpdateWindow(window);
     std::atomic<bool> finished=false;std::string error;bool recognized=false;std::thread probe([&]{auto init=RoInitialize(RO_INIT_MULTITHREADED);try{winrt::check_hresult(init);std::mutex guard;std::condition_variable ready;Pixels pixels;stage3::Time stamp=0;{WindowCapture capture(window,5,10,[&](Pixels&& frame,stage3::Time time){std::lock_guard<std::mutex> lock(guard);if(pixels.data.empty()){pixels=std::move(frame);stamp=time;ready.notify_all();}});std::unique_lock<std::mutex> lock(guard);if(!ready.wait_for(lock,std::chrono::seconds(8),[&]{return !pixels.data.empty();}))throw std::runtime_error("WGC frame timeout");}
-    if(std::abs(stamp-stage3::Now())>10000)throw std::runtime_error("WGC QPC UTC mapping");bool color=false;for(size_t i=0;i<pixels.data.size();i+=4)if(pixels.data[i+2]>170&&pixels.data[i+1]<70&&pixels.data[i]<100){color=true;break;}if(!color)throw std::runtime_error("WGC BGRA color");auto lines=RecognizeTestPixels(pixels);for(auto& line:lines)if(line.text.find(L"TESTMODEL")!=std::wstring::npos)recognized=true;if(!recognized)throw std::runtime_error("Windows OCR synthetic name recognition");}
+    if(std::abs(stamp-stage3::Now())>10000)throw std::runtime_error("WGC QPC UTC mapping");bool color=false;for(size_t i=0;i<pixels.data.size();i+=4)if(pixels.data[i+2]>170&&pixels.data[i+1]<70&&pixels.data[i]<100){color=true;break;}if(!color)throw std::runtime_error("WGC BGRA color");auto lines=RecognizeTestPixels(pixels);for(auto& line:lines)if(line.text.find(L"TESTMODEL")!=std::wstring::npos)recognized=true;if(!recognized)throw std::runtime_error("Windows OCR synthetic name recognition");auto normal=Raw();test_ocr::Capture(window,5,10);auto end=GetTickCount64()+20000;while(test_ocr::Raw().find(L"TESTMODEL")==std::wstring::npos){if(GetTickCount64()>end){test_ocr::Stop();throw std::runtime_error("isolated non-VRChat capture OCR timeout");}Sleep(10);}if(Raw()!=normal){test_ocr::Stop();throw std::runtime_error("test capture contaminated normal OCR");}test_ocr::Stop();report<<"PASS: v0.4.5 non-VRChat WGC test capture OCR and normal result isolation\n";}
     catch(const winrt::hresult_error& e){error=winrt::to_string(e.message())+" HRESULT="+std::to_string(static_cast<unsigned>(e.code()));}catch(const std::exception& e){error=e.what();}if(SUCCEEDED(init))RoUninitialize();finished=true;});
     while(!finished){MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}Sleep(10);}probe.join();DestroyWindow(window);if(!error.empty())throw std::runtime_error("WGC/OCR test: "+error);report<<"PASS: WGC own-window frame / BGRA / QPC and Windows OCR TESTMODEL recognition\n";
 }
@@ -22,6 +23,7 @@ void CaptureTest(std::ostream& report){
 void RunCaptureTests(std::ostream& report){EngineTest(report);CaptureTest(report);}
 void RunTests(const std::filesystem::path& folder,std::ostream& report){
     auto require=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
+    test_ocr::Tests(folder,report);
     BurstGate gate;require(!gate.Followup(L"A",100000,10),"burst first");require(gate.Followup(L"A",110000,10),"burst boundary");require(gate.Followup(L"A",119000,10),"burst rolling");require(!gate.Followup(L"A",130001,10),"burst expiry");require(!gate.Followup(L"B",130001,10),"burst instance isolation");require(gate.Followup(L"A",100000,10),"late shot conservative");
     stage3::Record record;record.reference=100000;record.members={{L"TestModel",L"usr_1"},{L"Other",L"usr_2"}};
     Observation observation{99000,{{L"TESTMODEL",L"0,0,10,10"}},record.members};
