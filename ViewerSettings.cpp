@@ -37,6 +37,11 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     settings.thumbnailWidth = number(L"thumbnailWidth", 128, 64, 256, 32);
     settings.autoThumbnails=object.GetNamedBoolean(L"autoThumbnails",false);
     settings.sideWidth=number(L"sideWidth",400,280,10000,1);settings.sideHeight=number(L"sideHeight",300,120,10000,1);
+    settings.diskCache=object.GetNamedBoolean(L"diskCache",false);
+    settings.diskCacheMiB=number(L"diskCacheMiB",512,128,2048,1);
+    if(settings.diskCacheMiB!=128&&settings.diskCacheMiB!=256&&settings.diskCacheMiB!=512&&settings.diskCacheMiB!=1024&&settings.diskCacheMiB!=2048)throw std::runtime_error("disk capacity");
+    settings.diskCacheMinutes=number(L"diskCacheMinutes",30,1,1440,1);
+    settings.diskCacheVisits=number(L"diskCacheVisits",5,2,100,1);
     settings.cacheMB = number(L"thumbnailCacheMB", 100, 16, 2048, 1);
     settings.autoBackup=object.GetNamedBoolean(L"autoBackup",true);
     settings.darkTheme=object.GetNamedBoolean(L"darkTheme",false);
@@ -69,6 +74,10 @@ std::string SerializeViewerSettings(const ViewerSettings& settings) {
     object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(settings.thumbnailWidth));
     object.Insert(L"autoThumbnails",JsonValue::CreateBooleanValue(settings.autoThumbnails));
     object.Insert(L"sideWidth",JsonValue::CreateNumberValue(settings.sideWidth));object.Insert(L"sideHeight",JsonValue::CreateNumberValue(settings.sideHeight));
+    object.Insert(L"diskCache",JsonValue::CreateBooleanValue(settings.diskCache));
+    object.Insert(L"diskCacheMiB",JsonValue::CreateNumberValue(settings.diskCacheMiB));
+    object.Insert(L"diskCacheMinutes",JsonValue::CreateNumberValue(settings.diskCacheMinutes));
+    object.Insert(L"diskCacheVisits",JsonValue::CreateNumberValue(settings.diskCacheVisits));
     object.Insert(L"thumbnailCacheMB", JsonValue::CreateNumberValue(settings.cacheMB));
     object.Insert(L"autoBackup",JsonValue::CreateBooleanValue(settings.autoBackup));
     object.Insert(L"darkTheme",JsonValue::CreateBooleanValue(settings.darkTheme));

@@ -17,9 +17,9 @@ void Select(int index,bool reveal) {
     Queue({ 2, app.generation, app.selection, index, app.files[index], L"" }, true);
     if(reveal)ListView_EnsureVisible(app.list,index,FALSE);ScheduleThumbnails();
 }
-void OpenFolder(const std::wstring& path, bool reload, const std::wstring& preserveOverride) {
+void OpenFolder(const std::wstring& path, bool reload, const std::wstring& preserveOverride,bool userLoad) {
     FlushSelectionUpdate();
-    if (!GuardTransition([path,reload,preserveOverride]{OpenFolder(path,reload,preserveOverride);})) return;
+    if (!GuardTransition([path,reload,preserveOverride,userLoad]{OpenFolder(path,reload,preserveOverride,userLoad);})) return;
     if(app.batchLoading){StopActivity();app.batchLoading=false;}CancelSearch();if(!reload){app.appliedQuery.clear();SetWindowTextW(app.searchEdit,L"");}
     app.editing=false; UpdateEditorControls(); Layout();
     try {
@@ -30,7 +30,7 @@ void OpenFolder(const std::wstring& path, bool reload, const std::wstring& prese
         { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind != 3; }), app.jobs.end()); }
         // The visible list is committed only after enumeration succeeds.
         auto preserve = !preserveOverride.empty()?preserveOverride:reload && app.selected >= 0 ? app.files[app.selected] : L"";
-        Queue({ 0, app.generation, 0, -1, normalized, preserve }, true); Counts(L"フォルダーを読み込んでいます…");
+        Job folderJob{0,app.generation,0,-1,normalized,preserve};folderJob.userLoad=userLoad&&preserveOverride.empty();Queue(std::move(folderJob), true); Counts(L"フォルダーを読み込んでいます…");
     } catch (...) { Counts(L"無効なフォルダーパスです。現在の一覧を保持します。"); }
 }
 

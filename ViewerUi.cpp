@@ -70,6 +70,7 @@ void LoadSettings() {
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
+        app.diskCache=settings.diskCache;app.diskCacheMiB=settings.diskCacheMiB;app.diskCacheMinutes=settings.diskCacheMinutes;app.diskCacheVisits=settings.diskCacheVisits;
         app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
     } catch (...) {
         app.settingsProtected = true;
@@ -82,6 +83,7 @@ void SaveSettings() {
         ViewerSettings settings;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
+        settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
         settings.autoBackup=app.autoBackup;settings.backupLimit=app.backupLimit;settings.darkTheme=app.darkTheme;settings.metadataSearch=app.metadataSearch;
         settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
         auto bytes = SerializeViewerSettings(settings);
@@ -327,7 +329,7 @@ void Results() {
         if(job.kind==4&&result.progress){if(app.saving)SetActivity(result.text);continue;}
         if(HandleBatchResult(result))continue;
         if(job.kind>=7){if(job.kind==7){app.backupBusy=false;UpdateEditorControls();if(CurrentJob(job)&&result.error.empty())ChooseBackupDeletion(result.backups);else Counts(L"バックアップ一覧取得失敗: "+result.error);}
-            else{app.backupBusy=false;UpdateEditorControls();app.cache.Clear();OpenFolder(app.folder,true);auto message=result.error.empty()?L"バックアップ整理完了。削除できなかった件数: "+std::to_wstring(result.failures):L"バックアップ整理失敗: "+result.error;if(!result.text.empty())message+=L"\r\n"+result.text;Counts(message);if(result.failures||!result.error.empty()||!result.text.empty())MessageBoxW(app.window,message.c_str(),L"バックアップ整理",MB_OK|MB_ICONWARNING);}continue;
+            else{app.backupBusy=false;UpdateEditorControls();app.cache.Clear();OpenFolder(app.folder,true,L"",false);auto message=result.error.empty()?L"バックアップ整理完了。削除できなかった件数: "+std::to_wstring(result.failures):L"バックアップ整理失敗: "+result.error;if(!result.text.empty())message+=L"\r\n"+result.text;Counts(message);if(result.failures||!result.error.empty()||!result.text.empty())MessageBoxW(app.window,message.c_str(),L"バックアップ整理",MB_OK|MB_ICONWARNING);}continue;
         }
         if (job.kind == 4) {
             StopActivity();app.saving=false; app.editorUi.Enable(true);
@@ -365,6 +367,7 @@ void Results() {
                     Queue({ 2, app.generation, app.selection, app.selected, app.files[app.selected], L"" }, true);
                 Counts(L"フォルダーを開けません: " + result.error); continue;
             }
+            if(job.userLoad)app.disk.Visit(job.path);
             app.folder=job.path;app.last=job.path;app.allFiles=std::move(result.files);
             app.recent.erase(std::remove_if(app.recent.begin(),app.recent.end(),[&](auto& p){return SameFolderAddress(p,app.folder);}),app.recent.end());
             app.recent.insert(app.recent.begin(),app.folder);if(app.recent.size()>HistoryLimit)app.recent.resize(HistoryLimit);
@@ -509,6 +512,9 @@ void LayoutSimple() {
     HDC dc = GetDC(app.simple); auto previous = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT)); TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics); SelectObject(dc, previous); ReleaseDC(app.simple, dc);
     int y = 8;
     for (size_t i = 0; i < app.simpleValues.size(); ++i) {
+        auto value=Text(app.simpleValues[i]);bool visible=value.find_first_not_of(L" \t\r\n")!=std::wstring::npos;
+        ShowWindow(app.simpleLabels[i],visible?SW_SHOWNA:SW_HIDE);ShowWindow(app.simpleValues[i],visible?SW_SHOWNA:SW_HIDE);
+        if(!visible)continue;
         MoveWindow(app.simpleValues[i], labelWidth + 12, y - app.simpleScroll, valueWidth, 24, FALSE);
         int lines = static_cast<int>(SendMessageW(app.simpleValues[i], EM_GETLINECOUNT, 0, 0));
         int height = std::max(26, lines * static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading) + 8);
@@ -516,8 +522,9 @@ void LayoutSimple() {
         MoveWindow(app.simpleValues[i], labelWidth + 12, y - app.simpleScroll, valueWidth, height, FALSE);
         y += height + 8;
     }
-    MoveWindow(groupButton,8,y-app.simpleScroll,std::max(40L,area.right-16),26,FALSE);y+=34;
-    auto note = Text(app.simpleNote);
+    bool groupVisible=!GroupIds(app.summary.values[8]).empty();ShowWindow(groupButton,groupVisible?SW_SHOWNA:SW_HIDE);
+    if(groupVisible){MoveWindow(groupButton,8,y-app.simpleScroll,std::max(40L,area.right-16),26,FALSE);y+=34;}
+    auto note = Text(app.simpleNote);ShowWindow(app.simpleNote,note.empty()?SW_HIDE:SW_SHOWNA);
     MoveWindow(app.simpleNote, 8, y - app.simpleScroll, std::max(40L, area.right - 16), 24, FALSE);
     int lines = static_cast<int>(SendMessageW(app.simpleNote, EM_GETLINECOUNT, 0, 0));
     int noteHeight = note.empty() ? 0 : std::max(26, lines * static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading) + 8);
@@ -632,6 +639,7 @@ HMENU BuildOptionsMenu() {
     auto menu = CreatePopupMenu();
     auto label = L"画像サムネイルキャッシュ上限: " + std::to_wstring(app.cacheMB) + L" MB…";
     AppendMenuW(menu, MF_STRING, 1, label.c_str());
+    AppendMenuW(menu,MF_STRING|(app.diskCache?MF_CHECKED:0),12,app.diskCache?L"ディスクキャッシュ: ON…":L"ディスクキャッシュ: OFF…");
     AppendMenuW(menu, MF_STRING | (app.saveHistory ? MF_CHECKED : MF_UNCHECKED), 2, app.saveHistory ? L"フォルダ履歴保存: ON" : L"フォルダ履歴保存: OFF");
     AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
     AppendMenuW(menu,MF_STRING|(app.autoBackup?MF_CHECKED:0),3,app.autoBackup?L"自動バックアップ: ON":L"自動バックアップ: OFF");
@@ -648,7 +656,8 @@ void OptionsMenu() {
     auto menu = BuildOptionsMenu();
     RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
     auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if(action==8){stage3::ShowMonitorDialog();UpdateRecordingControls();}
+    if(action==12){ShowDiskCacheDialog();}
+    else if(action==8){stage3::ShowMonitorDialog();UpdateRecordingControls();}
     else if (action >= 3) NewOptionsAction(static_cast<int>(action));
     else if (action == 1) {
         int mb = app.cacheMB;
@@ -683,6 +692,7 @@ HWND Control(LPCWSTR type, LPCWSTR text, DWORD style, int id) {
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_CREATE: {
+        ConfigureDiskCache();
         app.window = window;
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"ロード", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
@@ -728,7 +738,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         RefreshHistory(); ApplyTheme(); Layout(); auto cpus=std::thread::hardware_concurrency();app.thumbnailWorkers.resize(cpus?std::clamp(cpus,1u,4u):2u);app.activeWorkers=static_cast<unsigned>(2+app.thumbnailWorkers.size());app.searchWorker=std::thread(SearchWorker); app.worker = std::thread(Worker, false);
         for (auto& worker : app.thumbnailWorkers) worker = std::thread(Worker, true);
         if (!app.settingsError.empty()) MessageBoxW(window, app.settingsError.c_str(), L"設定読込みエラー", MB_OK | MB_ICONWARNING);
-        if (!app.last.empty()) { SetWindowTextW(app.path, app.last.c_str()); OpenFolder(app.last); }
+        if (!app.last.empty()) { SetWindowTextW(app.path, app.last.c_str()); OpenFolder(app.last,false,L"",false); }
         return 0;
     }
     case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
@@ -821,6 +831,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if (app.worker.joinable()) app.worker.join();
         for (auto& worker : app.thumbnailWorkers) if (worker.joinable()) worker.join();
         if(app.searchWorker.joinable())app.searchWorker.join();
+        app.disk.Stop();
         DestroyWindow(window); return 0; }
     case WM_DESTROY: ImageList_Destroy(app.thumbs); PostQuitMessage(0); return 0;
     }

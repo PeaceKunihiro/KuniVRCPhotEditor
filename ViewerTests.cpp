@@ -5,6 +5,8 @@
 #include "MetadataWriterTests.h"
 #include "V031Tests.h"
 void RunV035Tests(const fs::path&,std::ostream&);
+void RunV0412Tests(const fs::path&,std::ostream&);
+void RunV0412UiTests(const fs::path&,std::ostream&);
 void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
     if(index>=0&&(state&LVIS_SELECTED)&&(mask&LVIS_SELECTED)){LVITEMW reset{};reset.stateMask=LVIS_SELECTED|LVIS_FOCUSED;SendMessageW(list,LVM_SETITEMSTATE,-1,reinterpret_cast<LPARAM>(&reset));}
     LVITEMW item{};item.state=state;item.stateMask=mask;SendMessageW(list,LVM_SETITEMSTATE,index,reinterpret_cast<LPARAM>(&item));if(index>=0&&(state&LVIS_SELECTED))ListView_EnsureVisible(list,index,FALSE);FlushSelectionUpdate();
@@ -14,7 +16,7 @@ int SelfTest() {
     fs::create_directories(directory);
     std::ofstream report(directory / L"result.txt");
     try {
-        RunUpdateTests(directory,report);
+        RunUpdateTests(directory,report);RunV0412Tests(directory,report);
         auto require = [&](bool ok, const char* label) { if (!ok) throw std::runtime_error(label); report << "PASS: " << label << '\n'; };
         ViewerSettings v045;v045.sideWidth=750;v045.sideHeight=420;v045.autoThumbnails=true;auto resized=ParseViewerSettings(SerializeViewerSettings(v045));require(resized.sideWidth==750&&resized.sideHeight==420&&resized.autoThumbnails,"v0.4.5 split size and auto thumbnail settings roundtrip");require(!ParseViewerSettings("{\"version\":3}").autoThumbnails,"v0.4.5 legacy settings keep manual thumbnails");
         int wheel = 0;
@@ -166,6 +168,7 @@ void CaptureUiTest(const fs::path& file, HWND target = nullptr){bool visible=IsW
     ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));ComPtr<IWICStream> stream;winrt::check_hresult(factory->CreateStream(&stream));winrt::check_hresult(stream->InitializeFromFilename(file.c_str(),GENERIC_WRITE));ComPtr<IWICBitmapEncoder> encoder;winrt::check_hresult(factory->CreateEncoder(GUID_ContainerFormatPng,nullptr,&encoder));winrt::check_hresult(encoder->Initialize(stream.Get(),WICBitmapEncoderNoCache));ComPtr<IWICBitmapFrameEncode> frame;winrt::check_hresult(encoder->CreateNewFrame(&frame,nullptr));winrt::check_hresult(frame->Initialize(nullptr));winrt::check_hresult(frame->SetSize(width,height));for(size_t i=3;i<bytes.size();i+=4)bytes[i]=255;auto format=GUID_WICPixelFormat32bppBGRA;winrt::check_hresult(frame->SetPixelFormat(&format));winrt::check_hresult(frame->WritePixels(height,width*4,static_cast<UINT>(bytes.size()),bytes.data()));winrt::check_hresult(frame->Commit());winrt::check_hresult(encoder->Commit());
 }
 }
+void CaptureV0412Ui(const fs::path& path,HWND h){CaptureUiTest(path,h);}
 int UiTest() {
     auto directory = app.settings.parent_path();
     std::ofstream report(directory / L"ui-result.txt");
@@ -314,7 +317,7 @@ int UiTest() {
             SendMessageW(app.window, WM_NOTIFY, MetadataTabs, reinterpret_cast<LPARAM>(&notification));
             require(app.selection == selectionGeneration && app.summary.values == summary.values && Text(app.details) == detailedText && ((GetWindowLongPtrW(app.details, GWL_STYLE) & WS_VISIBLE) != 0) == (tab == 1), "tab switch uses same result without rereading");
         }
-        auto longSummary = summary; longSummary.values[5] = std::wstring(3000, L'界');
+        auto longSummary = summary;longSummary.values[7]=L"最終モデル行";for(auto& v:longSummary.values)if(v.empty())v=L"検証値"; longSummary.values[5] = std::wstring(3000, L'界');
         ShowSummary(longSummary); TabCtrl_SetCurSel(app.metadataTabs, 0);
         for (auto layout : { L"right", L"left", L"bottom" }) {
             app.layout = layout; Layout();
@@ -323,8 +326,8 @@ int UiTest() {
             for (auto value : app.simpleValues) { RECT rect{}; GetWindowRect(value, &rect); aligned = aligned && rect.left == start.left; }
             require(aligned && SendMessageW(app.simpleValues[5], EM_GETLINECOUNT, 0, 0) > 1, "simple labels align and long Japanese value wraps in each layout");
             SendMessageW(app.simple, WM_VSCROLL, SB_BOTTOM, 0);
-            RECT model{}, page{}; GetWindowRect(app.simpleValues[7], &model); GetWindowRect(app.simple, &page);
-            require(app.simpleScroll > 0 && model.top >= page.top && model.bottom <= page.bottom, "simple pane scroll exposes final reserved model field");
+            RECT model{}, page{}; GetWindowRect(app.simpleValues[10], &model); GetWindowRect(app.simple, &page);
+            require(app.simpleScroll > 0 && model.top >= page.top && model.bottom <= page.bottom, "simple pane scroll exposes final visible field");
         }
         ShowSummary(summary);
         // Observe normal WM_PAINT delivery before the screenshot helper forces repainting.
@@ -337,11 +340,11 @@ int UiTest() {
                 RedrawWindow(app.window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
                 LabelPaintProbe probe;
                 ShowSummary({}, L"メタデータを読み込んでいます…");
-                wait([&] { RECT pane{}; GetWindowRect(app.simple, &pane); for (size_t i = 0; i < probe.counts.size(); ++i) { RECT label{}, overlap{}; GetWindowRect(app.simpleLabels[i], &label); if (IntersectRect(&overlap, &pane, &label) && !probe.counts[i]) return false; } return true; });
+                wait([&] { RECT pane{}; GetWindowRect(app.simple, &pane); for (size_t i = 0; i < probe.counts.size(); ++i) { RECT label{}, overlap{}; GetWindowRect(app.simpleLabels[i], &label); if ((GetWindowLongPtrW(app.simpleLabels[i],GWL_STYLE)&WS_VISIBLE)&&IntersectRect(&overlap, &pane, &label) && !probe.counts[i]) return false; } return true; });
                 probe.counts.fill(0);
                 // Labels have unchanged text and positions after a new result arrives.
                 ShowSummary(summary);
-                wait([&] { RECT pane{}; GetWindowRect(app.simple, &pane); for (size_t i = 0; i < probe.counts.size(); ++i) { RECT label{}, overlap{}; GetWindowRect(app.simpleLabels[i], &label); if (IntersectRect(&overlap, &pane, &label) && !probe.counts[i]) return false; } return true; });
+                wait([&] { RECT pane{}; GetWindowRect(app.simple, &pane); for (size_t i = 0; i < probe.counts.size(); ++i) { RECT label{}, overlap{}; GetWindowRect(app.simpleLabels[i], &label); if ((GetWindowLongPtrW(app.simpleLabels[i],GWL_STYLE)&WS_VISIBLE)&&IntersectRect(&overlap, &pane, &label) && !probe.counts[i]) return false; } return true; });
                 require(true, "simple labels repaint after loading and result without forced redraw");
                 CaptureUiTest(directory / (std::wstring(dark ? L"simple-night-" : L"simple-light-") + placement + L".png"));
             }
@@ -569,6 +572,7 @@ int UiTest() {
         app.editable=InspectEditable((directory/L"v048-record.png").wstring());app.editorUi.Load(app.editable);app.editing=true;SetWindowTextW(GetDlgItem(app.editorUi.Window(),1001),L"reset unsaved");app.confirmChanges=[]{return 3;};auto beforeReset=app.generation;ResetViewer();require(app.generation==beforeReset&&app.editing,"v0.4.9 reset cancellation preserves unsaved edit");app.confirmChanges={};app.editing=false;
         app.saving=true;ResetViewer();require(app.generation==beforeReset,"v0.4.9 reset blocked during saving");app.saving=false;app.backupBusy=true;ResetViewer();require(app.generation==beforeReset,"v0.4.9 reset blocked during backup");app.backupBusy=false;
         auto recent=app.recent;auto bookmarks=app.bookmarks;auto generation=app.generation;app.editing=false;app.folderPending=true;Result stale;stale.job={0,generation};stale.files={L"stale.png"};{std::lock_guard<std::mutex> lock(app.mutex);app.results.push_back(stale);}ResetViewer();Results();require(app.files.empty()&&app.allFiles.empty()&&app.folder.empty()&&app.last.empty()&&!app.folderPending&&Text(app.path).empty()&&SendMessageW(app.history,CB_GETCURSEL,0,0)==CB_ERR&&app.recent==recent&&app.bookmarks==bookmarks,"v0.4.9 reset clears view and rejects stale enumeration while preserving history");CaptureUiTest(directory/L"v049-reset.png");}
+        RunV0412UiTests(directory,report);
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }

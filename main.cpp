@@ -18,6 +18,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
         app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
         fs::create_directories(app.settings.parent_path());
         app.last.clear(); app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
+        app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
         app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;
         app.autoThumbnails=false;app.sideWidth=400;app.sideHeight=300;app.manualThumbnailWidth=128;app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128; app.cacheMB = 100; app.saveHistory = true; app.bookmarks.clear();
     }

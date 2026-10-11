@@ -54,8 +54,9 @@ void Worker(bool thumbnails) {
                 }
                 std::wstring cacheKey;
                 auto cacheTicket = app.cache.Ticket();
-                bool cached = false;
-                if (job.kind == 1) { cacheKey = ThumbnailCache::Key(job.path); cached = app.cache.Get(cacheKey, result.pixels); }
+                bool cached = false,diskHit=false;
+                if (job.kind == 1) { cacheKey = ThumbnailCache::Key(job.path); cached = app.cache.Get(cacheKey, result.pixels);
+                    if(!cached)cached=diskHit=app.disk.Get(cacheKey+L"|256x192|v1",result.pixels); }
                 if (!cached && Same(fs::path(job.path).extension().wstring(), L".webp")) {
                     auto image = ReadWebP(job.path, job.kind==1?256:0, job.kind==1?192:0);
                     if (job.kind == 1) result.pixels = { image.width, image.height, std::move(image.pixels) };
@@ -79,7 +80,7 @@ void Worker(bool thumbnails) {
                     result.text = Info(decoder.Get(), frame.Get(), job.path) + L"\r\n" + result.summary.notes + result.summary.xmpDetail;
                 }
                 }
-                if (job.kind == 1 && !cached && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) app.cache.Put(cacheKey, result.pixels, cacheTicket);
+                if (job.kind == 1 && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) {app.cache.Put(cacheKey,result.pixels,cacheTicket);if(!diskHit)app.disk.Put(cacheKey+L"|256x192|v1",job.path,result.pixels);}
             }
         } catch (const winrt::hresult_error& error) { result.error = ErrorText(error.code()); }
           catch (const fs::filesystem_error& error) { result.error = ErrorText(HRESULT_FROM_WIN32(error.code().value())); }

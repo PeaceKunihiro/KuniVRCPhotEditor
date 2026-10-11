@@ -6,6 +6,7 @@
 #include "MetadataTests.h"
 #include "WebPImage.h"
 #include "ThumbnailCache.h"
+#include "DiskThumbnailCache.h"
 #include "WebPTests.h"
 #include "ViewerSettings.h"
 #include "ExtendedXmpTests.h"
@@ -52,7 +53,7 @@ constexpr UINT_PTR ActivityTimer = 3;
 constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
 enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView };
-struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; };
+struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; };
 struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
 struct State {
     std::vector<std::wstring> batchFiles, restoreSelection, batchCompleted;
@@ -91,6 +92,7 @@ struct State {
     std::vector<std::wstring> bookmarks;
     int cacheMB = 100, slotLimit = ThumbnailSlots;
     size_t imageBytes = 0;
+    bool diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
     bool saveHistory = true;
     bool thumbnailBudgetLimited = false;
     std::vector<bool> thumbnailDone, thumbnailFailed;
@@ -115,6 +117,7 @@ struct State {
     std::thread worker;
     std::vector<std::thread> thumbnailWorkers;
     ThumbnailCache cache;
+    DiskThumbnailCache disk;
     std::atomic<unsigned> currentGeneration{0}, currentSelection{0};
     std::atomic<unsigned> currentThumbnailGeneration{0};
     std::atomic<bool> stopping{false};
@@ -163,7 +166,7 @@ void SubmitBackupDeletion(const std::vector<BackupCandidate>& candidates, const 
 void ResetViewer();
 std::wstring QuickHelpText();
 void ShowQuickHelp(const std::function<void(HWND)>& inspect = {});
-void OpenFolder(const std::wstring& path, bool reload = false, const std::wstring& preserveOverride = L"");
+void OpenFolder(const std::wstring& path, bool reload = false, const std::wstring& preserveOverride = L"",bool userLoad=true);
 HBITMAP Thumbnail(const Pixels& pixels, int width = 128);
 void UpdateThumbnailSpacing();
 void ArrangeImages();
@@ -210,7 +213,9 @@ bool SearchContains(const std::wstring& text,const std::wstring& query);
 void ShowBackupDeletion();
 void ChooseBackupDeletion(const std::vector<BackupCandidate>& candidates);
 void NewOptionsAction(int action);
-void ShowVersion();
+void ShowVersion(const std::function<void(HWND)>& inspect = {});
+void ShowDiskCacheDialog(const std::function<void(HWND)>& inspect = {});
+void ConfigureDiskCache();
 void ApplyTheme();
 COLORREF ThemeBackground();
 COLORREF ThemeForeground();
