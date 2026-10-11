@@ -140,7 +140,7 @@ void ValidateMetadataDestination(const std::wstring& source,const std::wstring& 
 EditableMetadata InspectEditable(const std::wstring& path){
     auto bytes=ReadFileBytes(path);auto c=Inspect(bytes);
     if(!c.standard.empty()){auto doc=Dom(c.standard);ComPtr<IXMLDOMNode> description;winrt::check_hresult(doc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description));if(!description)throw std::runtime_error("Unsupported XMP RDF structure; view only");}
-    return {Values(c),Wide(Fingerprint(bytes))};
+    EditableMetadata result{Values(c),Wide(Fingerprint(bytes))};for(auto& packet:{c.standard,c.extended})if(!packet.empty()){XmpFields fields;std::wstring error;if(ParseXmp(packet,fields,error))result.recordReference+=fields.recordReference;}return result;
 }
 void SaveMetadataCopy(const std::wstring& source,const std::wstring& destination,const std::wstring& expected,const MetadataEdit& requested,bool allowLockedRename){
     MetadataEdit edit=requested;

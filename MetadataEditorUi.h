@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <vector>
 class MetadataEditorUi {
-    HWND panel{}, message{};
+    HWND panel{}, message{},reference{},referenceLabel{};
     std::array<HWND,6> labels{}, inputs{}, choices{};
     int scroll=0;
     bool loading=false;

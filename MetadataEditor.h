@@ -10,5 +10,5 @@ struct MetadataEdit {
     bool Changed() const;
     std::wstring Validate() const;
 };
-struct EditableMetadata { std::array<std::wstring, 6> values{}; std::wstring fingerprint; };
+struct EditableMetadata { std::array<std::wstring, 6> values{}; std::wstring fingerprint,recordReference; };
 std::wstring NormalizeTags(const std::wstring& text);

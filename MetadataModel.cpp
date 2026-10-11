@@ -171,8 +171,8 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
             if(element.name==L"ModelCandidates"&&!element.sequence)invalidCandidates=true;
             if(element.name==L"MemberListStatus")parsed.memberStatus=Trim(element.text);
             if(element.name==L"CandidateStatus")parsed.candidateStatus=Trim(element.text);
-            if(element.name==L"DisplayName"&&stack.size()>=3&&stack.back().name==L"li"&&stack.back().uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&stack[stack.size()-2].name==L"Seq"&&stack[stack.size()-2].uri==stack.back().uri){
-                auto& parent=stack[stack.size()-3];if(parent.uri==kpe&&(parent.name==L"InstanceMembers"||parent.name==L"ModelCandidates")){auto& names=parent.name==L"InstanceMembers"?parsed.members:parsed.candidates;auto name=Trim(element.text);if(!name.empty()){if(!names.empty())names+=L"\r\n";names+=name;}}
+            if((element.name==L"DisplayName"||element.name==L"UserId")&&stack.size()>=3&&stack.back().name==L"li"&&stack.back().uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&stack[stack.size()-2].name==L"Seq"&&stack[stack.size()-2].uri==stack.back().uri){
+                auto& parent=stack[stack.size()-3];if(parent.uri==kpe&&(parent.name==L"InstanceMembers"||parent.name==L"ModelCandidates")){auto& names=parent.name==L"InstanceMembers"?parsed.members:parsed.candidates;auto name=Trim(element.text);if(!name.empty()){if(element.name==L"DisplayName"){if(!names.empty())names+=L"\r\n";names+=name;}parsed.recordReference+=std::wstring(parent.name==L"InstanceMembers"?L"同室者：":L"モデル候補：")+(element.name==L"UserId"?L"ユーザーID ":L"")+name+L"\r\n";}}
             }
         }
         if (auto target = Target(parsed, element.uri, element.name)) {

@@ -1,3 +1,5 @@
+#include "UpdateChecker.h"
+#include "AppVersion.h"
 #include "ViewerRuntime.h"
 #include "resource.h"
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
@@ -5,6 +7,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     winrt::init_apartment(winrt::apartment_type::single_threaded);
     INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES }; InitCommonControlsEx(&controls);
     LoadSettings();
+    if(std::wstring(command)==L"--update-network-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"update-network-result.txt");int code=0;try{RunUpdateNetworkTests(folder,report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
     if(std::wstring(command).find(L"--stage3-evaluate")==0){int count=0;auto args=CommandLineToArgvW(GetCommandLineW(),&count);if(count!=6){LocalFree(args);return 2;}auto log=fs::path(args[2]),photos=fs::path(args[3]),samples=fs::path(args[4]),output=fs::path(args[5]);LocalFree(args);int code=0;std::thread probe([&]{auto init=RoInitialize(RO_INIT_MULTITHREADED);std::ofstream report(output);try{winrt::check_hresult(init);stage3::EvaluateReferences(log,photos,samples,report);report<<"EVALUATION COMPLETED\n";}catch(const winrt::hresult_error& e){report<<"FAILED HRESULT="<<std::hex<<static_cast<unsigned>(e.code())<<'\n';code=1;}catch(const std::exception& e){report<<"FAILED: "<<e.what()<<'\n';code=1;}if(SUCCEEDED(init))RoUninitialize();});probe.join();winrt::uninit_apartment();return code;}
     if(std::wstring(command)==L"--ocr-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"ocr-result.txt");int code=0;try{person_ocr::RunCaptureTests(report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
     if (std::wstring(command) == L"--self-test") { auto result = SelfTest(); winrt::uninit_apartment(); return result; }
@@ -21,7 +24,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     WNDCLASSW preview{}; preview.style=CS_DBLCLKS; preview.lpfnWndProc = PreviewProc; preview.hInstance = instance; preview.lpszClassName = L"KuniPreview"; preview.hCursor = LoadCursorW(nullptr, IDC_ARROW); RegisterClassW(&preview);
     WNDCLASSW simple{}; simple.lpfnWndProc = SimpleProc; simple.hInstance = instance; simple.lpszClassName = L"KuniSimple"; simple.hCursor = LoadCursorW(nullptr, IDC_ARROW); simple.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&simple);
     WNDCLASSW main{}; main.hIcon=static_cast<HICON>(LoadImageW(instance,MAKEINTRESOURCEW(IDI_APP_ICON),IMAGE_ICON,GetSystemMetrics(SM_CXICON),GetSystemMetrics(SM_CYICON),LR_SHARED)); main.lpfnWndProc = WindowProc; main.hInstance = instance; main.lpszClassName = L"KuniVRCPhotEditor"; main.hCursor = LoadCursorW(nullptr, IDC_ARROW); main.hbrBackground = GetSysColorBrush(COLOR_BTNFACE); RegisterClassW(&main);
-    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v0.4.5 — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
+    HWND window = CreateWindowExW(0, main.lpszClassName, L"KuniVRCPhotEditor v" KUNI_VERSION_TEXT L" — 画像メタデータビューアー（開発版）", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 1180, 800, nullptr, nullptr, instance, nullptr);
     if (!window) return 1;
     SendMessageW(window,WM_SETICON,ICON_SMALL,reinterpret_cast<LPARAM>(LoadImageW(instance,MAKEINTRESOURCEW(IDI_APP_ICON),IMAGE_ICON,GetSystemMetrics(SM_CXSMICON),GetSystemMetrics(SM_CYSMICON),LR_SHARED)));
     SendMessageW(window,WM_SETICON,ICON_BIG,reinterpret_cast<LPARAM>(main.hIcon));

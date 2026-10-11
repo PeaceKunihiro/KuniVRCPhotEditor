@@ -115,6 +115,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -143,9 +144,111 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp" /><ClCompile Include="MetadataModel.cpp" /><ClCompile Include="MetadataTests.cpp" /><ClInclude Include="MetadataModel.h" /><ClInclude Include="MetadataTests.h" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="MetadataModel.cpp" />
+    <ClCompile Include="MetadataTests.cpp" />
+    <ClInclude Include="MetadataModel.h" />
+    <ClInclude Include="MetadataTests.h" />
   </ItemGroup>
-  <ItemGroup><ClCompile Include="MetadataEditor.cpp" /><ClCompile Include="MetadataEditorUi.cpp" /><ClInclude Include="MetadataEditorUi.h" /><ClCompile Include="MetadataWriter.cpp" /><ClCompile Include="MetadataWriterTests.cpp" /><ClInclude Include="MetadataWriterTests.h" /><ClInclude Include="MetadataEditor.h" /><ClInclude Include="MetadataWriter.h" /></ItemGroup><ItemGroup><ClCompile Include="ViewerUi.cpp" /><ClCompile Include="ViewerController.cpp" /><ClCompile Include="ImagePreview.cpp" /><ClCompile Include="PreviewUi.cpp" /><ClCompile Include="PhotosLauncher.cpp" /><ClCompile Include="BackgroundJobs.cpp" /><ClCompile Include="ViewerTests.cpp" /><ClInclude Include="ViewerRuntime.h" /></ItemGroup><Import Project="WebP.props" /><ItemGroup><ClCompile Include="WebPImage.cpp" /><ClCompile Include="ExtendedXmp.cpp" /><ClCompile Include="ExtendedXmpTests.cpp" /><ClInclude Include="ExtendedXmpTests.h" /><ClInclude Include="ExtendedXmp.h" /><ClCompile Include="ViewerSettings.cpp" /><ClInclude Include="ViewerSettings.h" /><ClCompile Include="WebPTests.cpp" /><ClInclude Include="WebPTests.h" /><ClInclude Include="WebPFixtures.h" /><ClInclude Include="ThumbnailCache.h" /><ClInclude Include="WebPImage.h" /></ItemGroup><Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup>
+    <ClCompile Include="MetadataEditor.cpp" />
+    <ClCompile Include="MetadataEditorUi.cpp" />
+    <ClInclude Include="MetadataEditorUi.h" />
+    <ClCompile Include="MetadataWriter.cpp" />
+    <ClCompile Include="MetadataWriterTests.cpp" />
+    <ClInclude Include="MetadataWriterTests.h" />
+    <ClInclude Include="MetadataEditor.h" />
+    <ClInclude Include="MetadataWriter.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ViewerUi.cpp" />
+    <ClCompile Include="ViewerController.cpp" />
+    <ClCompile Include="ImagePreview.cpp" />
+    <ClCompile Include="PreviewUi.cpp" />
+    <ClCompile Include="PhotosLauncher.cpp" />
+    <ClCompile Include="BackgroundJobs.cpp" />
+    <ClCompile Include="ViewerTests.cpp" />
+    <ClInclude Include="ViewerRuntime.h" />
+  </ItemGroup>
+  <Import Project="WebP.props" />
+  <ItemGroup>
+    <ClCompile Include="WebPImage.cpp" />
+    <ClCompile Include="ExtendedXmp.cpp" />
+    <ClCompile Include="ExtendedXmpTests.cpp" />
+    <ClInclude Include="ExtendedXmpTests.h" />
+    <ClInclude Include="ExtendedXmp.h" />
+    <ClCompile Include="ViewerSettings.cpp" />
+    <ClInclude Include="ViewerSettings.h" />
+    <ClCompile Include="WebPTests.cpp" />
+    <ClInclude Include="WebPTests.h" />
+    <ClInclude Include="WebPFixtures.h" />
+    <ClInclude Include="ThumbnailCache.h" />
+    <ClInclude Include="WebPImage.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
-<Target Name="CopyThirdPartyNotices" AfterTargets="Build"><Copy SourceFiles="$(ProjectDir)Documents\THIRD_PARTY_NOTICES.md" DestinationFolder="$(TargetDir)" /><Copy SourceFiles="$(ProjectDir)third_party\libwebp-1.6.0\COPYING" DestinationFiles="$(TargetDir)libwebp-COPYING.txt" /><Copy SourceFiles="$(ProjectDir)third_party\libwebp-1.6.0\PATENTS" DestinationFiles="$(TargetDir)libwebp-PATENTS.txt" /></Target><ItemGroup><ClCompile Include="BackupManager.cpp"></ClCompile><ClCompile Include="BackupUi.cpp"></ClCompile><ClCompile Include="SearchController.cpp"></ClCompile><ClCompile Include="ThemeUi.cpp"></ClCompile><ClCompile Include="NewOptions.cpp"></ClCompile><ClCompile Include="V031Tests.cpp"></ClCompile><ClInclude Include="BackupManager.h"></ClInclude><ClInclude Include="V031Tests.h"></ClInclude></ItemGroup><ItemGroup><ClCompile Include="BatchController.cpp" /><ClInclude Include="WebPMetadata.h" /><ClCompile Include="V035Tests.cpp" /></ItemGroup><ItemGroup><ClCompile Include="InstanceTimeline.cpp" /><ClCompile Include="LogMonitor.cpp" /><ClCompile Include="PhotoAnnotationCoordinator.cpp" /><ClCompile Include="PhotoMonitor.cpp" /><ClCompile Include="Stage3Tests.cpp" /><ClCompile Include="NameRecognizer.cpp" /><ClInclude Include="Stage3.h" /></ItemGroup><ItemGroup><ClCompile Include="WindowCapture.cpp"></ClCompile><ClCompile Include="OcrRuntime.cpp"></ClCompile><ClCompile Include="OcrMatcher.cpp"></ClCompile><ClCompile Include="OcrTests.cpp"></ClCompile><ClCompile Include="OcrUi.cpp"></ClCompile><ClInclude Include="WindowCapture.h"></ClInclude><ClInclude Include="OcrRuntime.h"></ClInclude></ItemGroup><ItemGroup><ResourceCompile Include="KuniVRCPhotEditor.rc" /><ClInclude Include="resource.h" /><Image Include="Assets\KuniVRCPhotEditor.ico" /><None Include="Assets\KuniVRCPhotEditorIcon_A.png" /></ItemGroup><ItemGroup><ClCompile Include="TestOcr.cpp"/><ClInclude Include="TestOcr.h"/></ItemGroup></Project>
+  <Target Name="CopyThirdPartyNotices" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)Documents\THIRD_PARTY_NOTICES.md" DestinationFolder="$(TargetDir)" />
+    <Copy SourceFiles="$(ProjectDir)third_party\libwebp-1.6.0\COPYING" DestinationFiles="$(TargetDir)libwebp-COPYING.txt" />
+    <Copy SourceFiles="$(ProjectDir)third_party\libwebp-1.6.0\PATENTS" DestinationFiles="$(TargetDir)libwebp-PATENTS.txt" />
+  </Target>
+  <ItemGroup>
+    <ClCompile Include="BackupManager.cpp">
+    </ClCompile>
+    <ClCompile Include="BackupUi.cpp">
+    </ClCompile>
+    <ClCompile Include="SearchController.cpp">
+    </ClCompile>
+    <ClCompile Include="ThemeUi.cpp">
+    </ClCompile>
+    <ClCompile Include="NewOptions.cpp">
+    </ClCompile>
+    <ClCompile Include="V031Tests.cpp">
+    </ClCompile>
+    <ClInclude Include="BackupManager.h">
+    </ClInclude>
+    <ClInclude Include="V031Tests.h">
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="BatchController.cpp" />
+    <ClInclude Include="WebPMetadata.h" />
+    <ClCompile Include="V035Tests.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="InstanceTimeline.cpp" />
+    <ClCompile Include="LogMonitor.cpp" />
+    <ClCompile Include="PhotoAnnotationCoordinator.cpp" />
+    <ClCompile Include="PhotoMonitor.cpp" />
+    <ClCompile Include="Stage3Tests.cpp" />
+    <ClCompile Include="NameRecognizer.cpp" />
+    <ClInclude Include="Stage3.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="WindowCapture.cpp">
+    </ClCompile>
+    <ClCompile Include="OcrRuntime.cpp">
+    </ClCompile>
+    <ClCompile Include="OcrMatcher.cpp">
+    </ClCompile>
+    <ClCompile Include="OcrTests.cpp">
+    </ClCompile>
+    <ClCompile Include="OcrUi.cpp">
+    </ClCompile>
+    <ClInclude Include="WindowCapture.h">
+    </ClInclude>
+    <ClInclude Include="OcrRuntime.h">
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="KuniVRCPhotEditor.rc" />
+    <ClInclude Include="resource.h" />
+    <Image Include="Assets\KuniVRCPhotEditor.ico" />
+    <None Include="Assets\KuniVRCPhotEditorIcon_A.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="TestOcr.cpp" />
+    <ClInclude Include="TestOcr.h" />
+  </ItemGroup>
+<ItemGroup><ClCompile Include="UpdateChecker.cpp"/><ClInclude Include="UpdateChecker.h"/><ClInclude Include="AppVersion.h"/></ItemGroup><ItemGroup><ClCompile Include="V048Features.cpp"/><ClInclude Include="V048Features.h"/></ItemGroup></Project>

@@ -9,7 +9,7 @@ struct PhotoSummary {
 };
 struct XmpFields {
     std::wstring date, author, worldName, worldId, extendedGuid, subjects, tags;
-    std::wstring members, candidates, memberStatus, candidateStatus;
+    std::wstring members, candidates, memberStatus, candidateStatus, recordReference;
 };
 bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error);
 bool ValidXmpDate(const std::wstring& text);

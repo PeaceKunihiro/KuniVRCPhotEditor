@@ -1,8 +1,11 @@
+#include "V048Features.h"
+#include "UpdateChecker.h"
 #include "ViewerRuntime.h"
 #include <windowsx.h>
 State app;
+namespace {HWND groupButton{};void OpenGroupPage(){auto ids=GroupIds(app.summary.values[8]);if(ids.empty())return;size_t selected=0;if(ids.size()>1){HMENU menu=CreatePopupMenu();for(size_t i=0;i<ids.size();++i)AppendMenuW(menu,MF_STRING,UINT_PTR(i+1),ids[i].c_str());RECT r{};GetWindowRect(groupButton,&r);auto choice=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,app.window,nullptr);DestroyMenu(menu);if(choice<1||choice>ids.size())return;selected=choice-1;}auto url=GroupUrl(ids[selected]);if(!url.empty())ShellExecuteW(app.window,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}}
 void ShowSummary(const PhotoSummary& summary, const std::wstring& message) {
-    app.summary = summary; app.simpleScroll = 0;
+    app.summary = summary; app.simpleScroll = 0;EnableWindow(groupButton,!GroupIds(summary.values[8]).empty());
     for (size_t i = 0; i < summary.values.size(); ++i) SetWindowTextW(app.simpleValues[i], summary.values[i].c_str());
     SetWindowTextW(app.simpleNote, (message + summary.notes).c_str()); LayoutSimple();
 }
@@ -513,6 +516,7 @@ void LayoutSimple() {
         MoveWindow(app.simpleValues[i], labelWidth + 12, y - app.simpleScroll, valueWidth, height, FALSE);
         y += height + 8;
     }
+    MoveWindow(groupButton,8,y-app.simpleScroll,std::max(40L,area.right-16),26,FALSE);y+=34;
     auto note = Text(app.simpleNote);
     MoveWindow(app.simpleNote, 8, y - app.simpleScroll, std::max(40L, area.right - 16), 24, FALSE);
     int lines = static_cast<int>(SendMessageW(app.simpleNote, EM_GETLINECOUNT, 0, 0));
@@ -527,6 +531,7 @@ void LayoutSimple() {
     RedrawWindow(app.simple, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 LRESULT CALLBACK SimpleProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if(message==WM_COMMAND&&LOWORD(wparam)==1810){OpenGroupPage();return 0;}
     if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) {
         RECT area{}; GetClientRect(window, &area); int position = app.simpleScroll;
         if (message == WM_MOUSEWHEEL) {
@@ -708,6 +713,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             app.simpleValues[i] = Control(L"EDIT", L"", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleValues[i], app.simple);
             SendMessageW(app.simpleValues[i], EM_SETLIMITTEXT, 0x7ffffffe, 0); SetWindowSubclass(app.simpleValues[i], SummaryValueProc, 1, 0);
         }
+        groupButton=Control(L"BUTTON",L"グループページを開く",WS_TABSTOP,1810);SetParent(groupButton,app.simple);EnableWindow(groupButton,FALSE);
         app.simpleNote = Control(L"EDIT", L"画像を選択してください。", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleNote, app.simple);
         SendMessageW(app.simpleNote, EM_SETLIMITTEXT, 0x7ffffffe, 0); SetWindowSubclass(app.simpleNote, SummaryValueProc, 1, 0);
         app.details = Control(L"EDIT", L"画像を選択してください。", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER | WS_TABSTOP, Details);
@@ -758,7 +764,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case SearchButton: if(app.searching)CancelSearch();else StartSearch(Text(app.searchEdit));break;
         case RecordToggle: stage3::ToggleRecording();UpdateRecordingControls();Counts();break;
         case PersonSettings: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"参加者自動記録の設定…");RECT r{};GetWindowRect(GetDlgItem(window,PersonSettings),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)stage3::ShowMonitorDialog();UpdateRecordingControls();break;}
-        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();break;}
+        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");AppendMenuW(menu,MF_STRING,2,L"アップデートを確認…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();if(action==2)ShowUpdateChecker(window);break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
         case Options: OptionsMenu(); break;

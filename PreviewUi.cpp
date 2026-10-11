@@ -10,8 +10,13 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         if (index != app.selected) { ListView_SetItemState(app.list, -1, 0, LVIS_SELECTED); ListView_SetItemState(app.list, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED); ListView_EnsureVisible(app.list, index, FALSE); }
         return 0;
     }
+    if (message == WM_ERASEBKGND) return 1;
     if (message == WM_PAINT) {
-        PAINTSTRUCT paint{}; HDC dc = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r); FillRect(dc, &r, ThemeBrush());
+        PAINTSTRUCT paint{}; HDC screen = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r);
+        if(r.right<=0||r.bottom<=0){EndPaint(window,&paint);return 0;}
+        HDC dc=CreateCompatibleDC(screen);HBITMAP buffer=CreateCompatibleBitmap(screen,r.right,r.bottom);
+        if(!dc||!buffer){if(buffer)DeleteObject(buffer);if(dc)DeleteDC(dc);EndPaint(window,&paint);return 0;}
+        auto old=SelectObject(dc,buffer);FillRect(dc,&r,ThemeBrush());
         auto live=OcrTestSource()?OcrTestPreview():stage3::Recording()?person_ocr::Preview():std::shared_ptr<const Pixels>{};
         Pixels empty;auto& p=(stage3::Recording()||OcrTestSource())?(live?*live:empty):app.previewPixels;
         if (!p.data.empty()) {
@@ -24,6 +29,7 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
             SetStretchBltMode(dc, HALFTONE); StretchDIBits(dc, (r.right - width) / 2, (r.bottom - height) / 2, width, height, 0, 0, p.width, p.height, pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
         } else { SetTextColor(dc,ThemeForeground());SetBkMode(dc, TRANSPARENT); DrawTextW(dc, OcrTestSource()?OcrTestStatus().c_str():stage3::Recording()?person_ocr::Status().c_str():app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
+        BitBlt(screen,0,0,r.right,r.bottom,dc,0,0,SRCCOPY);SelectObject(dc,old);DeleteObject(buffer);DeleteDC(dc);
         EndPaint(window, &paint); return 0;
     }
     return DefWindowProcW(window, message, wparam, lparam);
