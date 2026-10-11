@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 bool CurrentJob(const Job& job) {
     if (job.kind == 3 || job.kind == 4) return true; // A click requests this exact file even if selection changes.
     return job.generation == app.currentGeneration &&
@@ -39,11 +39,7 @@ void Worker(bool thumbnails) {
                     auto extension = entry.path().extension().wstring();
                     if (Same(extension, L".png") || Same(extension, L".jpg") || Same(extension, L".jpeg") || Same(extension, L".webp")) result.files.push_back(entry.path().wstring());
                 }
-                std::sort(result.files.begin(), result.files.end(), [](auto& a, auto& b) {
-                    const wchar_t* left = wcsrchr(a.c_str(), L'\\'), *right = wcsrchr(b.c_str(), L'\\');
-                    left = left ? left + 1 : a.c_str(); right = right ? right + 1 : b.c_str();
-                    int comparison = _wcsicmp(left, right); return comparison ? comparison < 0 : wcscmp(left, right) < 0;
-                });
+                SortFiles(result.files,job.sortMode,[&]{return !app.stopping&&CurrentJob(job);});
             } else {
                 if (job.kind == 2) {
                     for(unsigned elapsed=0;elapsed<app.metadataDelayMs && CurrentJob(job)&&!app.stopping;elapsed+=10)Sleep(10);

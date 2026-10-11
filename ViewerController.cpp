@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 void ScheduleSelectionUpdate(){if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
 void FlushSelectionUpdate(){if(!app.selectionPending)return;app.selectionPending=false;int index=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);if(index<0||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))index=ListView_GetNextItem(app.list,-1,LVNI_SELECTED);Select(index,false);}
 void Select(int index,bool reveal) {
@@ -65,7 +65,7 @@ void StartSave() {
     CancelSearch();SetActivity(L"保存中：コピー検証・上書き処理を実行しています…");app.saving=true;app.editorUi.Enable(false);SetWindowTextW(app.editStatus,L"保存中…コピーを検証しています。");UpdateEditorControls();Queue(std::move(job),true);
 }
 bool GuardTransition(std::function<void()> action) {
-    if(app.transitionBypass)return true;if(app.saving||app.backupBusy)return false;
+    if(app.transitionBypass)return true;if(app.saving||app.backupBusy||app.sorting)return false;
     if(!app.editing || !app.editorUi.Read().Changed())return true;
     TASKDIALOG_BUTTON buttons[]{{1,L"保存"},{2,L"破棄"},{3,L"キャンセル"}};
     TASKDIALOGCONFIG config{sizeof(config)};config.hwndParent=app.window;config.pszWindowTitle=L"未保存の変更";config.pszMainInstruction=L"編集内容を保存しますか？";config.cButtons=3;config.pButtons=buttons;config.nDefaultButton=3;config.dwFlags=TDF_ALLOW_DIALOG_CANCELLATION;

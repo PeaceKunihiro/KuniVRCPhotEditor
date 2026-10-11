@@ -4,6 +4,7 @@
 #include "ViewerRuntime.h"
 #include "MetadataWriterTests.h"
 #include "V031Tests.h"
+void RunV0415Tests(const fs::path&,std::ostream&);
 void RunV035Tests(const fs::path&,std::ostream&);
 void RunV0412Tests(const fs::path&,std::ostream&);
 void RunV0412UiTests(const fs::path&,std::ostream&);
@@ -17,6 +18,7 @@ int SelfTest() {
     std::ofstream report(directory / L"result.txt");
     try {
         RunUpdateTests(directory,report);RunV0412Tests(directory,report);
+        RunV0415Tests(directory,report);
         auto require = [&](bool ok, const char* label) { if (!ok) throw std::runtime_error(label); report << "PASS: " << label << '\n'; };
         ViewerSettings v045;v045.sideWidth=750;v045.sideHeight=420;v045.autoThumbnails=true;auto resized=ParseViewerSettings(SerializeViewerSettings(v045));require(resized.sideWidth==750&&resized.sideHeight==420&&resized.autoThumbnails,"v0.4.5 split size and auto thumbnail settings roundtrip");require(!ParseViewerSettings("{\"version\":3}").autoThumbnails,"v0.4.5 legacy settings keep manual thumbnails");
         int wheel = 0;
@@ -501,7 +503,7 @@ int UiTest() {
         auto beforeSearch=app.searchGeneration;StartSearch(L"grid");require(app.searchGeneration==beforeSearch&&app.editing,"cancel unsaved search retains edited image");
         auto originalHash=MetadataFingerprint(uiOutput.wstring());StartSave();wait([&]{return !app.saving&&!app.folderPending&&!app.searching&&app.selected>=0&&app.metadataReady&&app.summary.values[4]==L"上書きUI & 検証";});
         require(!app.files.empty()&&Same(app.files[app.selected],uiOutput.wstring())&&!app.editing&&app.appliedQuery==L"Stage2-ui-saved","overwrite reload preserves filtered selected file");
-        auto ledger=directory/L"backups.json";auto backupEntries=ReadBackupLedger(ledger);require(std::any_of(backupEntries.begin(),backupEntries.end(),[&](auto& e){return Same(e.source,uiOutput.wstring())&&MetadataFingerprint(e.path)==originalHash;}),"overwrite UI creates exact backup before replacing original");
+        auto ledger=directory/L"backups.json";auto backupEntries=ReadBackupLedger(ledger);require(std::any_of(backupEntries.begin(),backupEntries.end(),[&](auto& e){return Same(e.source,uiOutput.wstring())&&e.sourceFingerprint==originalHash&&MetadataFingerprint(e.path)==e.fingerprint&&InspectEditable(e.path).values[5].find(L"【AutoBackup】")!=std::wstring::npos;}),"overwrite UI creates tagged backup before replacing original");
         for(auto& e:backupEntries)fs::remove(e.path);fs::remove(ledger);app.chooseSaveMode={};app.confirmChanges={};StartSearch(L"");wait([]{return !app.searching;});
         auto v3=readSettings();app.autoBackup=false;app.backupLimit=7;app.darkTheme=true;app.metadataSearch=true;SaveSettings();v3=readSettings();require(!v3.autoBackup&&v3.backupLimit==7&&v3.darkTheme&&v3.metadataSearch,"v0.3.1 options persist independently");app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;SaveSettings();ApplyTheme();
         auto checked=directory/L"AB_ui-checked.jpg",unchecked=directory/L"AB_ui-unchecked.jpg";fs::copy_file(source,checked,fs::copy_options::overwrite_existing);fs::copy_file(source,unchecked,fs::copy_options::overwrite_existing);OpenFolder(directory.wstring(),true);wait([]{return !app.folderPending&&!app.searching;});
@@ -584,9 +586,33 @@ int UiTest() {
             app.editorUi.Load(InspectEditable((directory/L"writer-alpha.png").wstring()));require(ListView_GetItemCount(list)==0&&Text(manual).empty()&&!app.editorUi.Read().Changed(),"v0.4.14 switching image resets candidate choices and manual text");
             app.editing=false;app.darkTheme=false;ApplyTheme();
         }
+        {
+            auto folder=directory/L"sort-ui";fs::create_directories(folder);auto a=folder/L"a.jpg",b=folder/L"b.jpg",c=folder/L"c.jpg";
+            ULONGLONG created=130000000000000000ULL;for(auto path:{a,b,c}){fs::copy_file(directory/L"sample.jpg",path,fs::copy_options::overwrite_existing);HANDLE h=CreateFileW(path.c_str(),FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);FILETIME time{DWORD(created),DWORD(created>>32)};require(h!=INVALID_HANDLE_VALUE&&SetFileTime(h,&time,nullptr,nullptr),"v0.4.15 UI fixture creation time");CloseHandle(h);created+=10000000;}
+            app.sortMode=0;app.editing=false;app.layout=L"right";TabCtrl_SetCurSel(app.metadataTabs,1);OpenFolder(folder.wstring());wait([]{return !app.folderPending&&app.files.size()==3;});
+            TestSelectItem(app.list,0,LVIS_SELECTED,LVIS_SELECTED);ListView_SetItemState(app.list,2,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);FlushSelectionUpdate();
+            RequestSort(1);wait([]{return !app.sorting;});require(app.files==std::vector<std::wstring>{c.wstring(),b.wstring(),a.wstring()}&&SelectedFiles().size()==2&&app.selected==0&&ListView_GetSelectionMark(app.list)==0,"v0.4.15 sort preserves multiple selection, focus and Shift anchor");
+            StartSearch(L"a");wait([]{return !app.searching&&app.files.size()==1;});RequestSort(3);wait([]{return !app.sorting;});require(app.files==std::vector<std::wstring>{a.wstring()}&&app.allFiles==std::vector<std::wstring>{c.wstring(),b.wstring(),a.wstring()},"v0.4.15 sort applies to filtered display and full folder");
+            StartSearch(L"");wait([]{return !app.searching&&app.files.size()==3;});require(app.files==app.allFiles,"v0.4.15 clearing search retains sort mode");TestSelectItem(app.list,2,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});BeginMetadataEdit();SetWindowTextW(GetDlgItem(app.editorUi.Window(),1001),L"sort guard");app.confirmChanges=[]{return 3;};RequestSort(0);require(!app.sorting&&app.sortMode==3&&app.editing&&app.editorUi.Read().Changed(),"v0.4.15 cancelling sort preserves unsaved edit");
+            for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();for(auto placement:{L"left",L"right",L"bottom"}){app.layout=placement;Layout();UpdateEditorControls();RECT rect{};GetWindowRect(app.cancelButton,&rect);POINT point{(rect.left+rect.right)/2,(rect.top+rect.bottom)/2};ScreenToClient(app.window,&point);require(ChildWindowFromPointEx(app.window,point,CWP_SKIPINVISIBLE)==app.cancelButton&&IsWindowEnabled(app.cancelButton),"v0.4.15 cancel stays above tabs before mouse hover");RECT panel{};GetWindowRect(app.editorUi.Window(),&panel);POINT inside{panel.left+2,panel.top+2};ScreenToClient(app.window,&inside);require(ChildWindowFromPointEx(app.window,inside,CWP_SKIPINVISIBLE)==app.editorUi.Window(),"v0.4.15 editor pane stays above tab page in both themes");CaptureUiTest(directory/(std::wstring(L"v0415-")+(dark?L"night-":L"light-")+placement+L".png"));}}
+            app.confirmChanges=[]{return 2;};RequestSort(0);wait([]{return !app.sorting;});require(!app.editing&&app.files==std::vector<std::wstring>{a.wstring(),b.wstring(),c.wstring()},"v0.4.15 discard confirmation permits sort");app.confirmChanges={};app.darkTheme=false;ApplyTheme();
+            RECT help{},sort{};GetWindowRect(GetDlgItem(app.window,Help),&help);GetWindowRect(GetDlgItem(app.window,SortMenu),&sort);require(help.right<sort.left&&Text(GetDlgItem(app.window,SortMenu))==L"並べ替え ▼","v0.4.15 sort button follows help");
+            ResetViewer();app.sortMode=0;SaveSettings();
+        }
         RunV0412UiTests(directory,report);RunV0413UiTests(directory,report);
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
     return 1;
+}
+
+void RunV0415Tests(const fs::path& directory,std::ostream& report){
+    auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);report<<"PASS: v0.4.15 "<<label<<'\n';};
+    auto folder=directory/L"sort-tests";fs::create_directories(folder);auto a=folder/L"a.png",b=folder/L"B.png",c=folder/L"c.png",missing=folder/L"missing.png";fs::remove(missing);
+    for(auto path:{a,b,c}){std::ofstream out(path);out<<"sort fixture";}
+    auto set=[&](const fs::path& path,ULONGLONG value){HANDLE h=CreateFileW(path.c_str(),FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);if(h==INVALID_HANDLE_VALUE)throw std::runtime_error("sort fixture handle");FILETIME time{DWORD(value),DWORD(value>>32)};bool ok=SetFileTime(h,&time,nullptr,nullptr)!=FALSE;CloseHandle(h);check(ok,"sort fixture creation time");};
+    constexpr ULONGLONG base=130000000000000000ULL;set(a,base+20000000);set(b,base);set(c,base);
+    std::vector<std::wstring> files{c.wstring(),a.wstring(),missing.wstring(),b.wstring()};SortFiles(files,0);check(files==std::vector<std::wstring>{a.wstring(),b.wstring(),c.wstring(),missing.wstring()},"filename ascending");SortFiles(files,1);check(files==std::vector<std::wstring>{missing.wstring(),c.wstring(),b.wstring(),a.wstring()},"filename descending");SortFiles(files,2);check(files==std::vector<std::wstring>{b.wstring(),c.wstring(),a.wstring(),missing.wstring()},"creation ascending, equal dates use name and missing last");SortFiles(files,3);check(files==std::vector<std::wstring>{a.wstring(),b.wstring(),c.wstring(),missing.wstring()},"creation descending with missing last");auto before=files;SortFiles(files,0,[]{return false;});check(files==before,"cancelled sort does not partially commit");
+    for(int mode=0;mode<4;++mode){ViewerSettings value;value.sortMode=mode;check(ParseViewerSettings(SerializeViewerSettings(value)).sortMode==mode,"sort settings round trip");}check(ParseViewerSettings("{\"version\":3}").sortMode==0,"legacy defaults to filename order");
+    auto ledger=folder/L"legacy.json";{std::ofstream out(ledger);out<<"{\"version\":1,\"entries\":[{\"path\":\"AB_old.png\",\"source\":\"old.png\",\"fingerprint\":\"original-hash\",\"created\":\"1\"}]}";}auto entries=ReadBackupLedger(ledger);check(entries.size()==1&&entries[0].sourceFingerprint==L"original-hash","legacy backup fingerprints migrate safely");WriteBackupLedger(ledger,entries);check(ReadBackupLedger(ledger)[0].sourceFingerprint==L"original-hash","backup ledger retains source fingerprint");
 }

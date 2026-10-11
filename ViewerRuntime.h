@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
 #include "Stage3.h"
@@ -52,10 +52,11 @@ constexpr UINT_PTR ThumbnailTimer = 2;
 constexpr UINT_PTR ActivityTimer = 3;
 constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
-enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView };
-struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; };
+enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView, SortMenu };
+struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; int sortMode=0; };
 struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
 struct State {
+    int sortMode=0; bool sorting=false;
     std::vector<std::wstring> batchFiles, restoreSelection, batchCompleted;
     std::vector<EditableMetadata> batchMetadata;
     bool batchLoading=false, updatingSelection=false,selectionPending=false;
@@ -235,3 +236,6 @@ bool OcrImageSource();
 bool OcrTestSource();std::shared_ptr<const Pixels> OcrTestPreview();std::wstring OcrTestStatus();void StopOcrUi();
 
 bool TrayMessage(HWND,UINT,WPARAM,LPARAM);void TrayUpdate();void TrayShutdown();void RunV0413UiTests(const fs::path&,std::ostream&);
+
+void SortFiles(std::vector<std::wstring>& files,int mode,const std::function<bool()>& active = {});
+void RequestSort(int mode);

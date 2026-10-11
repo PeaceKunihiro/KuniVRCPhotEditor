@@ -1,8 +1,8 @@
-#pragma once
+﻿#pragma once
 #include "MetadataWriter.h"
 #include <filesystem>
 #include <vector>
-struct BackupEntry { std::wstring path, source, fingerprint; unsigned long long created=0; };
+struct BackupEntry { std::wstring path, source, fingerprint; unsigned long long created=0; std::wstring sourceFingerprint; };
 struct BackupCandidate { std::wstring path, sourceKey; unsigned long long bytes=0; FILETIME modified{}; bool managed=false; };
 std::vector<BackupEntry> ReadBackupLedger(const std::filesystem::path& ledger);
 void WriteBackupLedger(const std::filesystem::path& ledger,const std::vector<BackupEntry>& entries);

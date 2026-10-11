@@ -1,6 +1,7 @@
-#include "V048Features.h"
+﻿#include "V048Features.h"
 #include "UpdateChecker.h"
 #include "ViewerRuntime.h"
+#include <unordered_set>
 #include <windowsx.h>
 State app;
 namespace {HWND groupButton{};void OpenGroupPage(){auto ids=GroupIds(app.summary.values[8]);if(ids.empty())return;size_t selected=0;if(ids.size()>1){HMENU menu=CreatePopupMenu();for(size_t i=0;i<ids.size();++i)AppendMenuW(menu,MF_STRING,UINT_PTR(i+1),ids[i].c_str());RECT r{};GetWindowRect(groupButton,&r);auto choice=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,app.window,nullptr);DestroyMenu(menu);if(choice<1||choice>ids.size())return;selected=choice-1;}auto url=GroupUrl(ids[selected]);if(!url.empty())ShellExecuteW(app.window,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}}
@@ -66,7 +67,7 @@ void LoadSettings() {
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
         auto settings = ParseViewerSettings(json);
-        app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
+        app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
@@ -80,7 +81,7 @@ void LoadSettings() {
 void SaveSettings() {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;
+        ViewerSettings settings;settings.sortMode=app.sortMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
@@ -164,6 +165,7 @@ std::wstring Info(IWICBitmapDecoder* decoder, IWICBitmapFrameDecode* frame, cons
     return output;
 }
 void Queue(Job job, bool priority) {
+    if(job.kind==0||job.kind==6)job.sortMode=app.sortMode;
     if(job.kind==2){try{job.sourceKey=ThumbnailCache::Key(job.path);}catch(...){}}
     { std::lock_guard<std::mutex> lock(app.mutex); if (priority) app.jobs.push_front(std::move(job)); else app.jobs.push_back(std::move(job)); }
     app.wake.notify_all();
@@ -319,6 +321,14 @@ void Results() {
     app.wake.notify_all();
     for (auto& result : results) {
         auto& job = result.job;
+        if(job.kind==12){
+            if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;
+            app.sorting=false;EnableWindow(app.list,TRUE);StopActivity();UpdateEditorControls();
+            if(!result.error.empty()){Counts(L"並べ替え失敗: "+result.error);continue;}
+            FlushSelectionUpdate();auto preserve=app.selected>=0?app.files[app.selected]:L"";app.restoreSelection=SelectedFiles();
+            app.allFiles=std::move(result.files);std::unordered_set<std::wstring> visible(job.destinations.begin(),job.destinations.end());std::vector<std::wstring> files;for(auto& file:app.allFiles)if(visible.count(file))files.push_back(file);
+            app.sortMode=job.sortMode;CommitDisplay(std::move(files),preserve);SaveSettings();Counts(L"並べ替え完了");continue;
+        }
         if(job.kind==6){if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;
             if(result.progress){Counts(result.text);continue;}
             app.searching=false;SetWindowTextW(app.searchButton,L"検索");
@@ -438,7 +448,7 @@ void Layout() {
     // Move the toolbar as one batch and discard copied pixels from old positions.
     // Sequential MoveWindow(..., TRUE) can repaint while siblings still overlap.
     struct ToolbarPosition { HWND window; int x, y, width, height; };
-    bool wrap=width<700;int recordingY=wrap?110:76,placementX=wrap?8:width-332;int listTop=wrap?144:110;
+    bool wrap=width<804;int recordingY=wrap?110:76,placementX=wrap?8:width-332;int listTop=wrap?144:110;
     const ToolbarPosition toolbar[]{
         { app.path, 8, 8, std::max(80, width - 248), 26 },
         { GetDlgItem(app.window, OpenPath), width - 232, 8, 64, 26 },
@@ -450,6 +460,7 @@ void Layout() {
         { GetDlgItem(app.window, Bookmarks),8,76,120,26 },
         { GetDlgItem(app.window, Options),136,76,116,26 },
         { GetDlgItem(app.window, Help),260,76,88,26 },
+        { GetDlgItem(app.window, SortMenu),356,76,108,26 },
         { app.placement,placementX,recordingY,172,180 },
         { GetDlgItem(app.window,RecordToggle),placementX+180,recordingY,104,26 },
         { GetDlgItem(app.window,RecordIndicator),placementX+292,recordingY,24,26 }
@@ -497,6 +508,8 @@ void Layout() {
     ShowWindow(app.details, detailed && !app.editing ? SW_SHOW : SW_HIDE); ShowWindow(app.simple, TabCtrl_GetCurSel(app.metadataTabs)==0 ? SW_SHOW : SW_HIDE);
     LayoutOcrUi(page,!noSide&&TabCtrl_GetCurSel(app.metadataTabs)==2);
     LayoutSimple();
+    for(auto h:{app.simple,app.details,app.editorUi.Window()})SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+    for(auto h:{app.editButton,app.saveButton,app.cancelButton,app.editStatus})SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     if(noSide){for(auto h:{app.simple,app.details,app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(h,SW_HIDE);app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,false);}
     MoveWindow(app.status, 8, height - 28, width - 16, 24, TRUE);
     if(app.autoThumbnails){int available=std::max(64L,list.right-list.left-GetSystemMetrics(SM_CXVSCROLL)-4);int columns=std::max(1,(available+263)/264);int desired=std::clamp(available/columns-8,64,256);if(desired!=app.thumbnailWidth){app.thumbnailWidth=desired;SetTimer(app.window,ZoomTimer,150,nullptr);}}
@@ -701,7 +714,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"ロード", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
         Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
-        Control(L"BUTTON",L"リセット",WS_TABSTOP,ResetView);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);
+        Control(L"BUTTON",L"リセット",WS_TABSTOP,ResetView);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);Control(L"BUTTON",L"並べ替え ▼",WS_TABSTOP,SortMenu);
         Control(L"BUTTON",L"記録開始",WS_TABSTOP|BS_OWNERDRAW,RecordToggle);Control(L"STATIC",L"記録状態",SS_OWNERDRAW,RecordIndicator);SetTimer(window,RecordTimer,500,nullptr);
         app.searchEdit=Control(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,SearchEdit);
         SendMessageW(app.searchEdit,EM_SETCUEBANNER,TRUE,reinterpret_cast<LPARAM>(L"検索文字列（Enter／ボタンで実行）"));
@@ -780,6 +793,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case RecordToggle: stage3::ToggleRecording();UpdateRecordingControls();Counts();break;
         case ResetView: ResetViewer();break;
 
+        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);break;}
         case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");AppendMenuW(menu,MF_STRING,2,L"アップデートを確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();if(action==2)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
@@ -844,10 +858,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
 void UpdateEditorControls() {
     auto edit=app.editing?app.editorUi.Read():MetadataEdit{};
-    EnableWindow(app.editButton,app.metadataReady && !app.previewPixels.data.empty() && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && app.selected>=0);
-    EnableWindow(app.saveButton,app.editing && !app.saving && !app.backupBusy && edit.Changed() && edit.Validate().empty());
-    EnableWindow(app.cancelButton,app.editing && (!app.saving||!app.batchFiles.empty()) && !app.backupBusy);SetWindowTextW(app.cancelButton,app.saving&&!app.batchFiles.empty()?L"一括保存中止":L"キャンセル");
-    for(int id:{OpenPath,Browse,ResetView,History,Bookmarks,SearchButton,Options})EnableWindow(GetDlgItem(app.window,id),!app.saving&&!app.backupBusy);
+    EnableWindow(app.editButton,app.metadataReady && !app.previewPixels.data.empty() && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && !app.sorting && app.selected>=0);
+    EnableWindow(app.saveButton,app.editing && !app.saving && !app.backupBusy && !app.sorting && edit.Changed() && edit.Validate().empty());
+    EnableWindow(app.cancelButton,app.editing && (!app.saving||!app.batchFiles.empty()) && !app.backupBusy && !app.sorting);SetWindowTextW(app.cancelButton,app.saving&&!app.batchFiles.empty()?L"一括保存中止":L"キャンセル");
+    for(int id:{OpenPath,Browse,ResetView,History,Bookmarks,SearchButton,Options,SortMenu})EnableWindow(GetDlgItem(app.window,id),!app.saving&&!app.backupBusy&&!app.sorting);
+    SetWindowPos(app.cancelButton,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+    RedrawWindow(app.cancelButton,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_UPDATENOW);
     if(app.editing && !app.saving){auto error=edit.Validate();if(!error.empty())SetWindowTextW(app.editStatus,error.c_str());}
     else if(!app.editError.empty() && !app.editing)SetWindowTextW(app.editStatus,(L"編集不可: "+app.editError).c_str());
 }

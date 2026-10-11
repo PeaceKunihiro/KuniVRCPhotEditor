@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "WebPMetadata.h"
 #include "WebPFixtures.h"
 void RunV035Tests(const fs::path& directory,std::ostream& report) {
@@ -26,7 +26,7 @@ void RunV035Tests(const fs::path& directory,std::ostream& report) {
         MetadataEdit append;append.actions[5]=EditAction::Append;append.values[5]=L"追加\n夜景";
         SaveMetadataOverwrite(output.wstring(),actual.fingerprint,append,true,10,ledger);
         require(InspectEditable(output.wstring()).values[5]==L"夜景\r\n集合 写真\r\n追加","WebP overwrite appends tags without losing original tags");
-        auto backups=ReadBackupLedger(ledger);require(backups.size()==1&&MetadataFingerprint(backups[0].path)==actual.fingerprint,"WebP overwrite creates exact pre-edit backup");for(auto& b:backups)fs::remove(b.path);fs::remove(ledger);
+        auto backups=ReadBackupLedger(ledger);require(backups.size()==1&&backups[0].sourceFingerprint==actual.fingerprint&&MetadataFingerprint(backups[0].path)==backups[0].fingerprint&&InspectEditable(backups[0].path).values[5].find(L"【AutoBackup】")!=std::wstring::npos,"WebP overwrite creates tagged pre-edit backup");for(auto& b:backups)fs::remove(b.path);fs::remove(ledger);
         MetadataEdit remove;remove.actions[5]=EditAction::Remove;auto cleared=directory/(L"v035-cleared-"+std::to_wstring(i)+L".webp");fs::remove(cleared);SaveMetadataCopy(output.wstring(),cleared.wstring(),MetadataFingerprint(output.wstring()),remove);
         require(InspectEditable(cleared.wstring()).values[5].empty()&&InspectEditable(cleared.wstring()).values[1]==edit.values[1],"tag removal preserves other WebP metadata");
     }
@@ -63,7 +63,7 @@ void RunV035Tests(const fs::path& directory,std::ostream& report) {
     require(BatchResultCounts(3,1,true)==L"対象: 3件\r\n成功: 1件\r\n失敗: 1件\r\n未処理: 1件","batch result contains counts without filenames");
     auto overwrite=batch;overwrite.overwrite=true;overwrite.autoBackup=true;overwrite.backupLimit=10;overwrite.destinations=overwrite.files;auto ledger=batchDirectory/L"batch-backups.json";fs::remove(ledger);overwrite.destination=ledger.wstring();
     Result replaced;RunBatchJob(overwrite,replaced);auto backups=ReadBackupLedger(ledger);require(replaced.files.size()==3&&backups.size()==3,"mixed-format batch overwrite backs up every image");
-    for(size_t i=0;i<batch.files.size();++i){auto record=std::find_if(backups.begin(),backups.end(),[&](const auto& entry){return Same(entry.source,batch.files[i]);});require(record!=backups.end()&&MetadataFingerprint(record->path)==batch.metadata[i].fingerprint&&InspectEditable(batch.files[i]).values[0]==batch.metadata[i].values[0],"batch overwrite backups match original bytes and capture dates remain unchanged");}
+    for(size_t i=0;i<batch.files.size();++i){auto record=std::find_if(backups.begin(),backups.end(),[&](const auto& entry){return Same(entry.source,batch.files[i]);});require(record!=backups.end()&&record->sourceFingerprint==batch.metadata[i].fingerprint&&MetadataFingerprint(record->path)==record->fingerprint&&InspectEditable(batch.files[i]).values[0]==batch.metadata[i].values[0],"batch overwrite backups record original fingerprints and capture dates remain unchanged");}
     std::vector<std::wstring> protectedPaths;for(auto& entry:backups)protectedPaths.push_back(entry.path);PruneBackups(batchDirectory.wstring(),1,ledger,protectedPaths);require(ReadBackupLedger(ledger).size()==3,"batch protects selected backup images from retention pruning");
     for(auto& entry:backups)fs::remove(entry.path);fs::remove(ledger);
     {std::lock_guard<std::mutex> lock(app.mutex);app.results.clear();}

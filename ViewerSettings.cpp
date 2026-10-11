@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "ViewerSettings.h"
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -34,6 +34,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
         if (!std::isfinite(n) || n < minimum || n > maximum || std::fmod(n - minimum, step) != 0) throw std::runtime_error("setting number");
         return static_cast<int>(n);
     };
+    settings.sortMode=number(L"sortMode",0,0,3,1);
     settings.thumbnailWidth = number(L"thumbnailWidth", 128, 64, 256, 32);
     settings.autoThumbnails=object.GetNamedBoolean(L"autoThumbnails",false);
     settings.sideWidth=number(L"sideWidth",400,280,10000,1);settings.sideHeight=number(L"sideHeight",300,120,10000,1);
@@ -70,6 +71,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
 }
 std::string SerializeViewerSettings(const ViewerSettings& settings) {
     JsonObject object; object.Insert(L"version", JsonValue::CreateNumberValue(3));
+    object.Insert(L"sortMode",JsonValue::CreateNumberValue(settings.sortMode));
     object.Insert(L"lastFolder", JsonValue::CreateStringValue(settings.saveHistory ? settings.last : L""));
     object.Insert(L"sideView", JsonValue::CreateStringValue(settings.layout));
     object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(settings.thumbnailWidth));
