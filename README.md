@@ -146,6 +146,8 @@ FPSは5～15、期間は1～30秒です。取得画像はディスク保存せ�
 - フレンド環境の起動不可は原因未確定です。アイコン変更による解消は確認していません。
 
 ## 開発・関連文書
+アプリのC++ソース・ヘッダー・リソース定義は `Src` に格納しています。ソリューション／プロジェクトとビルド用スクリプトは直下、アイコンは `Assets`、外部ライブラリーは `third_party` にあります。
+
 VS2022でリポジトリ直下の `KuniVRCPhotEditor.sln` を開き、Debug／x64を選びます。Ctrl＋Shift＋Bでビルド、Ctrl＋F5で起動します。
 
 `build.cmd Release` でRelease／x64を生成し、出力は `x64\Release\KuniVRCPhotEditor.exe` です。build.cmdはこの開発PCのVS2022 Community配置を使用します。`build.cmd Debug Test`／`build.cmd Release Test` は自己・UI・終了試験を実行します。試験用書込み先はEXE配下のself-test-dataで、本番設定・参照写真は変更しません。試験成功は全要件や実VRChat精度の保証ではありません。

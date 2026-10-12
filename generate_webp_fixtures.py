@@ -13,4 +13,4 @@ for name, lossless in [('LosslessWebP',True), ('LossyWebP',False)]:
 stream = BytesIO()
 image.save(stream, format='WEBP', save_all=True, append_images=[Image.new('RGBA',(320,160),(0,200,80,255))], duration=[100,100], loop=0, lossless=True)
 arrays.append(('AnimatedWebP', stream.getvalue()))
-Path(__file__).with_name('WebPFixtures.h').write_text('#pragma once\n' + '\n'.join('const unsigned char '+name+'[] = {'+','.join(str(b) for b in data)+'};' for name,data in arrays) + '\n', encoding='utf-8')
+(Path(__file__).resolve().parent / 'Src' / 'WebPFixtures.h').write_text('#pragma once\n' + '\n'.join('const unsigned char '+name+'[] = {'+','.join(str(b) for b in data)+'};' for name,data in arrays) + '\n', encoding='utf-8')

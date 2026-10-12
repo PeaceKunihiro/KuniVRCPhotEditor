@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -70,6 +70,11 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup>
+    <ResourceCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)Src;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -144,46 +149,46 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="MetadataModel.cpp" />
-    <ClCompile Include="MetadataTests.cpp" />
-    <ClInclude Include="MetadataModel.h" />
-    <ClInclude Include="MetadataTests.h" />
+    <ClCompile Include="Src\main.cpp" />
+    <ClCompile Include="Src\MetadataModel.cpp" />
+    <ClCompile Include="Src\MetadataTests.cpp" />
+    <ClInclude Include="Src\MetadataModel.h" />
+    <ClInclude Include="Src\MetadataTests.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="MetadataEditor.cpp" />
-    <ClCompile Include="MetadataEditorUi.cpp" />
-    <ClInclude Include="MetadataEditorUi.h" />
-    <ClCompile Include="MetadataWriter.cpp" />
-    <ClCompile Include="MetadataWriterTests.cpp" />
-    <ClInclude Include="MetadataWriterTests.h" />
-    <ClInclude Include="MetadataEditor.h" />
-    <ClInclude Include="MetadataWriter.h" />
+    <ClCompile Include="Src\MetadataEditor.cpp" />
+    <ClCompile Include="Src\MetadataEditorUi.cpp" />
+    <ClInclude Include="Src\MetadataEditorUi.h" />
+    <ClCompile Include="Src\MetadataWriter.cpp" />
+    <ClCompile Include="Src\MetadataWriterTests.cpp" />
+    <ClInclude Include="Src\MetadataWriterTests.h" />
+    <ClInclude Include="Src\MetadataEditor.h" />
+    <ClInclude Include="Src\MetadataWriter.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="ViewerUi.cpp" />
-    <ClCompile Include="ViewerController.cpp" />
-    <ClCompile Include="ImagePreview.cpp" />
-    <ClCompile Include="PreviewUi.cpp" />
-    <ClCompile Include="PhotosLauncher.cpp" />
-    <ClCompile Include="BackgroundJobs.cpp" />
-    <ClCompile Include="ViewerTests.cpp" />
-    <ClInclude Include="ViewerRuntime.h" />
+    <ClCompile Include="Src\ViewerUi.cpp" />
+    <ClCompile Include="Src\ViewerController.cpp" />
+    <ClCompile Include="Src\ImagePreview.cpp" />
+    <ClCompile Include="Src\PreviewUi.cpp" />
+    <ClCompile Include="Src\PhotosLauncher.cpp" />
+    <ClCompile Include="Src\BackgroundJobs.cpp" />
+    <ClCompile Include="Src\ViewerTests.cpp" />
+    <ClInclude Include="Src\ViewerRuntime.h" />
   </ItemGroup>
   <Import Project="WebP.props" />
   <ItemGroup>
-    <ClCompile Include="WebPImage.cpp" />
-    <ClCompile Include="ExtendedXmp.cpp" />
-    <ClCompile Include="ExtendedXmpTests.cpp" />
-    <ClInclude Include="ExtendedXmpTests.h" />
-    <ClInclude Include="ExtendedXmp.h" />
-    <ClCompile Include="ViewerSettings.cpp" />
-    <ClInclude Include="ViewerSettings.h" />
-    <ClCompile Include="WebPTests.cpp" />
-    <ClInclude Include="WebPTests.h" />
-    <ClInclude Include="WebPFixtures.h" />
-    <ClInclude Include="ThumbnailCache.h" />
-    <ClInclude Include="WebPImage.h" />
+    <ClCompile Include="Src\WebPImage.cpp" />
+    <ClCompile Include="Src\ExtendedXmp.cpp" />
+    <ClCompile Include="Src\ExtendedXmpTests.cpp" />
+    <ClInclude Include="Src\ExtendedXmpTests.h" />
+    <ClInclude Include="Src\ExtendedXmp.h" />
+    <ClCompile Include="Src\ViewerSettings.cpp" />
+    <ClInclude Include="Src\ViewerSettings.h" />
+    <ClCompile Include="Src\WebPTests.cpp" />
+    <ClInclude Include="Src\WebPTests.h" />
+    <ClInclude Include="Src\WebPFixtures.h" />
+    <ClInclude Include="Src\ThumbnailCache.h" />
+    <ClInclude Include="Src\WebPImage.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
@@ -194,61 +199,61 @@
     <Copy SourceFiles="$(ProjectDir)third_party\libwebp-1.6.0\PATENTS" DestinationFiles="$(TargetDir)libwebp-PATENTS.txt" />
   </Target>
   <ItemGroup>
-    <ClCompile Include="BackupManager.cpp">
+    <ClCompile Include="Src\BackupManager.cpp">
     </ClCompile>
-    <ClCompile Include="BackupUi.cpp">
+    <ClCompile Include="Src\BackupUi.cpp">
     </ClCompile>
-    <ClCompile Include="SearchController.cpp">
+    <ClCompile Include="Src\SearchController.cpp">
     </ClCompile>
-    <ClCompile Include="ThemeUi.cpp">
+    <ClCompile Include="Src\ThemeUi.cpp">
     </ClCompile>
-    <ClCompile Include="NewOptions.cpp">
+    <ClCompile Include="Src\NewOptions.cpp">
     </ClCompile>
-    <ClCompile Include="V031Tests.cpp">
+    <ClCompile Include="Src\V031Tests.cpp">
     </ClCompile>
-    <ClInclude Include="BackupManager.h">
+    <ClInclude Include="Src\BackupManager.h">
     </ClInclude>
-    <ClInclude Include="V031Tests.h">
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="BatchController.cpp" />
-    <ClInclude Include="WebPMetadata.h" />
-    <ClCompile Include="V035Tests.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="InstanceTimeline.cpp" />
-    <ClCompile Include="LogMonitor.cpp" />
-    <ClCompile Include="PhotoAnnotationCoordinator.cpp" />
-    <ClCompile Include="PhotoMonitor.cpp" />
-    <ClCompile Include="Stage3Tests.cpp" />
-    <ClCompile Include="NameRecognizer.cpp" />
-    <ClInclude Include="Stage3.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="WindowCapture.cpp">
-    </ClCompile>
-    <ClCompile Include="OcrRuntime.cpp">
-    </ClCompile>
-    <ClCompile Include="OcrMatcher.cpp">
-    </ClCompile>
-    <ClCompile Include="OcrTests.cpp">
-    </ClCompile>
-    <ClCompile Include="OcrUi.cpp">
-    </ClCompile>
-    <ClInclude Include="WindowCapture.h">
-    </ClInclude>
-    <ClInclude Include="OcrRuntime.h">
+    <ClInclude Include="Src\V031Tests.h">
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="KuniVRCPhotEditor.rc" />
-    <ClInclude Include="resource.h" />
+    <ClCompile Include="Src\BatchController.cpp" />
+    <ClInclude Include="Src\WebPMetadata.h" />
+    <ClCompile Include="Src\V035Tests.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Src\InstanceTimeline.cpp" />
+    <ClCompile Include="Src\LogMonitor.cpp" />
+    <ClCompile Include="Src\PhotoAnnotationCoordinator.cpp" />
+    <ClCompile Include="Src\PhotoMonitor.cpp" />
+    <ClCompile Include="Src\Stage3Tests.cpp" />
+    <ClCompile Include="Src\NameRecognizer.cpp" />
+    <ClInclude Include="Src\Stage3.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Src\WindowCapture.cpp">
+    </ClCompile>
+    <ClCompile Include="Src\OcrRuntime.cpp">
+    </ClCompile>
+    <ClCompile Include="Src\OcrMatcher.cpp">
+    </ClCompile>
+    <ClCompile Include="Src\OcrTests.cpp">
+    </ClCompile>
+    <ClCompile Include="Src\OcrUi.cpp">
+    </ClCompile>
+    <ClInclude Include="Src\WindowCapture.h">
+    </ClInclude>
+    <ClInclude Include="Src\OcrRuntime.h">
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Src\KuniVRCPhotEditor.rc" />
+    <ClInclude Include="Src\resource.h" />
     <Image Include="Assets\KuniVRCPhotEditor.ico" />
     <None Include="Assets\KuniVRCPhotEditorIcon_A.png" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="TestOcr.cpp" />
-    <ClInclude Include="TestOcr.h" />
+    <ClCompile Include="Src\TestOcr.cpp" />
+    <ClInclude Include="Src\TestOcr.h" />
   </ItemGroup>
-<ItemGroup><ClCompile Include="UpdateChecker.cpp"/><ClInclude Include="UpdateChecker.h"/><ClInclude Include="AppVersion.h"/></ItemGroup><ItemGroup><ClCompile Include="V048Features.cpp"/><ClInclude Include="V048Features.h"/></ItemGroup><ItemGroup><ClCompile Include="NativeTileOcr.cpp"/><ClInclude Include="NativeTileOcr.h"/></ItemGroup><ItemGroup><ClCompile Include="DiskThumbnailCache.cpp"/><ClCompile Include="DiskCacheUi.cpp"/><ClCompile Include="V0412Tests.cpp"/><ClInclude Include="DiskThumbnailCache.h"/></ItemGroup><ItemGroup><ClCompile Include="TrayUi.cpp"/></ItemGroup></Project>
+<ItemGroup><ClCompile Include="Src\UpdateChecker.cpp"/><ClInclude Include="Src\UpdateChecker.h"/><ClInclude Include="Src\AppVersion.h"/></ItemGroup><ItemGroup><ClCompile Include="Src\V048Features.cpp"/><ClInclude Include="Src\V048Features.h"/></ItemGroup><ItemGroup><ClCompile Include="Src\NativeTileOcr.cpp"/><ClInclude Include="Src\NativeTileOcr.h"/></ItemGroup><ItemGroup><ClCompile Include="Src\DiskThumbnailCache.cpp"/><ClCompile Include="Src\DiskCacheUi.cpp"/><ClCompile Include="Src\V0412Tests.cpp"/><ClInclude Include="Src\DiskThumbnailCache.h"/></ItemGroup><ItemGroup><ClCompile Include="Src\TrayUi.cpp"/></ItemGroup></Project>
