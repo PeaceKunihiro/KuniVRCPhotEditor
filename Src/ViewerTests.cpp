@@ -177,6 +177,15 @@ struct LabelPaintProbe {
     }
     ~LabelPaintProbe() { for (auto label : app.simpleLabels) RemoveWindowSubclass(label, CountLabelPaint, 32); }
 };
+LRESULT CALLBACK CountImageLabels(HWND h,UINT m,WPARAM w,LPARAM l,UINT_PTR,DWORD_PTR data) {
+    if(m==LVM_GETITEMTEXTW)++*reinterpret_cast<size_t*>(data);
+    return DefSubclassProc(h,m,w,l);
+}
+struct ImageLabelProbe {
+    size_t reads=0;
+    ImageLabelProbe(){if(!SetWindowSubclass(app.list,CountImageLabels,41,reinterpret_cast<DWORD_PTR>(&reads)))throw std::runtime_error("image label probe setup");}
+    ~ImageLabelProbe(){RemoveWindowSubclass(app.list,CountImageLabels,41);}
+};
 void CaptureUiTest(const fs::path& file, HWND target = nullptr){bool visible=IsWindowVisible(app.window);ShowWindow(app.window,SW_SHOWNOACTIVATE);RedrawWindow(app.window,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);if(!target)target=app.window;RECT rect{};GetWindowRect(target,&rect);int width=rect.right-rect.left,height=rect.bottom-rect.top;HDC screen=GetDC(target),dc=CreateCompatibleDC(screen);HBITMAP bitmap=CreateCompatibleBitmap(screen,width,height);auto old=SelectObject(dc,bitmap);if(!PrintWindow(target,dc,2))throw std::runtime_error("UI capture failed");if(!visible)ShowWindow(app.window,SW_HIDE);SelectObject(dc,old);std::vector<BYTE> bytes(size_t(width)*height*4);BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=width;info.bmiHeader.biHeight=-height;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;GetDIBits(dc,bitmap,0,height,bytes.data(),&info,DIB_RGB_COLORS);DeleteObject(bitmap);DeleteDC(dc);ReleaseDC(target,screen);
     ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));ComPtr<IWICStream> stream;winrt::check_hresult(factory->CreateStream(&stream));winrt::check_hresult(stream->InitializeFromFilename(file.c_str(),GENERIC_WRITE));ComPtr<IWICBitmapEncoder> encoder;winrt::check_hresult(factory->CreateEncoder(GUID_ContainerFormatPng,nullptr,&encoder));winrt::check_hresult(encoder->Initialize(stream.Get(),WICBitmapEncoderNoCache));ComPtr<IWICBitmapFrameEncode> frame;winrt::check_hresult(encoder->CreateNewFrame(&frame,nullptr));winrt::check_hresult(frame->Initialize(nullptr));winrt::check_hresult(frame->SetSize(width,height));for(size_t i=3;i<bytes.size();i+=4)bytes[i]=255;auto format=GUID_WICPixelFormat32bppBGRA;winrt::check_hresult(frame->SetPixelFormat(&format));winrt::check_hresult(frame->WritePixels(height,width*4,static_cast<UINT>(bytes.size()),bytes.data()));winrt::check_hresult(frame->Commit());winrt::check_hresult(encoder->Commit());
 }
@@ -269,6 +278,17 @@ int UiTest() {
         }
         app.thumbnailWidth = 128; ApplyThumbnailSize();
         wait([] { return ThumbnailsReady(); });
+        {
+            ImageLabelProbe probe;
+            auto elapsed=[&](bool rebuild){LARGE_INTEGER start{},end{},frequency{};QueryPerformanceFrequency(&frequency);QueryPerformanceCounter(&start);for(int i=0;i<10;++i){if(rebuild)app.imageLabelsDirty=true;ArrangeImages();}QueryPerformanceCounter(&end);return 1000.0*(end.QuadPart-start.QuadPart)/frequency.QuadPart;};
+            auto full=elapsed(true);require(probe.reads==app.files.size()*10,"v0.4.18 reference recomputes every filename label");
+            probe.reads=0;auto reused=elapsed(false);require(probe.reads==0,"v0.4.18 repeated arrangement skips unchanged filename labels");
+            Layout();require(probe.reads==0,"v0.4.18 unchanged layout reuses filename labels");
+            report<<"INFO: v0.4.18 labels="<<app.files.size()<<" arrangements=10 full_recalculation_ms="<<full<<" reused_ms="<<reused<<'\n';
+            auto oldFont=SendMessageW(app.list,WM_GETFONT,0,0);auto font=CreateFontW(22,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");require(font!=nullptr,"v0.4.18 font fixture created");
+            SendMessageW(app.list,WM_SETFONT,reinterpret_cast<WPARAM>(font),FALSE);ArrangeImages();require(probe.reads==app.files.size(),"v0.4.18 changed font rebuilds labels");
+            SendMessageW(app.list,WM_SETFONT,oldFont,FALSE);ArrangeImages();DeleteObject(font);
+        }
         wchar_t tooltip[512]{}; NMLVGETINFOTIPW tip{};
         tip.hdr = {app.list,Images,LVN_GETINFOTIPW}; tip.iItem = longIndex; tip.pszText = tooltip; tip.cchTextMax = ARRAYSIZE(tooltip);
         SendMessageW(app.window,WM_NOTIFY,Images,reinterpret_cast<LPARAM>(&tip));

@@ -153,6 +153,7 @@
     <ClCompile Include="Src\MetadataModel.cpp" />
     <ClCompile Include="Src\MetadataTests.cpp" />
     <ClInclude Include="Src\MetadataModel.h" />
+    <ClInclude Include="Src\PngCrc.h" />
     <ClInclude Include="Src\MetadataTests.h" />
   </ItemGroup>
   <ItemGroup>

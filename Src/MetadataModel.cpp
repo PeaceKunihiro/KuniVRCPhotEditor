@@ -1,6 +1,7 @@
 ﻿#define NOMINMAX
 #include "MetadataModel.h"
 #include "ExtendedXmp.h"
+#include "PngCrc.h"
 #include <xmllite.h>
 #include <shlwapi.h>
 #include <wrl/client.h>
@@ -55,11 +56,6 @@ std::wstring FileDate(const FILETIME& value) {
 uint32_t BigEndian(const unsigned char* bytes) {
     return (uint32_t(bytes[0]) << 24) | (uint32_t(bytes[1]) << 16) | (uint32_t(bytes[2]) << 8) | bytes[3];
 }
-uint32_t Crc(const std::string& value) {
-    uint32_t crc = 0xffffffff;
-    for (unsigned char byte : value) { crc ^= byte; for (int i = 0; i < 8; ++i) crc = (crc >> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
-    return crc ^ 0xffffffff;
-}
 void Read(std::ifstream& input, char* data, size_t length) {
     if (!input.read(data, static_cast<std::streamsize>(length))) throw std::runtime_error("truncated metadata");
 }
@@ -85,7 +81,7 @@ std::vector<std::string> Packets(const std::wstring& path, std::wstring& notes) 
             unsigned char checksum[4]; Read(input, reinterpret_cast<char*>(checksum), 4);
             auto separator = data.find('\0');
             if (separator == std::string::npos || data.substr(0, separator) != "XML:com.adobe.xmp") continue;
-            if (Crc(type + data) != BigEndian(checksum)) throw std::runtime_error("PNG XMP checksum");
+            if (~PngCrcUpdate(PngCrcUpdate(~0U, type), data) != BigEndian(checksum)) throw std::runtime_error("PNG XMP checksum");
             auto position = separator + 1;
             if (type == "tEXt") add(data.substr(position));
             else if (type == "zTXt") notes += L"圧縮PNG XMP（zTXt）はこの版の直接抽出では未対応です。\r\n";
@@ -225,7 +221,7 @@ std::wstring ChooseDate(const std::wstring& xmp, const std::wstring& filename, c
     if (!modified.empty()) return modified + L"（ファイル更新日時・ローカル時刻）";
     return L"";
 }
-PhotoSummary ReadPhotoSummary(const std::wstring& path) {
+PhotoSummary ReadPhotoSummary(const std::wstring& path, const std::vector<ValidatedXmpView>& validated) {
     PhotoSummary result; result.values[0] = fs::path(path).filename().wstring();
     std::error_code error; auto bytes = fs::file_size(path, error);
     if (!error) { std::wostringstream value; value << std::fixed << std::setprecision(2) << double(bytes) / 1000000 << L" MB"; result.values[1] = value.str(); }
@@ -236,7 +232,11 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path) {
         for (auto& packet : Packets(path, result.notes)) {
             std::wstring parseError; XmpFields parsed;
             try { result.xmpDetail += L"\r\nXMP（直接抽出）\r\n" + Utf8(packet) + L"\r\n"; } catch (...) { result.notes += L"XMPの文字コード読込みエラー。\r\n"; }
-            if (ParseXmp(packet, parsed, parseError)) {
+            auto cached = std::find_if(validated.begin(), validated.end(), [&](const auto& entry) { return entry.fields && !entry.xml.empty() && entry.xml == packet; });
+            bool valid;
+            if (cached != validated.end()) { parsed = *cached->fields; valid = true; }
+            else valid = ParseXmp(packet, parsed, parseError);
+            if (valid) {
                 auto merge = [&](std::wstring& target, const std::wstring& value) {
                     if (target.empty()) target = value;
                     else if (!value.empty() && target != value) result.notes += L"XMP項目に異なる値があります。先に取得した標準側の値を優先します。\r\n";

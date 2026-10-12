@@ -3,6 +3,7 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <string_view>
 struct SummaryPerson { std::wstring name,id; };
 struct SummaryLink { int field=0; long first=0,last=0; std::wstring url; };
 
@@ -21,6 +22,8 @@ bool ValidXmpDate(const std::wstring& text);
 std::wstring FilenameDate(const std::wstring& filename);
 std::wstring ChooseDate(const std::wstring& xmp, const std::wstring& filename,
     const std::wstring& created, const std::wstring& modified);
-PhotoSummary ReadPhotoSummary(const std::wstring& path);
+// Borrowed only during this call; reuse requires an exact XML byte match.
+struct ValidatedXmpView { std::string_view xml; const XmpFields* fields; };
+PhotoSummary ReadPhotoSummary(const std::wstring& path, const std::vector<ValidatedXmpView>& validated = {});
 
 std::vector<SummaryLink> SummaryLinks(const PhotoSummary& summary);

@@ -44,9 +44,8 @@ void Worker(bool thumbnails) {
                 if (job.kind == 2) {
                     for(unsigned elapsed=0;elapsed<app.metadataDelayMs && CurrentJob(job)&&!app.stopping;elapsed+=10)Sleep(10);
                     if(!CurrentJob(job)||app.stopping)continue;
-                    result.summary = ReadPhotoSummary(job.path);
-                    try { result.editable=InspectEditable(job.path); }
-                    catch (const std::exception& e) { result.editError=winrt::to_hstring(e.what()).c_str(); }
+                    try { result.editable=InspectEditable(job.path,&result.summary); }
+                    catch (const std::exception& e) { result.editError=winrt::to_hstring(e.what()).c_str(); result.summary=ReadPhotoSummary(job.path); }
                 }
                 std::wstring cacheKey;
                 auto cacheTicket = app.cache.Ticket();

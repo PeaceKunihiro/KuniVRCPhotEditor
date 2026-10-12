@@ -98,6 +98,11 @@ struct State {
     bool saveHistory = true;
     bool thumbnailBudgetLimited = false;
     std::vector<bool> thumbnailDone, thumbnailFailed;
+    // UI-thread-only invalidation: layout changes do not change filename labels.
+    bool imageLabelsDirty = true;
+    int imageLabelWidth = 0;
+    HFONT imageLabelFont = nullptr;
+    std::vector<int> dirtyImageLabels;
     std::vector<bool> thumbnailRequested;
     std::vector<int> itemSlots, slotOwners;
     std::vector<std::wstring> thumbnailKeys;

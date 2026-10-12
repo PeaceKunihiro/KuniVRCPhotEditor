@@ -222,27 +222,38 @@ void UpdateThumbnailSpacing() {
     ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 8, app.activeThumbnailWidth * 3 / 4 + labelHeight + 8);
 }
 void ArrangeImages() {
-    HDC dc = GetDC(app.list);
     auto font = reinterpret_cast<HFONT>(SendMessageW(app.list, WM_GETFONT, 0, 0));
-    auto previous = SelectObject(dc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
-    auto fits = [&](const std::wstring& text) { SIZE size{}; GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &size); return size.cx <= app.activeThumbnailWidth; };
-    for (int i = 0; i < static_cast<int>(app.files.size()); ++i) {
-        auto text = fs::path(app.files[i]).filename().wstring();
-        if (i < static_cast<int>(app.thumbnailFailed.size()) && app.thumbnailFailed[i]) text += L" [読込みエラー]";
-        if (!fits(text)) {
-            while (!text.empty() && !fits(text + L"…")) {
-                text.pop_back();
-                if (!text.empty() && text.back() >= 0xD800 && text.back() <= 0xDBFF) text.pop_back();
+    if (!font) font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    bool all = app.imageLabelsDirty || app.imageLabelWidth != app.activeThumbnailWidth || app.imageLabelFont != font;
+    if (all || !app.dirtyImageLabels.empty()) {
+        HDC dc = GetDC(app.list);
+        if (!dc) { app.imageLabelsDirty = true; ListView_Arrange(app.list, LVA_DEFAULT); return; }
+        auto previous = SelectObject(dc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
+        auto fits = [&](const std::wstring& text) { SIZE size{}; GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &size); return size.cx <= app.activeThumbnailWidth; };
+        auto update = [&](int i) {
+            if (i < 0 || i >= static_cast<int>(app.files.size())) return;
+            auto text = fs::path(app.files[i]).filename().wstring();
+            if (i < static_cast<int>(app.thumbnailFailed.size()) && app.thumbnailFailed[i]) text += L" [読込みエラー]";
+            if (!fits(text)) {
+                while (!text.empty() && !fits(text + L"…")) {
+                    text.pop_back();
+                    if (!text.empty() && text.back() >= 0xD800 && text.back() <= 0xDBFF) text.pop_back();
+                }
+                text += L"…";
             }
-            text += L"…";
-        }
-        wchar_t current[512]{}; ListView_GetItemText(app.list, i, 0, current, ARRAYSIZE(current));
-        if (text != current) ListView_SetItemText(app.list, i, 0, text.data());
+            wchar_t current[512]{}; ListView_GetItemText(app.list, i, 0, current, ARRAYSIZE(current));
+            if (text != current) ListView_SetItemText(app.list, i, 0, text.data());
+        };
+        if (all) for (int i = 0; i < static_cast<int>(app.files.size()); ++i) update(i);
+        else for (int i : app.dirtyImageLabels) update(i);
+        SelectObject(dc, previous); ReleaseDC(app.list, dc);
+        app.imageLabelsDirty = false; app.imageLabelWidth = app.activeThumbnailWidth; app.imageLabelFont = font;
+        app.dirtyImageLabels.clear();
     }
-    SelectObject(dc, previous); ReleaseDC(app.list, dc);
     ListView_Arrange(app.list, LVA_DEFAULT);
 }
 void ResetThumbnailTracking() {
+    app.imageLabelsDirty = true; app.dirtyImageLabels.clear();
     app.thumbnailFailed.assign(app.files.size(), false);
     app.thumbnailDone.assign(app.files.size(), false); app.thumbnailRequested.assign(app.files.size(), false);
     app.itemSlots.assign(app.files.size(), -1); app.slotOwners.clear(); app.wantedFirst = 0; app.wantedLast = -1;
@@ -338,6 +349,7 @@ int WheelThumbnailWidth(int width, int& remainder, int delta) {
     return width;
 }
 LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) {
+    if (message == WM_SETFONT) app.imageLabelsDirty = true;
     if (message == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL)) {
         if(app.autoThumbnails){app.autoThumbnails=false;app.thumbnailWidth=std::clamp(((app.activeThumbnailWidth+16)/32)*32,64,256);SaveSettings();}
         int width = WheelThumbnailWidth(app.thumbnailWidth, app.zoomWheel, GET_WHEEL_DELTA_WPARAM(wparam));
@@ -461,6 +473,7 @@ void Results() {
             } else {
                 if(job.index==app.selected){app.previewFailed=true;app.previewPixels={};app.metadataReady=false;UpdateEditorControls();InvalidateRect(app.preview,nullptr,TRUE);}
                 app.thumbnailFailed[job.index] = true;
+                app.dirtyImageLabels.push_back(job.index);
                 ArrangeImages();
             }
             bool ready = true;
@@ -805,7 +818,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         return 0;
     }
     case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
-    case WM_SETTINGCHANGE: case WM_THEMECHANGED: ApplyTheme();return 0;
+    case WM_SETTINGCHANGE: case WM_THEMECHANGED: app.imageLabelsDirty = true; ApplyTheme();return 0;
     case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
     case WM_DRAWITEM: if(DrawOcrButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
