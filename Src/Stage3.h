@@ -1,10 +1,11 @@
-#pragma once
+﻿#pragma once
 #include <windows.h>
 #include <string>
 #include <vector>
 #include <filesystem>
 #include <cstdint>
 #include <ostream>
+#include <map>
 namespace stage3 {
 using Time=int64_t; // UTC milliseconds since Windows epoch.
 struct Person {std::wstring name,id;};
@@ -15,8 +16,11 @@ Time Now();Time ParseTime(const std::wstring& text);std::wstring Iso(Time time);
 bool ParseLogLine(const std::wstring& line,Event& event);
 class InstanceTimeline {
     std::vector<Event> events;bool damaged=false;
+    mutable bool snapshotValid=false,photosDirty=true;mutable Time snapshotTime=0;mutable Snapshot snapshot;
+    struct PhotoLess{bool operator()(const std::wstring& a,const std::wstring& b)const{return _wcsicmp(a.c_str(),b.c_str())<0;}};
+    mutable std::map<std::wstring,std::vector<Time>,PhotoLess> photos;
 public:
-    void Add(Event event);void Invalidate(){damaged=true;}void Clear(){events.clear();damaged=false;}
+    void Add(Event event);void Invalidate(){damaged=true;snapshotValid=false;}void Clear(){events.clear();damaged=false;snapshotValid=false;snapshot={};photos.clear();photosDirty=true;}
     Snapshot At(Time time)const;
     std::vector<Time> PhotoTimes(const std::wstring& path)const;
 };

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "ThumbnailCache.h"
 #include <map>
 #include <deque>
@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <chrono>
 #include <array>
+#include <set>
 
 // Disk I/O is confined to thumbnail workers and a maintenance worker.
 class DiskThumbnailCache {
@@ -34,6 +35,11 @@ private:
     std::filesystem::path root,loadedRoot;
     std::map<std::wstring,std::deque<Clock::time_point>> visits;
     std::map<std::wstring,Entry> entries;
+    size_t usedBytes=0;
+    std::set<std::pair<std::filesystem::file_time_type,std::wstring>> lru;
+    void ResetEntries();
+    void EraseEntry(std::map<std::wstring,Entry>::iterator);
+    void SetEntry(const std::wstring&,Entry);
     Status status;
     void Maintain();
     bool Snapshot(Config&,std::filesystem::path&,uint64_t&);

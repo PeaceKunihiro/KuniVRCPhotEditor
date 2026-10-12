@@ -1,6 +1,7 @@
 ﻿#include "ViewerRuntime.h"
 #include <imm.h>
 #include <future>
+#include <set>
 #pragma comment(lib,"imm32.lib")
 std::vector<std::wstring> SelectedFiles() {
     std::vector<std::wstring> files;int index=-1;
@@ -20,13 +21,23 @@ void BeginMetadataEdit() {
     CancelSearch();app.batchLoading=true;Job job{10,app.generation,app.selection};job.files=files;
     SetActivity(L"編集用メタデータ読込み中 0 / "+std::to_wstring(files.size())+L"件");Queue(std::move(job));UpdateEditorControls();
 }
-void BatchProgress(const Job& job,const std::wstring& text) {
+void QueueProgress(Result result) {
     if(!app.window)return;
-    Result progress;progress.job.kind=job.kind;progress.job.generation=job.generation;progress.job.selection=job.selection;progress.progress=true;progress.text=text;
+    auto matches=[&](const Result& prior){return prior.progress&&prior.job.kind==result.job.kind&&prior.job.generation==result.job.generation&&prior.job.selection==result.job.selection&&prior.job.searchGeneration==result.job.searchGeneration;};
     std::unique_lock<std::mutex> lock(app.mutex);
-    app.wake.wait(lock,[&]{return app.stopping||app.results.size()<32;});if(app.stopping)return;
-    app.results.push_back(std::move(progress));PostMessageW(app.window,WM_RESULTS,0,0);
+    app.wake.wait(lock,[&]{return app.stopping||app.results.size()<32||std::any_of(app.results.begin(),app.results.end(),matches);});
+    if(app.stopping)return;
+    bool notify=app.results.empty();
+    auto prior=std::find_if(app.results.begin(),app.results.end(),matches);
+    if(prior!=app.results.end())*prior=std::move(result);
+    else app.results.push_back(std::move(result));
+    if(notify)PostMessageW(app.window,WM_RESULTS,0,0);
 }
+void BatchProgress(const Job& job,const std::wstring& text) {
+    Result progress;progress.job.kind=job.kind;progress.job.generation=job.generation;progress.job.selection=job.selection;progress.job.searchGeneration=job.searchGeneration;progress.progress=true;progress.text=text;
+    QueueProgress(std::move(progress));
+}
+
 namespace {
 void CheckSource(const std::wstring& path) {
     auto attr=GetFileAttributesW(path.c_str());
@@ -59,14 +70,16 @@ void RunBatchJob(const Job& job,Result& result,const std::function<void(size_t)>
     if(job.files.size()!=job.metadata.size()||job.files.size()!=job.destinations.size())throw std::runtime_error("Invalid batch snapshot");
     auto validation=job.edit.Validate();if(!validation.empty())throw std::runtime_error(winrt::to_string(validation));
     // Validate every input and destination before writing the first image.
+    struct DestinationLess{bool operator()(const std::wstring& a,const std::wstring& b)const{return _wcsicmp(a.c_str(),b.c_str())<0;}};
+    std::set<std::wstring,DestinationLess> destinations;
     for(size_t i=0;i<job.files.size();++i) {
         if(app.cancelBatch||app.stopping){result.text=L"書込み前に中止しました。";return;}
         BatchProgress(job,L"保存前確認 "+std::to_wstring(i)+L" / "+std::to_wstring(job.files.size())+L"件");auto& path=job.files[i];CheckSource(path);auto current=InspectEditable(path);
         if(current.fingerprint!=job.metadata[i].fingerprint)throw std::runtime_error(winrt::to_string(path)+": Source changed; reload before saving");
         if(job.overwrite && GetFileAttributesW(path.c_str())&FILE_ATTRIBUTE_READONLY)throw std::runtime_error(winrt::to_string(path)+": Original is read only");
         if(!job.overwrite&&fs::exists(job.destinations[i]))throw std::runtime_error(winrt::to_string(job.destinations[i])+": Destination exists");
-        if(!job.overwrite)ValidateMetadataDestination(path,job.destinations[i]);
-        for(size_t j=0;j<i;++j)if(Same(job.destinations[i],job.destinations[j]))throw std::runtime_error("Duplicate batch destinations");
+        if(!job.overwrite)ValidateMetadataDestination(current,job.destinations[i]);
+        if(!destinations.insert(job.destinations[i]).second)throw std::runtime_error("Duplicate batch destinations");
     }
     struct Prepared {std::wstring path,fingerprint;std::exception_ptr error;std::wstring* warnings;explicit Prepared(std::wstring* output):warnings(output){}~Prepared(){if(!path.empty()&&!DeleteFileW(path.c_str())&&GetLastError()!=ERROR_FILE_NOT_FOUND)*warnings+=L"未確定コピーを削除できませんでした: "+path+L"\r\n";}};
     for(size_t first=0;first<job.files.size()&&result.error.empty();first+=2) {

@@ -199,15 +199,17 @@ bool SamePreserved(const Container& a,const Container& b){
 }
 }
 std::wstring MetadataFingerprint(const std::wstring& path){return Wide(Fingerprint(ReadFileBytes(path)));}
-void ValidateMetadataDestination(const std::wstring& source,const std::wstring& destination){
-    auto c=Inspect(ReadFileBytes(source));auto extension=fs::path(destination).extension().wstring();
-    std::transform(extension.begin(),extension.end(),extension.begin(),towlower);
-    if((c.png&&extension!=L".png")||(c.webp&&extension!=L".webp")||(!c.png&&!c.webp&&extension!=L".jpg"&&extension!=L".jpeg"))throw std::runtime_error("Destination format must match source");
+void ValidateMetadataDestination(const EditableMetadata& metadata,const std::wstring& destination){
+    auto extension=fs::path(destination).extension().wstring();std::transform(extension.begin(),extension.end(),extension.begin(),towlower);
+    if((metadata.format==1&&extension!=L".png")||(metadata.format==3&&extension!=L".webp")||(metadata.format==2&&extension!=L".jpg"&&extension!=L".jpeg")||metadata.format<1||metadata.format>3)throw std::runtime_error("Destination format must match source");
     if(!fs::is_directory(fs::path(destination).parent_path()))throw std::runtime_error("Destination folder does not exist");
+}
+void ValidateMetadataDestination(const std::wstring& source,const std::wstring& destination){
+    auto c=Inspect(ReadFileBytes(source));EditableMetadata metadata;metadata.format=c.png?1:c.webp?3:2;ValidateMetadataDestination(metadata,destination);
 }
 static EditableMetadata EditableFromContainer(const Container& c,const std::wstring& fingerprint){
     if(c.standardDoc){ComPtr<IXMLDOMNode> description;winrt::check_hresult(c.standardDoc->selectSingleNode(Bstr(L"//rdf:RDF/rdf:Description"),&description));if(!description)throw std::runtime_error("Unsupported XMP RDF structure; view only");}
-    EditableMetadata result{Values(c),fingerprint};long records=0;
+    EditableMetadata result{Values(c),fingerprint};result.format=c.png?1:c.webp?3:2;long records=0;
     for(int i=0;i<2;++i){const auto& packet=i==0?c.standard:c.extended;if(packet.empty())continue;
         result.recordReference+=(i==0?c.standardFields:c.extendedFields).recordReference;
         auto doc=i==0?c.standardDoc:Dom(packet);ComPtr<IXMLDOMNodeList> nodes;doc->selectNodes(Bstr(L"//kpe:CaptureRecord | //@kpe:CaptureRecord"),&nodes);long count{};nodes->get_length(&count);records+=count;

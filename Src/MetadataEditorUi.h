@@ -18,7 +18,7 @@ class MetadataEditorUi {
 public:
     HWND Window() const { return panel; }
     void Create(HWND parent);
-    void Load(const EditableMetadata& metadata);
+    void Load(const EditableMetadata& metadata,bool batchMode=false);
     void LoadBatch(const std::vector<EditableMetadata>& metadata);
     void Place(int x,int y,int width,int height,bool visible);
     MetadataEdit Read() const;

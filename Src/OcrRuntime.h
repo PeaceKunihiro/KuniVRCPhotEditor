@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -7,7 +7,7 @@
 #include <memory>
 #include <map>
 namespace person_ocr {
-struct Settings {bool always=false;int fps=5,seconds=10;bool highPrecision=false;};
+struct Settings {bool always=false;int fps=5,seconds=10;bool highPrecision=false,showHighPrecision=false;};
 struct Window {HWND handle{};DWORD pid=0;std::wstring title;};
 struct TextLine {std::wstring text,bounds;bool original=true;};
 struct Observation {stage3::Time time=0;std::vector<TextLine> lines;std::vector<stage3::Person> members;};

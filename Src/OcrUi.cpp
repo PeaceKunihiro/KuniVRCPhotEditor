@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "TestOcr.h"
 namespace {
 constexpr int Mode=1801,Apply=1802,Target=1803,Output=1804,TestRun=1805,FpsField=1806,High=1807;
@@ -12,7 +12,18 @@ void FillTargets(){windows=source==1?test_ocr::Windows():person_ocr::Windows();a
 }
 bool OcrImageSource(){return source==2;}
 bool OcrTestSource(){return source!=0;}
-std::shared_ptr<const Pixels> OcrTestPreview(){auto p=test_ocr::Preview();if(!p&&source==2&&!app.previewPixels.data.empty())return std::make_shared<Pixels>(app.previewPixels);return p;}
+std::shared_ptr<const Pixels> OcrTestPreview(){auto p=test_ocr::Preview();static std::shared_ptr<const Pixels> fallback;static uint64_t revision=UINT64_MAX;if(!p&&source==2&&!app.previewPixels.data.empty()){if(!fallback||revision!=app.previewRevision){fallback=std::make_shared<Pixels>(app.previewPixels);revision=app.previewRevision;}return fallback;}fallback.reset();return p;}
+void SetHighPrecisionVisible(bool visible){
+    if(stage3::Recording())throw std::runtime_error("Stop recording before changing OCR display");
+    auto value=person_ocr::GetSettings();if(value.showHighPrecision==visible)return;
+    bool modeChange=!visible&&value.highPrecision;bool active=source!=0&&test_ocr::Active();bool image=source==2&&imageRunning;
+    if(modeChange&&active)test_ocr::Stop();
+    value.showHighPrecision=visible;
+    try{person_ocr::SetSettings(value);}catch(...){if(modeChange&&active){if(image)RecognizeImage();else if(source==1&&testWindow)test_ocr::Capture(testWindow,value.fps,value.seconds);}throw;}
+    if(modeChange&&active){if(image)RecognizeImage();else if(source==1&&testWindow)test_ocr::Capture(testWindow,value.fps,value.seconds);}
+    SetWindowTextW(high,person_ocr::GetSettings().highPrecision?L"高精度：ON":L"高精度：OFF");
+    Layout();RefreshPreview();
+}
 std::wstring OcrTestStatus(){return test_ocr::Status();}
 void StopOcrUi(){test_ocr::Stop();}
 void CreateOcrUi(){
@@ -43,7 +54,7 @@ void LayoutOcrUi(RECT page,bool visible){
     MoveWindow(apply,x,y+114,std::min(w,120),26,TRUE);MoveWindow(output,w<280?x:x+128,y+resultY,buttonWidth,26,TRUE);
     MoveWindow(testRun,x,y+resultY+30,std::min(w,180),26,TRUE);MoveWindow(status,x,y+resultY+60,w,60,TRUE);
     MoveWindow(raw,x,y+resultY+124,w,std::max(1L,page.bottom-y-resultY-124),TRUE);
-    for(auto h:{mode,high,target,fpsLabel,secondsLabel,fps,seconds,apply,output,testRun,status,raw}){ShowWindow(h,visible?SW_SHOW:SW_HIDE);if(visible)SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);}
+    for(auto h:{mode,high,target,fpsLabel,secondsLabel,fps,seconds,apply,output,testRun,status,raw}){bool show=visible&&(h!=high||person_ocr::GetSettings().showHighPrecision);ShowWindow(h,show?SW_SHOW:SW_HIDE);EnableWindow(high,person_ocr::GetSettings().showHighPrecision);if(show)SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);}
     EnableWindow(testRun,source!=0);RefreshOcrUi();
 }
 void RefreshOcrUi(){
@@ -62,7 +73,7 @@ void RefreshOcrUi(){
 bool OcrCommand(int id,int code){
     if(id!=High&&id!=Mode&&id!=Apply&&id!=Target&&id!=Output&&id!=TestRun)return false;
     try{
-        if(id==High){auto value=person_ocr::GetSettings();if(!value.highPrecision){bool approved=app.confirmHighOcr?app.confirmHighOcr():MessageBoxW(app.window,L"高精度OCRは原寸画像を分割して認識します。CPU・メモリー負荷が増え、VRChatのFPSが低下する場合があります。有効にしますか？",L"高精度OCR",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)==IDYES;if(!approved)return true;}bool active=source==1&&test_ocr::Active();bool image=source==2&&imageRunning;test_ocr::Stop();value.highPrecision=!value.highPrecision;person_ocr::SetSettings(value);SetWindowTextW(high,value.highPrecision?L"高精度：ON":L"高精度：OFF");InvalidateRect(high,nullptr,TRUE);previousRaw=L"\x1";if(active)test_ocr::Capture(testWindow,value.fps,value.seconds);if(image)RecognizeImage();}
+        if(id==High){auto value=person_ocr::GetSettings();if(!value.showHighPrecision)return true;if(!value.highPrecision){bool approved=app.confirmHighOcr?app.confirmHighOcr():MessageBoxW(app.window,L"高精度OCRは原寸画像を分割して認識します。CPU・メモリー負荷が増え、VRChatのFPSが低下する場合があります。有効にしますか？",L"高精度OCR",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)==IDYES;if(!approved)return true;}bool active=source==1&&test_ocr::Active();bool image=source==2&&imageRunning;test_ocr::Stop();value.highPrecision=!value.highPrecision;person_ocr::SetSettings(value);SetWindowTextW(high,value.highPrecision?L"高精度：ON":L"高精度：OFF");InvalidateRect(high,nullptr,TRUE);previousRaw=L"\x1";if(active)test_ocr::Capture(testWindow,value.fps,value.seconds);if(image)RecognizeImage();}
         else if(id==Output){names=!names;SetWindowTextW(output,names?L"OCR結果：名前":L"OCR結果：認識");previousRaw=L"\x1";}
         else if(id==TestRun){if(source==2){if(imageRunning){imageRunning=false;test_ocr::PauseImage();}else{imageRunning=true;RecognizeImage();}}else if(source==1){if(test_ocr::Active())test_ocr::Stop();else if(testWindow){auto s=person_ocr::GetSettings();test_ocr::Capture(testWindow,s.fps,s.seconds);}else MessageBoxW(app.window,L"対象ウィンドウをプルダウンから選択してください。",L"テストキャプチャ",MB_OK);}}
         else if(id==Target&&code==CBN_SELCHANGE){auto index=SendMessageW(target,CB_GETCURSEL,0,0);if(index<0)return true;if(index<3){test_ocr::Stop();imageRunning=false;source=int(index);testWindow=nullptr;lastImage.clear();if(source==0){normalWindow=nullptr;person_ocr::SelectWindow(nullptr);}FillTargets();}

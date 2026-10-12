@@ -5,7 +5,7 @@ void Select(int index,bool reveal) {
     app.selectionPending=false;++app.selectionRefreshes;bool wasEditing=app.editing;
     if(app.batchLoading)StopActivity();app.batchLoading=false;app.batchFiles.clear();app.batchMetadata.clear();app.batchCompleted.clear();
     app.editing=false; app.metadataReady=false; app.previewFailed=false; app.editError.clear(); app.editable={}; SetWindowTextW(app.editStatus,L"PNG/JPEG/WebPの上書き・別名コピー保存に対応。");UpdateEditorControls();if(wasEditing)Layout();
-    app.selected = index; app.previewPixels = {}; ++app.selection; app.currentSelection = app.selection;
+    app.selected = index; ++app.previewRevision; app.previewPixels = {}; ++app.selection; app.currentSelection = app.selection;
     InvalidateRect(app.preview, nullptr, TRUE);
     if (index < 0) { SetWindowTextW(app.details, L"画像を選択してください。"); ShowSummary({}, L"画像を選択してください。"); Counts(); return; }
     app.previewPixels=DisplayedThumbnail(index);

@@ -420,7 +420,7 @@ void Results() {
             bool changed=false;
             try{changed=job.sourceKey!=ThumbnailCache::Key(job.path);}catch(...){changed=true;}
             if(changed){result.error=L"ファイルが外部で変更・削除されました。ロードで再読込みしてください。";
-                if(job.index==app.selected){app.previewPixels={};app.previewFailed=true;InvalidateRect(app.preview,nullptr,TRUE);}}
+                if(job.index==app.selected){++app.previewRevision;app.previewPixels={};app.previewFailed=true;InvalidateRect(app.preview,nullptr,TRUE);}}
         }
         if (job.kind == 0) {
             app.folderPending = false;
@@ -469,9 +469,9 @@ void Results() {
                 app.itemSlots[job.index] = slot;
                 app.thumbnailKeys[job.index]=job.sourceKey;
                 LVITEMW item{}; item.mask = LVIF_IMAGE; item.iItem = job.index; item.iImage = image; ListView_SetItem(app.list, &item);
-                if(job.index==app.selected){app.previewPixels=DisplayedThumbnail(job.index);InvalidateRect(app.preview,nullptr,TRUE);UpdateEditorControls();}
+                if(job.index==app.selected){++app.previewRevision;app.previewPixels=DisplayedThumbnail(job.index);InvalidateRect(app.preview,nullptr,TRUE);UpdateEditorControls();}
             } else {
-                if(job.index==app.selected){app.previewFailed=true;app.previewPixels={};app.metadataReady=false;UpdateEditorControls();InvalidateRect(app.preview,nullptr,TRUE);}
+                if(job.index==app.selected){app.previewFailed=true;++app.previewRevision;app.previewPixels={};app.metadataReady=false;UpdateEditorControls();InvalidateRect(app.preview,nullptr,TRUE);}
                 app.thumbnailFailed[job.index] = true;
                 app.dirtyImageLabels.push_back(job.index);
                 ArrangeImages();
@@ -829,20 +829,21 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();InvalidateRect(app.preview,nullptr,FALSE);return 0;}
+        if(wparam==RecordTimer){stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize = { 760, 520 }; return 0;
-    case WM_APP+4: InvalidateRect(app.preview,nullptr,FALSE);return 0;
+    case WM_APP+4: RefreshPreview();return 0;
     case WM_COMMAND:
         if(OcrCommand(LOWORD(wparam),HIWORD(wparam)))return 0;
         if(app.closing)return 0;
         FlushSelectionUpdate();
         switch (LOWORD(wparam)) {
         case 1200:
-            if(app.editing && !app.saving && app.editorUi.Read().Validate().empty())SetWindowTextW(app.editStatus,app.editorUi.Read().Changed()?L"変更あり（保存まで画像は変更されません）。":L"編集中（変更なし）。");
-            UpdateEditorControls(); break;
+            {auto edit=app.editing?app.editorUi.Read():MetadataEdit{};auto error=edit.Validate();
+            if(app.editing&&!app.saving&&error.empty())SetWindowTextW(app.editStatus,edit.Changed()?L"変更あり（保存まで画像は変更されません）。":L"編集中（変更なし）。");
+            UpdateEditorControls(&edit,&error);} break;
         case EditMetadata:
             BeginMetadataEdit();break;
         case SaveMetadata: StartSave(); break;
@@ -915,15 +916,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     return DefWindowProcW(window, message, wparam, lparam);
 }
 
-void UpdateEditorControls() {
-    auto edit=app.editing?app.editorUi.Read():MetadataEdit{};
+void UpdateEditorControls(const MetadataEdit* snapshot,const std::wstring* validation) {
+    MetadataEdit local;if(!snapshot&&app.editing)local=app.editorUi.Read();const auto& edit=snapshot?*snapshot:local;
+    auto error=validation?*validation:edit.Validate();
     EnableWindow(app.editButton,app.metadataReady && !app.previewPixels.data.empty() && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && !app.sorting && app.selected>=0);
-    EnableWindow(app.saveButton,app.editing && !app.saving && !app.backupBusy && !app.sorting && edit.Changed() && edit.Validate().empty());
+    EnableWindow(app.saveButton,app.editing && !app.saving && !app.backupBusy && !app.sorting && edit.Changed() && error.empty());
     EnableWindow(app.cancelButton,app.editing && (!app.saving||!app.batchFiles.empty()) && !app.backupBusy && !app.sorting);SetWindowTextW(app.cancelButton,app.saving&&!app.batchFiles.empty()?L"一括保存中止":L"キャンセル");
     for(int id:{OpenPath,Browse,ResetView,History,Bookmarks,SearchButton,Options,SortMenu})EnableWindow(GetDlgItem(app.window,id),!app.saving&&!app.backupBusy&&!app.sorting);
     SetWindowPos(app.cancelButton,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     RedrawWindow(app.cancelButton,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_UPDATENOW);
-    if(app.editing && !app.saving){auto error=edit.Validate();if(!error.empty())SetWindowTextW(app.editStatus,error.c_str());}
+    if(app.editing && !app.saving){if(!error.empty())SetWindowTextW(app.editStatus,error.c_str());}
     else if(!app.editError.empty() && !app.editing)SetWindowTextW(app.editStatus,(L"編集不可: "+app.editError).c_str());
 }
 

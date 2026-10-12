@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "Stage3.h"
 #include "ExtendedXmp.h"
 #include <regex>
@@ -37,8 +37,10 @@ bool ParseLogLine(const std::wstring& line,Event& e){
         if(!e.person.name.empty())e.kind=join?Kind::Join:Kind::Leave;return true;}
     return true;
 }
-void InstanceTimeline::Add(Event e){if(events.size()>=200000)throw std::runtime_error("Session event limit exceeded");if(e.kind==Kind::Invalid){damaged=true;return;}if(!events.empty()&&e.time<events.back().time)damaged=true;if(!events.empty()){auto& prior=events.back();if(e.time>=prior.time&&e.time-prior.time<=2000){if(e.kind==Kind::Room&&prior.kind==Kind::RoomName){if(!prior.instance.empty()){if(events.size()>=2&&events[events.size()-2].kind==Kind::Room&&events[events.size()-2].instance==prior.instance)events[events.size()-2].worldName.clear();}else e.worldName=prior.worldName;}else if(e.kind==Kind::RoomName&&prior.kind==Kind::Room&&prior.worldName.empty()){prior.worldName=e.worldName;e.instance=prior.instance;}}}e.order=events.size();events.push_back(std::move(e));}
+void InstanceTimeline::Add(Event e){snapshotValid=false;if(e.kind==Kind::Photo)photosDirty=true;if(events.size()>=200000)throw std::runtime_error("Session event limit exceeded");if(e.kind==Kind::Invalid){damaged=true;return;}if(!events.empty()&&e.time<events.back().time)damaged=true;if(!events.empty()){auto& prior=events.back();if(e.time>=prior.time&&e.time-prior.time<=2000){if(e.kind==Kind::Room&&prior.kind==Kind::RoomName){if(!prior.instance.empty()){if(events.size()>=2&&events[events.size()-2].kind==Kind::Room&&events[events.size()-2].instance==prior.instance)events[events.size()-2].worldName.clear();}else e.worldName=prior.worldName;}else if(e.kind==Kind::RoomName&&prior.kind==Kind::Room&&prior.worldName.empty()){prior.worldName=e.worldName;e.instance=prior.instance;}}}e.order=events.size();events.push_back(std::move(e));}
 Snapshot InstanceTimeline::At(Time time)const{
+    if(snapshotValid&&snapshotTime==time)return snapshot;
+    snapshotValid=false;
     Snapshot s;bool room=false,partial=damaged;
     for(auto& e:events){if(e.time>time)continue;if(e.time/1000==time/1000&&e.kind!=Kind::Photo)s.ambiguous=true;
         if(e.kind==Kind::Room){s.members.clear();s.world=e.world;s.worldName=e.worldName;s.group=e.group;s.instance=e.instance;room=true;}
@@ -46,7 +48,10 @@ Snapshot InstanceTimeline::At(Time time)const{
         else if(e.kind==Kind::Join){if(e.person.id.empty()){s.members.push_back(e.person);partial=true;}else {auto found=std::find_if(s.members.begin(),s.members.end(),[&](auto& p){return p.id==e.person.id;});if(found==s.members.end())s.members.push_back(e.person);else *found=e.person;}}
         else if(e.kind==Kind::Leave){if(e.person.id.empty())partial=true;else {auto found=std::find_if(s.members.begin(),s.members.end(),[&](auto& p){return p.id==e.person.id;});if(found==s.members.end())partial=true;else s.members.erase(found);}}
     }
-    s.status=!room?L"unknown":partial?L"partial":L"reconstructed";return s;
+    s.status=!room?L"unknown":partial?L"partial":L"reconstructed";snapshot=s;snapshotTime=time;snapshotValid=true;return s;
 }
-std::vector<Time> InstanceTimeline::PhotoTimes(const std::wstring& path)const{std::vector<Time> times;for(auto& e:events)if(e.kind==Kind::Photo&&_wcsicmp(e.path.c_str(),path.c_str())==0)times.push_back(e.time);return times;}
+std::vector<Time> InstanceTimeline::PhotoTimes(const std::wstring& path)const{
+    if(photosDirty){decltype(photos) rebuilt;for(const auto& e:events)if(e.kind==Kind::Photo)rebuilt[e.path].push_back(e.time);photos=std::move(rebuilt);photosDirty=false;}
+    auto found=photos.find(path);return found==photos.end()?std::vector<Time>{}:found->second;
+}
 }

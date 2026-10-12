@@ -117,6 +117,7 @@ struct State {
     bool folderPending = false;
     int selected = -1, wheel = 0, loaded = 0;
     Pixels previewPixels;
+    uint64_t previewRevision=0;
     std::mutex mutex;
     std::condition_variable wake;
     std::deque<Job> jobs;
@@ -143,7 +144,9 @@ std::wstring Text(HWND control);
 void Status(const std::wstring& message);
 void SetActivity(const std::wstring& text);
 void StopActivity();
+void RefreshPreview();
 void BatchProgress(const Job& job,const std::wstring& text);
+void QueueProgress(Result result);
 void Counts(const std::wstring& message = L"");
 bool Same(const std::wstring& a, const std::wstring& b);
 std::wstring Normalize(const std::wstring& value);
@@ -204,7 +207,7 @@ HMENU BuildBookmarkMenu();
 void BookmarkMenu();
 HWND Control(LPCWSTR type, LPCWSTR text, DWORD style, int id);
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-void UpdateEditorControls();
+void UpdateEditorControls(const MetadataEdit* snapshot=nullptr,const std::wstring* validation=nullptr);
 void StartSave();
 bool GuardTransition(std::function<void()> action);
 int SelfTest();
@@ -239,7 +242,7 @@ struct WorkerLifetime { ~WorkerLifetime(){--app.activeWorkers;} };
 void CreateOcrUi();void LayoutOcrUi(RECT page,bool visible);void RefreshOcrUi();bool OcrCommand(int id,int code);
 bool DrawOcrButton(DRAWITEMSTRUCT* draw);
 bool OcrImageSource();
-bool OcrTestSource();std::shared_ptr<const Pixels> OcrTestPreview();std::wstring OcrTestStatus();void StopOcrUi();
+bool OcrTestSource();std::shared_ptr<const Pixels> OcrTestPreview();std::wstring OcrTestStatus();void StopOcrUi();void SetHighPrecisionVisible(bool visible);
 
 bool TrayMessage(HWND,UINT,WPARAM,LPARAM);void TrayUpdate();void TrayShutdown();void RunV0413UiTests(const fs::path&,std::ostream&);
 

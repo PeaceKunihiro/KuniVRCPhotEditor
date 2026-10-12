@@ -150,6 +150,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Src\main.cpp" />
+    <ClCompile Include="Src\V0420Tests.cpp" />
     <ClCompile Include="Src\MetadataModel.cpp" />
     <ClCompile Include="Src\MetadataTests.cpp" />
     <ClInclude Include="Src\MetadataModel.h" />
