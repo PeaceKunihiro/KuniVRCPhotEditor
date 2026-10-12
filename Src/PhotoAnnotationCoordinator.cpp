@@ -5,6 +5,8 @@
 #include <regex>
 #include <winrt/base.h>
 namespace stage3 {
+namespace { const std::wregex steamPattern(LR"(^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})_[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase); }
+namespace { const std::wregex photoPattern(LR"(^VRChat[_-]([0-9]{4}-[0-9]{2}-[0-9]{2})[_-]([0-9]{2}-[0-9]{2}-[0-9]{2})(\.[0-9]{1,7})_[0-9]+x[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase); }
 namespace {
 std::wstring Escape(const std::wstring& value){std::wstring out;for(auto c:value){switch(c){case L'&':out+=L"&amp;";break;case L'<':out+=L"&lt;";break;case L'>':out+=L"&gt;";break;case L'\"':out+=L"&quot;";break;default:out+=c;}}return out;}
 }
@@ -18,7 +20,7 @@ Decision Correlate(const std::wstring& path,const std::wstring& date,const std::
     Decision d;auto times=log.timeline.PhotoTimes(path);if(times.size()!=1){d.reason=times.empty()?L"撮影ログなし：手動コピーとの区別不可":L"同一写真の撮影ログが複数あり曖昧";return d;}
     Time target=0;std::wstring source;std::wsmatch m;auto filename=std::filesystem::path(path).filename().wstring();
     if(!date.empty()){target=ParseTime(date);source=L"xmp";if(!target){d.reason=L"画像内日時を解釈できません";return d;}}
-    Time named=0;if(std::regex_match(filename,m,std::wregex(LR"(^VRChat[_-]([0-9]{4}-[0-9]{2}-[0-9]{2})[_-]([0-9]{2}-[0-9]{2}-[0-9]{2})(\.[0-9]{1,7})_[0-9]+x[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase)))named=ParseTime(m[1].str()+L" "+m[2].str()+m[3].str());
+    Time named=0;if(std::regex_match(filename,m,photoPattern))named=ParseTime(m[1].str()+L" "+m[2].str()+m[3].str());
     if(target&&named&&std::abs(target-named)>1000){d.reason=L"XMPとファイル名の日時が矛盾";return d;}
     if(!target&&named){target=named;source=L"filename";}if(!target){target=times[0];source=L"photo-log";}
     if(std::abs(target-times[0])>5000){d.reason=L"撮影ログと撮影日時が矛盾（5秒超）";return d;}
@@ -29,8 +31,8 @@ Decision Correlate(const std::wstring& path,const std::wstring& date,const std::
 }
 Decision CorrelateSteam(const std::wstring& path,Time detected,const LogMonitor& log){
     Decision d;std::wsmatch m;auto name=std::filesystem::path(path).filename().wstring();Time time=0;
-    if(std::regex_match(name,m,std::wregex(LR"(^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})_[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase)))time=ParseTime(m[1].str()+L"-"+m[2].str()+L"-"+m[3].str()+L" "+m[4].str()+L":"+m[5].str()+L":"+m[6].str());
-    else if(std::regex_match(name,m,std::wregex(LR"(^VRChat[_-]([0-9]{4}-[0-9]{2}-[0-9]{2})[_-]([0-9]{2}-[0-9]{2}-[0-9]{2})(\.[0-9]{1,7})_[0-9]+x[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase)))time=ParseTime(m[1].str()+L" "+m[2].str()+m[3].str());
+    if(std::regex_match(name,m,steamPattern))time=ParseTime(m[1].str()+L"-"+m[2].str()+L"-"+m[3].str()+L" "+m[4].str()+L":"+m[5].str()+L":"+m[6].str());
+    else if(std::regex_match(name,m,photoPattern))time=ParseTime(m[1].str()+L" "+m[2].str()+m[3].str());
     if(!time||std::abs(detected-time)>15000){d.reason=L"F12画像の命名日時が不明／検出時刻から15秒超：保留";return d;}
     WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(path.c_str(),GetFileExInfoStandard,&info)){d.reason=L"F12画像の更新日時を取得できません";return d;}ULARGE_INTEGER stamp{};stamp.LowPart=info.ftLastWriteTime.dwLowDateTime;stamp.HighPart=info.ftLastWriteTime.dwHighDateTime;
     if(std::abs(Time(stamp.QuadPart/10000)-time)>5000){d.reason=L"F12画像の命名日時と更新日時が矛盾：保留";return d;}

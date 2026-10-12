@@ -228,6 +228,7 @@ void ShowVersion(const std::function<void(HWND)>& inspect = {});
 void ShowDiskCacheDialog(const std::function<void(HWND)>& inspect = {});
 void ConfigureDiskCache();
 void ApplyTheme();
+void RunV0421ThemeTests(std::ostream&,const std::function<void(const wchar_t*)>& capture = {});
 COLORREF ThemeBackground();
 COLORREF ThemeForeground();
 HBRUSH ThemeBrush();

@@ -1,4 +1,4 @@
-﻿#include "V048Features.h"
+#include "V048Features.h"
 #include "ViewerRuntime.h"
 #include "Stage3.h"
 #include "OcrRuntime.h"
@@ -8,6 +8,7 @@
 #include <chrono>
 #include <regex>
 namespace stage3 {
+namespace { const std::wregex photoHintPattern(LR"(^VRChat[_-]([0-9]{4}-[0-9]{2}-[0-9]{2})[_-]([0-9]{2}-[0-9]{2}-[0-9]{2})(\.[0-9]{1,7})_[0-9]+x[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase); }
 std::filesystem::path LatestLog(const std::filesystem::path& folder){
     if(!fs::is_directory(folder))return {};Time latest=0;fs::path selected;bool duplicate=false;
     static const std::wregex pattern(LR"(^output_log_([0-9]{4})([-_])([0-9]{2})\2([0-9]{2})([-_])([0-9]{2})-([0-9]{2})-([0-9]{2})\.txt$)");
@@ -64,7 +65,7 @@ void Monitor(Config config,bool synthetic=false){
             if(observing){auto current=ScanPhotos();for(auto& path:current)if(baseline.insert(path).second){Pending p;p.item.path=path;p.item.state=L"待機";p.item.reason=L"書込み安定・遅延ログ待ち";p.detected=now;p.retryAt=now;p.logPath=selected;p.session=logs[selected].Session();pending.emplace(path,std::move(p));}persist();}
             bool changed=false;
             // Reserve first/follow-up slots before waiting for file stability or OCR.
-            std::vector<Pending*> unclassified;for(auto& pair:pending){auto& p=pair.second;if(p.item.state!=L"待機"||p.slotKnown||p.logPath.empty())continue;auto& source=logs[p.logPath];auto times=source.timeline.PhotoTimes(p.item.path);if(times.size()!=1){if(!config.steamFolder.empty()&&Within(config.steamFolder,fs::path(p.item.path).parent_path().wstring())){if(now-p.detected<config.graceSeconds*1000LL)continue;try{if(!InspectEditable(p.item.path).values[0].empty())continue;}catch(...){continue;}auto d=CorrelateSteam(p.item.path,p.detected,source);if(d.ready)times.push_back(d.record.reference);}if(times.size()!=1)continue;}p.photoStamp=times[0];std::wsmatch stamp;auto filename=fs::path(p.item.path).filename().wstring();if(std::regex_match(filename,stamp,std::wregex(LR"(^VRChat[_-]([0-9]{4}-[0-9]{2}-[0-9]{2})[_-]([0-9]{2}-[0-9]{2}-[0-9]{2})(\.[0-9]{1,7})_[0-9]+x[0-9]+\.(png|jpg|jpeg)$)",std::regex::icase))){auto hint=ParseTime(stamp[1].str()+L" "+stamp[2].str()+stamp[3].str());if(hint&&std::abs(hint-times[0])<=5000)p.photoStamp=hint;}p.slotInstance=source.timeline.At(p.photoStamp).instance;if(!p.slotInstance.empty())unclassified.push_back(&p);}
+            std::vector<Pending*> unclassified;for(auto& pair:pending){auto& p=pair.second;if(p.item.state!=L"待機"||p.slotKnown||p.logPath.empty())continue;auto& source=logs[p.logPath];auto times=source.timeline.PhotoTimes(p.item.path);if(times.size()!=1){if(!config.steamFolder.empty()&&Within(config.steamFolder,fs::path(p.item.path).parent_path().wstring())){if(now-p.detected<config.graceSeconds*1000LL)continue;try{if(!InspectEditable(p.item.path).values[0].empty())continue;}catch(...){continue;}auto d=CorrelateSteam(p.item.path,p.detected,source);if(d.ready)times.push_back(d.record.reference);}if(times.size()!=1)continue;}p.photoStamp=times[0];std::wsmatch stamp;auto filename=fs::path(p.item.path).filename().wstring();if(std::regex_match(filename,stamp,photoHintPattern)){auto hint=ParseTime(stamp[1].str()+L" "+stamp[2].str()+stamp[3].str());if(hint&&std::abs(hint-times[0])<=5000)p.photoStamp=hint;}p.slotInstance=source.timeline.At(p.photoStamp).instance;if(!p.slotInstance.empty())unclassified.push_back(&p);}
             std::sort(unclassified.begin(),unclassified.end(),[](auto a,auto b){return a->photoStamp<b->photoStamp||(a->photoStamp==b->photoStamp&&a->item.path<b->item.path);});for(auto p:unclassified){p->followup=burstGate.Followup(p->session+L"|"+p->slotInstance,p->photoStamp,person_ocr::GetSettings().seconds);p->slotKnown=true;changed=true;}
             for(auto& pair:pending){auto& p=pair.second;if(p.item.state!=L"待機")continue;
                 // Pin frames as soon as a reliable capture timestamp exists, before stability grace.

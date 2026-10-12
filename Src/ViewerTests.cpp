@@ -1,4 +1,4 @@
-﻿#include <richedit.h>
+#include <richedit.h>
 #include "TestOcr.h"
 #include "V048Features.h"
 #include "UpdateChecker.h"
@@ -10,6 +10,7 @@ void RunV035Tests(const fs::path&,std::ostream&);
 void RunV0412Tests(const fs::path&,std::ostream&);
 void RunV0420Tests(const fs::path&,std::ostream&);
 void RunV0420UiTests(std::ostream&);
+void RunV0421RegexTests(std::ostream&);
 void RunV0412UiTests(const fs::path&,std::ostream&);
 void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
     if(index>=0&&(state&LVIS_SELECTED)&&(mask&LVIS_SELECTED)){LVITEMW reset{};reset.stateMask=LVIS_SELECTED|LVIS_FOCUSED;SendMessageW(list,LVM_SETITEMSTATE,-1,reinterpret_cast<LPARAM>(&reset));}
@@ -105,7 +106,7 @@ int SelfTest() {
         RunExtendedXmpTests(directory, report);
         RunMetadataWriterTests(directory, report);
         RunV031Tests(directory, report);
-        RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);
+        RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);RunV0421RegexTests(report);RunV0421ThemeTests(report);
 { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -648,7 +649,7 @@ int UiTest() {
             RECT help{},sort{};GetWindowRect(GetDlgItem(app.window,Help),&help);GetWindowRect(GetDlgItem(app.window,SortMenu),&sort);require(help.right<sort.left&&Text(GetDlgItem(app.window,SortMenu))==L"並べ替え ▼","v0.4.15 sort button follows help");
             ResetViewer();app.sortMode=0;SaveSettings();
         }
-        RunV0412UiTests(directory,report);RunV0413UiTests(directory,report);RunV0420UiTests(report);
+        RunV0412UiTests(directory,report);RunV0413UiTests(directory,report);RunV0420UiTests(report);RunV0421ThemeTests(report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }

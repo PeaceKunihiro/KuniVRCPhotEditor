@@ -40,11 +40,12 @@ void OpenPageButton(HWND window){if(!app.idLinks)return;for(auto& button:pageBut
 void RefreshSummaryLinks(){FormatLinks();LayoutSimple();}
 std::vector<SummaryLink> SummaryLinks(const PhotoSummary& summary){
     std::vector<SummaryLink> links;auto normalized=[](const std::wstring& text){std::wstring result;for(size_t i=0;i<text.size();++i){if(text[i]==L'\r'&&i+1<text.size()&&text[i+1]==L'\n')++i;result+=text[i]==L'\n'?L'\r':text[i];}return result;};
-    auto url=[](const std::wstring& id,const std::wstring& prefix,const std::wstring& page){std::wregex pattern(L"^"+prefix+LR"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$)");return std::regex_match(id,pattern)?L"https://vrchat.com/home/"+page+L"/"+id:L"";};
+    static const std::wregex worldPattern(LR"(^wrld_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$)"),userPattern(LR"(^usr_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$)");
+    auto url=[](const std::wstring& id,const std::wregex& pattern,const std::wstring& page){return std::regex_match(id,pattern)?L"https://vrchat.com/home/"+page+L"/"+id:L"";};
     auto add=[&](int field,size_t first,const std::wstring& text,const std::wstring& target){if(!target.empty())links.push_back({field,static_cast<long>(first),static_cast<long>(first+text.size()),target});};
-    auto world=summary.values[6];add(6,0,world,url(world,L"wrld_",L"world"));
+    auto world=summary.values[6];add(6,0,world,url(world,worldPattern,L"world"));
     auto tags=normalized(summary.values[8]);std::wistringstream lines(tags);std::wstring line;size_t offset=0;while(std::getline(lines,line,L'\r')){const std::wstring prefix=L"【グループID】";if(line.find(prefix)==0){auto id=line.substr(prefix.size());add(8,offset+prefix.size(),id,GroupUrl(id));}offset+=line.size()+1;}
-    auto members=normalized(summary.values[9]);size_t at=summary.memberOffset;for(auto& person:summary.people){auto name=normalized(person.name);if(members.compare(at,name.size(),name)!=0)break;add(9,at,name,url(person.id,L"usr_",L"user"));at+=name.size()+1;}
+    auto members=normalized(summary.values[9]);size_t at=summary.memberOffset;for(auto& person:summary.people){auto name=normalized(person.name);if(members.compare(at,name.size(),name)!=0)break;add(9,at,name,url(person.id,userPattern,L"user"));at+=name.size()+1;}
     return links;
 }
 void ShowSummary(const PhotoSummary& summary, const std::wstring& message) {
@@ -819,6 +820,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     }
     case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: app.imageLabelsDirty = true; ApplyTheme();return 0;
+    case WM_SYSCOLORCHANGE: app.imageLabelsDirty = true; ApplyTheme();EnumChildWindows(window,[](HWND child,LPARAM){SendMessageW(child,WM_SYSCOLORCHANGE,0,0);return TRUE;},0);return 0;
     case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
     case WM_DRAWITEM: if(DrawOcrButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;

@@ -39,6 +39,7 @@ std::wstring MetadataEdit::Validate() const {
         }
     }
     if (actions[0] == EditAction::Set && !ValidXmpDate(values[0])) return L"撮影日時は有効なXMP日時を入力してください（例: 2026-10-10T12:30:00+09:00）。";
-    if (actions[3] == EditAction::Set && !std::regex_match(values[3], std::wregex(L"wrld_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))) return L"ワールドIDはwrld_に続くUUID形式で入力してください。";
+    static const std::wregex worldPattern(L"wrld_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    if (actions[3] == EditAction::Set && !std::regex_match(values[3], worldPattern)) return L"ワールドIDはwrld_に続くUUID形式で入力してください。";
     return {};
 }

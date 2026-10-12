@@ -1,4 +1,4 @@
-﻿#define NOMINMAX
+#define NOMINMAX
 #include "Stage3.h"
 #include "ExtendedXmp.h"
 #include <regex>
@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <winrt/base.h>
 namespace stage3 {
+namespace { const std::wregex personPattern(LR"(^(.*) \((usr_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)$)"); }
+namespace { const std::wregex groupPattern(LR"(~group\((grp_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\))"); }
 Time Now(){FILETIME f{};GetSystemTimeAsFileTime(&f);ULARGE_INTEGER u{};u.LowPart=f.dwLowDateTime;u.HighPart=f.dwHighDateTime;return u.QuadPart/10000;}
 Time ParseTime(const std::wstring& text){
     std::wsmatch m;static const std::wregex re(LR"(^([0-9]{4})[.\-]([0-9]{2})[.\-]([0-9]{2})[ T_]([0-9]{2})[:\-]([0-9]{2})[:\-]([0-9]{2})(?:\.([0-9]{1,7}))?(Z|[+\-][0-9]{2}:[0-9]{2})?$)");
@@ -29,11 +31,11 @@ bool ParseLogLine(const std::wstring& line,Event& e){
     bool relevant=roomName!=std::wstring::npos||joined!=std::wstring::npos||left!=std::wstring::npos||room!=std::wstring::npos||photo!=std::wstring::npos||leftRoom||line.find(L"OnPlayerJoined")!=std::wstring::npos||line.find(L"OnPlayerLeft")!=std::wstring::npos;
     if(!relevant)return false;e={};e.time=ParseTime(line.substr(0,19));if(!e.time)return true;
     if(roomName!=std::wstring::npos){e.kind=Kind::RoomName;e.worldName=line.substr(roomName+28);if(!e.worldName.empty()&&e.worldName.back()==L'\r')e.worldName.pop_back();return true;}
-    if(room!=std::wstring::npos){auto location=line.substr(room+10);auto colon=location.find(L':');if(colon==std::wstring::npos)return true;e.kind=Kind::Room;e.world=location.substr(0,colon);std::wsmatch group;if(std::regex_search(location,group,std::wregex(LR"(~group\((grp_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\))"))){e.group=group[1];std::transform(e.group.begin(),e.group.end(),e.group.begin(),towlower);}e.instance=winrt::to_hstring(XmpMd5(winrt::to_string(location))).c_str();return true;}
+    if(room!=std::wstring::npos){auto location=line.substr(room+10);auto colon=location.find(L':');if(colon==std::wstring::npos)return true;e.kind=Kind::Room;e.world=location.substr(0,colon);std::wsmatch group;if(std::regex_search(location,group,groupPattern)){e.group=group[1];std::transform(e.group.begin(),e.group.end(),e.group.begin(),towlower);}e.instance=winrt::to_hstring(XmpMd5(winrt::to_string(location))).c_str();return true;}
     if(leftRoom){e.kind=Kind::LeftRoom;return true;}
     if(photo!=std::wstring::npos){e.kind=Kind::Photo;e.path=line.substr(photo+22);return true;}
     if(joined!=std::wstring::npos||left!=std::wstring::npos){bool join=joined!=std::wstring::npos;auto value=line.substr((join?joined:left)+(join?17:15));if(!value.empty()&&value.back()==L'\r')value.pop_back();
-        std::wsmatch match;if(std::regex_match(value,match,std::wregex(LR"(^(.*) \((usr_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)$)"))){e.person.name=match[1];e.person.id=match[2];}else e.person.name=value;
+        std::wsmatch match;if(std::regex_match(value,match,personPattern)){e.person.name=match[1];e.person.id=match[2];}else e.person.name=value;
         if(!e.person.name.empty())e.kind=join?Kind::Join:Kind::Leave;return true;}
     return true;
 }
