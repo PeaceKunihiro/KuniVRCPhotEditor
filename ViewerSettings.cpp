@@ -34,6 +34,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
         if (!std::isfinite(n) || n < minimum || n > maximum || std::fmod(n - minimum, step) != 0) throw std::runtime_error("setting number");
         return static_cast<int>(n);
     };
+    settings.idLinks=object.HasKey(L"pageButtons")?object.GetNamedBoolean(L"pageButtons"):object.GetNamedBoolean(L"idLinks",true);
     settings.sortMode=number(L"sortMode",0,0,3,1);
     settings.thumbnailWidth = number(L"thumbnailWidth", 128, 64, 256, 32);
     settings.autoThumbnails=object.GetNamedBoolean(L"autoThumbnails",false);
@@ -71,6 +72,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
 }
 std::string SerializeViewerSettings(const ViewerSettings& settings) {
     JsonObject object; object.Insert(L"version", JsonValue::CreateNumberValue(3));
+    object.Insert(L"pageButtons",JsonValue::CreateBooleanValue(settings.idLinks));
     object.Insert(L"sortMode",JsonValue::CreateNumberValue(settings.sortMode));
     object.Insert(L"lastFolder", JsonValue::CreateStringValue(settings.saveHistory ? settings.last : L""));
     object.Insert(L"sideView", JsonValue::CreateStringValue(settings.layout));

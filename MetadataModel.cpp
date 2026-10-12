@@ -158,7 +158,7 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
     if (SUCCEEDED(hr)) hr = reader->SetInput(stream.Get());
     XmpFields parsed;
     bool invalidMembers=false,invalidCandidates=false;
-    struct Element { std::wstring name, uri, text; bool sequence=false; };
+    struct Element { std::wstring name, uri, text; bool sequence=false; std::wstring personName,personId; int nameCount=0,idCount=0; };
     std::vector<Element> stack;
     XmlNodeType type{};
     auto finish = [&] {
@@ -166,12 +166,14 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
         constexpr auto kpe=L"urn:kunivrcphoteditor:metadata:1.0";
         bool capture=std::any_of(stack.begin(),stack.end(),[&](const auto& p){return p.uri==kpe&&p.name==L"CaptureRecord";});
         if(capture&&element.name==L"Seq"&&element.uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&!stack.empty())stack.back().sequence=true;
+        if(capture&&element.name==L"li"&&element.uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&stack.size()>=2&&stack.back().name==L"Seq"&&stack[stack.size()-2].uri==kpe&&stack[stack.size()-2].name==L"InstanceMembers"&&!element.personName.empty())parsed.people.push_back({element.personName,element.personId});
         if(capture&&element.uri==kpe){
             if(element.name==L"InstanceMembers"&&!element.sequence)invalidMembers=true;
             if(element.name==L"ModelCandidates"&&!element.sequence)invalidCandidates=true;
             if(element.name==L"MemberListStatus")parsed.memberStatus=Trim(element.text);
             if(element.name==L"CandidateStatus")parsed.candidateStatus=Trim(element.text);
             if((element.name==L"DisplayName"||element.name==L"UserId")&&stack.size()>=3&&stack.back().name==L"li"&&stack.back().uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&stack[stack.size()-2].name==L"Seq"&&stack[stack.size()-2].uri==stack.back().uri){
+                if(element.name==L"DisplayName")stack.back().personName=++stack.back().nameCount==1?Trim(element.text):L"";else stack.back().personId=++stack.back().idCount==1?Trim(element.text):L"invalid";
                 auto& parent=stack[stack.size()-3];if(parent.uri==kpe&&(parent.name==L"InstanceMembers"||parent.name==L"ModelCandidates")){auto& names=parent.name==L"InstanceMembers"?parsed.members:parsed.candidates;auto name=Trim(element.text);if(!name.empty()){if(element.name==L"DisplayName"){if(!names.empty())names+=L"\r\n";names+=name;}parsed.recordReference+=std::wstring(parent.name==L"InstanceMembers"?L"同室者：":L"モデル候補：")+(element.name==L"UserId"?L"ユーザーID ":L"")+name+L"\r\n";}}
             }
         }
@@ -199,7 +201,7 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
         } else if (type == XmlNodeType_EndElement && !stack.empty()) finish();
     }
     if (FAILED(hr) || !stack.empty()) { error = L"XMPのXML読込みエラー。元の値は詳細で確認してください。"; return false; }
-    if(invalidMembers)parsed.memberStatus=L"unknown";
+    if(invalidMembers){parsed.memberStatus=L"unknown";parsed.people.clear();}
     if(invalidCandidates)parsed.candidateStatus=L"unknown";
     fields = std::move(parsed); return true;
 }
@@ -239,6 +241,7 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path) {
                     if (target.empty()) target = value;
                     else if (!value.empty() && target != value) result.notes += L"XMP項目に異なる値があります。先に取得した標準側の値を優先します。\r\n";
                 };
+                if(fields.members.empty())fields.people=parsed.people;
                 merge(fields.date, parsed.date); merge(fields.author, parsed.author);
                 merge(fields.worldName, parsed.worldName); merge(fields.worldId, parsed.worldId); merge(fields.subjects, parsed.subjects); merge(fields.tags, parsed.tags); merge(fields.members,parsed.members);merge(fields.candidates,parsed.candidates);merge(fields.memberStatus,parsed.memberStatus);merge(fields.candidateStatus,parsed.candidateStatus);
             } else result.notes += parseError + L"\r\n";
@@ -253,6 +256,7 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path) {
         if(names.empty()&&candidate&&status==L"observed")prefix=L"候補情報不完全";
         return prefix.empty()?names:prefix+(names.empty()?L"":L"\r\n"+names);
     };
-    result.values[9]=display(fields.members,fields.memberStatus,false);result.values[10]=display(fields.candidates,fields.candidateStatus,true);
+    result.people=fields.people;
+    result.values[9]=display(fields.members,fields.memberStatus,false);auto prefix=result.values[9].substr(0,result.values[9].size()-fields.members.size());prefix.erase(std::remove(prefix.begin(),prefix.end(),L'\n'),prefix.end());result.memberOffset=static_cast<long>(prefix.size());result.values[10]=display(fields.candidates,fields.candidateStatus,true);
     return result;
 }

@@ -9,7 +9,7 @@ struct ViewerSettings {
     std::vector<std::wstring> history, bookmarks;
     bool autoThumbnails=true; int sideWidth=400,sideHeight=300;
     bool residentMode=false,residentOcr=false;
-    int sortMode=0;
+    int sortMode=0; bool idLinks=true;
     bool diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
 };
 std::wstring NormalizeFolderAddress(const std::wstring& path);

@@ -3,12 +3,54 @@
 #include "ViewerRuntime.h"
 #include <unordered_set>
 #include <windowsx.h>
+#include <richedit.h>
+#include <regex>
 State app;
-namespace {HWND groupButton{};void OpenGroupPage(){auto ids=GroupIds(app.summary.values[8]);if(ids.empty())return;size_t selected=0;if(ids.size()>1){HMENU menu=CreatePopupMenu();for(size_t i=0;i<ids.size();++i)AppendMenuW(menu,MF_STRING,UINT_PTR(i+1),ids[i].c_str());RECT r{};GetWindowRect(groupButton,&r);auto choice=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,app.window,nullptr);DestroyMenu(menu);if(choice<1||choice>ids.size())return;selected=choice-1;}auto url=GroupUrl(ids[selected]);if(!url.empty())ShellExecuteW(app.window,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}}
+namespace {
+std::vector<SummaryLink> activeLinks;
+struct PageButton { HWND window{}; SummaryLink target; bool active=false; };
+std::vector<PageButton> pageButtons;
+void FormatLinks(){
+    activeLinks=app.idLinks?SummaryLinks(app.summary):std::vector<SummaryLink>{};
+    for(int field:{6,8,9}){auto h=app.simpleValues[field];CHARRANGE selection{};SendMessageW(h,EM_EXGETSEL,0,reinterpret_cast<LPARAM>(&selection));CHARRANGE all{0,-1};SendMessageW(h,EM_EXSETSEL,0,reinterpret_cast<LPARAM>(&all));CHARFORMAT2W format{};format.cbSize=sizeof(format);format.dwMask=CFM_LINK|CFM_COLOR|CFM_UNDERLINE;format.crTextColor=ThemeForeground();SendMessageW(h,EM_SETCHARFORMAT,SCF_SELECTION,reinterpret_cast<LPARAM>(&format));
+        bool buttons=std::any_of(activeLinks.begin(),activeLinks.end(),[&](auto& link){return link.field==field;});PARAFORMAT2 paragraph{};paragraph.cbSize=sizeof(paragraph);paragraph.dwMask=PFM_LINESPACING;paragraph.bLineSpacingRule=buttons?4:0;auto dc=GetDC(h);paragraph.dyLineSpacing=buttons?MulDiv(22,1440,GetDeviceCaps(dc,LOGPIXELSY)):0;ReleaseDC(h,dc);SendMessageW(h,EM_SETPARAFORMAT,0,reinterpret_cast<LPARAM>(&paragraph));SendMessageW(h,EM_EXSETSEL,0,reinterpret_cast<LPARAM>(&selection));SendMessageW(h,EM_SETBKGNDCOLOR,0,ThemeBackground());
+    }
+}
+LRESULT CALLBACK PageButtonProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR){
+    if(message==WM_GETDLGCODE){auto flags=DefSubclassProc(window,message,wp,lp);auto key=reinterpret_cast<MSG*>(lp);return key&&key->wParam==VK_RETURN?flags|DLGC_WANTMESSAGE:flags;}
+    if(message==WM_KEYDOWN&&wp==VK_RETURN){if(!(lp&(1LL<<30)))SendMessageW(window,BM_CLICK,0,0);return 0;}
+    if(message==WM_KEYUP&&wp==VK_RETURN)return 0;
+    if(message==WM_MOUSEWHEEL)return SendMessageW(app.simple,message,wp,lp);
+    if(message==WM_NCDESTROY)RemoveWindowSubclass(window,PageButtonProc,id);
+    return DefSubclassProc(window,message,wp,lp);
+}
+void PlacePageButtons(){
+    RECT area{};GetClientRect(app.simple,&area);size_t used=0;
+    for(auto& link:activeLinks){auto value=app.simpleValues[link.field];RECT rect{};GetWindowRect(value,&rect);MapWindowPoints(nullptr,app.simple,reinterpret_cast<POINT*>(&rect),2);POINTL point{};SendMessageW(value,EM_POSFROMCHAR,reinterpret_cast<WPARAM>(&point),link.first);// Rich Edit exact line spacing adds leading above the glyphs.
+        int top=rect.top+point.y+6;if(top+20<=0||top>=area.bottom)continue;
+        if(used==pageButtons.size())pageButtons.push_back({});auto& button=pageButtons[used];
+        if(!IsWindow(button.window)){button.window=CreateWindowExW(0,L"BUTTON",L"↗",WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON,0,0,24,20,app.simple,reinterpret_cast<HMENU>(4000+used),GetModuleHandleW(nullptr),nullptr);SendMessageW(button.window,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);SetWindowSubclass(button.window,PageButtonProc,17,0);}
+        if(GetFocus()==button.window&&button.target.url!=link.url)SetFocus(app.simpleValues[button.target.field]);button.target=link;button.active=true;MoveWindow(button.window,rect.left-28,top,24,20,FALSE);ShowWindow(button.window,SW_SHOWNA);SetWindowPos(button.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);++used;
+    }
+    for(size_t i=used;i<pageButtons.size();++i){auto& button=pageButtons[i];if(GetFocus()==button.window)SetFocus(app.simpleValues[button.target.field]);button.active=false;ShowWindow(button.window,SW_HIDE);}
+}
+void OpenPageButton(HWND window){if(!app.idLinks)return;for(auto& button:pageButtons)if(button.window==window&&button.active&&IsWindowVisible(window)){if(app.summaryLinkLauncher)app.summaryLinkLauncher(button.target.url);else ShellExecuteW(app.window,L"open",button.target.url.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return;}}
+
+}
+void RefreshSummaryLinks(){FormatLinks();LayoutSimple();}
+std::vector<SummaryLink> SummaryLinks(const PhotoSummary& summary){
+    std::vector<SummaryLink> links;auto normalized=[](const std::wstring& text){std::wstring result;for(size_t i=0;i<text.size();++i){if(text[i]==L'\r'&&i+1<text.size()&&text[i+1]==L'\n')++i;result+=text[i]==L'\n'?L'\r':text[i];}return result;};
+    auto url=[](const std::wstring& id,const std::wstring& prefix,const std::wstring& page){std::wregex pattern(L"^"+prefix+LR"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$)");return std::regex_match(id,pattern)?L"https://vrchat.com/home/"+page+L"/"+id:L"";};
+    auto add=[&](int field,size_t first,const std::wstring& text,const std::wstring& target){if(!target.empty())links.push_back({field,static_cast<long>(first),static_cast<long>(first+text.size()),target});};
+    auto world=summary.values[6];add(6,0,world,url(world,L"wrld_",L"world"));
+    auto tags=normalized(summary.values[8]);std::wistringstream lines(tags);std::wstring line;size_t offset=0;while(std::getline(lines,line,L'\r')){const std::wstring prefix=L"【グループID】";if(line.find(prefix)==0){auto id=line.substr(prefix.size());add(8,offset+prefix.size(),id,GroupUrl(id));}offset+=line.size()+1;}
+    auto members=normalized(summary.values[9]);size_t at=summary.memberOffset;for(auto& person:summary.people){auto name=normalized(person.name);if(members.compare(at,name.size(),name)!=0)break;add(9,at,name,url(person.id,L"usr_",L"user"));at+=name.size()+1;}
+    return links;
+}
 void ShowSummary(const PhotoSummary& summary, const std::wstring& message) {
-    app.summary = summary; app.simpleScroll = 0;EnableWindow(groupButton,!GroupIds(summary.values[8]).empty());
+    app.summary = summary; app.simpleScroll = 0;
     for (size_t i = 0; i < summary.values.size(); ++i) SetWindowTextW(app.simpleValues[i], summary.values[i].c_str());
-    SetWindowTextW(app.simpleNote, (message + summary.notes).c_str()); LayoutSimple();
+    SetWindowTextW(app.simpleNote, (message + summary.notes).c_str()); FormatLinks();LayoutSimple();
 }
 
 std::wstring ErrorText(HRESULT hr) {
@@ -67,7 +109,7 @@ void LoadSettings() {
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
         auto settings = ParseViewerSettings(json);
-        app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
+        app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
@@ -81,7 +123,7 @@ void LoadSettings() {
 void SaveSettings() {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;settings.sortMode=app.sortMode;
+        ViewerSettings settings;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
@@ -528,15 +570,15 @@ void LayoutSimple() {
         auto value=Text(app.simpleValues[i]);bool visible=value.find_first_not_of(L" \t\r\n")!=std::wstring::npos;
         ShowWindow(app.simpleLabels[i],visible?SW_SHOWNA:SW_HIDE);ShowWindow(app.simpleValues[i],visible?SW_SHOWNA:SW_HIDE);
         if(!visible)continue;
-        MoveWindow(app.simpleValues[i], labelWidth + 12, y - app.simpleScroll, valueWidth, 24, FALSE);
+        bool buttons=std::any_of(activeLinks.begin(),activeLinks.end(),[&](auto& link){return link.field==i;});int gutter=buttons?28:0;
+        MoveWindow(app.simpleValues[i], labelWidth + 12+gutter, y - app.simpleScroll, valueWidth-gutter, 24, FALSE);
         int lines = static_cast<int>(SendMessageW(app.simpleValues[i], EM_GETLINECOUNT, 0, 0));
-        int height = std::max(26, lines * static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading) + 8);
-        MoveWindow(app.simpleLabels[i], 8, y + 3 - app.simpleScroll, labelWidth, 24, FALSE);
-        MoveWindow(app.simpleValues[i], labelWidth + 12, y - app.simpleScroll, valueWidth, height, FALSE);
+        int height = std::max(26, lines * (buttons?22:static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading)) + 8);
+        MoveWindow(app.simpleLabels[i], 8, y + (buttons?12:3) - app.simpleScroll, labelWidth, 24, FALSE);
+        MoveWindow(app.simpleValues[i], labelWidth + 12+gutter, y - app.simpleScroll, valueWidth-gutter, height, FALSE);
         y += height + 8;
     }
-    bool groupVisible=!GroupIds(app.summary.values[8]).empty();ShowWindow(groupButton,groupVisible?SW_SHOWNA:SW_HIDE);
-    if(groupVisible){MoveWindow(groupButton,8,y-app.simpleScroll,std::max(40L,area.right-16),26,FALSE);y+=34;}
+
     auto note = Text(app.simpleNote);ShowWindow(app.simpleNote,note.empty()?SW_HIDE:SW_SHOWNA);
     MoveWindow(app.simpleNote, 8, y - app.simpleScroll, std::max(40L, area.right - 16), 24, FALSE);
     int lines = static_cast<int>(SendMessageW(app.simpleNote, EM_GETLINECOUNT, 0, 0));
@@ -546,12 +588,13 @@ void LayoutSimple() {
     int position = std::clamp(app.simpleScroll, 0, std::max(0, app.simpleContentHeight - static_cast<int>(area.bottom)));
     SCROLLINFO scroll{ sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS }; scroll.nMax = app.simpleContentHeight - 1; scroll.nPage = area.bottom; scroll.nPos = position; SetScrollInfo(app.simple, SB_VERT, &scroll, TRUE);
     if (position != app.simpleScroll) { app.simpleScroll = position; LayoutSimple(); return; }
+    PlacePageButtons();
     // Repaint unchanged labels as well as values, after all positions are final.
     // The pane clips children, so invalidating only its background is insufficient.
     RedrawWindow(app.simple, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 LRESULT CALLBACK SimpleProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
-    if(message==WM_COMMAND&&LOWORD(wparam)==1810){OpenGroupPage();return 0;}
+    if(message==WM_COMMAND&&HIWORD(wparam)==BN_CLICKED){OpenPageButton(reinterpret_cast<HWND>(lparam));return 0;}
     if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) {
         RECT area{}; GetClientRect(window, &area); int position = app.simpleScroll;
         if (message == WM_MOUSEWHEEL) {
@@ -650,6 +693,7 @@ INT_PTR ShowCacheLimitDialog(int& mb) {
 }
 HMENU BuildOptionsMenu() {
     auto menu = CreatePopupMenu();
+    AppendMenuW(menu,MF_STRING|(app.idLinks?MF_CHECKED:0),15,app.idLinks?L"ページを開くボタン: ON":L"ページを開くボタン: OFF");
     AppendMenuW(menu,MF_STRING|(app.residentMode?MF_CHECKED:0),13,app.residentMode?L"常駐モード: ON":L"常駐モード: OFF");
     AppendMenuW(menu,MF_STRING|(app.residentOcr?MF_CHECKED:0),14,app.residentOcr?L"常駐OCR: ON（次回記録開始から）":L"常駐OCR: OFF（次回記録開始から）");
     auto label = L"画像サムネイルキャッシュ上限: " + std::to_wstring(app.cacheMB) + L" MB…";
@@ -671,7 +715,8 @@ void OptionsMenu() {
     auto menu = BuildOptionsMenu();
     RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
     auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if(action==12){ShowDiskCacheDialog();}
+    if(action==15){app.idLinks=!app.idLinks;FormatLinks();LayoutSimple();SaveSettings();}
+    else if(action==12){ShowDiskCacheDialog();}
     else if(action==8){stage3::ShowMonitorDialog();UpdateRecordingControls();}
     else if (action >= 3) NewOptionsAction(static_cast<int>(action));
     else if (action == 1) {
@@ -738,10 +783,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         const wchar_t* labels[]{ L"ファイル名", L"容量", L"解像度", L"作成日時", L"撮影者", L"ワールド名", L"ワールドID", L"モデル", L"タグ", L"同室者", L"モデル候補" };
         for (size_t i = 0; i < app.simpleValues.size(); ++i) {
             app.simpleLabels[i] = Control(L"STATIC", labels[i], SS_LEFT, 0); SetParent(app.simpleLabels[i], app.simple);
-            app.simpleValues[i] = Control(L"EDIT", L"", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleValues[i], app.simple);
+            app.simpleValues[i] = Control((i==6||i==8||i==9)?MSFTEDIT_CLASS:L"EDIT", L"", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleValues[i], app.simple);
+            if(i==6||i==8||i==9){SendMessageW(app.simpleValues[i],EM_SETEVENTMASK,0,0);SendMessageW(app.simpleValues[i],EM_AUTOURLDETECT,FALSE,0);}
             SendMessageW(app.simpleValues[i], EM_SETLIMITTEXT, 0x7ffffffe, 0); SetWindowSubclass(app.simpleValues[i], SummaryValueProc, 1, 0);
         }
-        groupButton=Control(L"BUTTON",L"グループページを開く",WS_TABSTOP,1810);SetParent(groupButton,app.simple);EnableWindow(groupButton,FALSE);
+
         app.simpleNote = Control(L"EDIT", L"画像を選択してください。", ES_MULTILINE | ES_READONLY | WS_TABSTOP, 0); SetParent(app.simpleNote, app.simple);
         SendMessageW(app.simpleNote, EM_SETLIMITTEXT, 0x7ffffffe, 0); SetWindowSubclass(app.simpleNote, SummaryValueProc, 1, 0);
         app.details = Control(L"EDIT", L"画像を選択してください。", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER | WS_TABSTOP, Details);

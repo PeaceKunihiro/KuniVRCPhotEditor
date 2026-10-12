@@ -56,7 +56,7 @@ enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, Me
 struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; int sortMode=0; };
 struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
 struct State {
-    int sortMode=0; bool sorting=false;
+    int sortMode=0; bool sorting=false,idLinks=true;
     std::vector<std::wstring> batchFiles, restoreSelection, batchCompleted;
     std::vector<EditableMetadata> batchMetadata;
     bool batchLoading=false, updatingSelection=false,selectionPending=false;
@@ -87,7 +87,7 @@ struct State {
     std::function<std::wstring()> chooseSavePath;
     std::function<void(const std::wstring&)> photosRequest;
     std::atomic<unsigned> metadataDelayMs{0};
-    PhotoSummary summary;
+    PhotoSummary summary; std::function<void(const std::wstring&)> summaryLinkLauncher;
     HIMAGELIST thumbs{};
     std::vector<std::wstring> files, recent;
     std::vector<std::wstring> bookmarks;
@@ -131,6 +131,7 @@ void LaunchSelectedPhotos();
 void RequestPhotos(int index);
 Pixels DisplayedThumbnail(int index);
 INT_PTR ShowCacheLimitDialog(int& mb);
+void RefreshSummaryLinks();
 void ShowSummary(const PhotoSummary& summary, const std::wstring& message = L"");
 std::wstring ErrorText(HRESULT hr);
 std::wstring Text(HWND control);
