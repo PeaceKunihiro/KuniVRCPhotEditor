@@ -2,6 +2,7 @@
 #include "MetadataModel.h"
 #include "ExtendedXmp.h"
 #include "PngCrc.h"
+#include "WebPXmpCompatibility.h"
 #include <xmllite.h>
 #include <shlwapi.h>
 #include <wrl/client.h>
@@ -107,6 +108,8 @@ std::vector<std::string> Packets(const std::wstring& path, std::wstring& notes) 
             if (std::string(reinterpret_cast<char*>(header), 4) == "XMP ") {
                 if (length > XmpLimit) throw std::runtime_error("WebP XMP limit");
                 std::string packet(size_t(length), '\0'); Read(input, packet.data(), packet.size()); add(std::move(packet));
+                auto normalized=WebPXmpForParsing(packets.back());
+                if(normalized.size()!=packets.back().size()){packets.back().resize(normalized.size());notes+=L"WebP XMPの末尾NULを除いた解析用データで読込みました。\r\n";}
                 if (length & 1) input.seekg(1, std::ios::cur);
             } else input.seekg(static_cast<std::streamoff>(padded), std::ios::cur);
         }

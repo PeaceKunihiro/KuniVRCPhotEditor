@@ -3,6 +3,7 @@
 #include "ExtendedXmp.h"
 #include "WebPMetadata.h"
 #include "PngCrc.h"
+#include "WebPXmpCompatibility.h"
 #include <msxml6.h>
 #include <wrl/client.h>
 #include <winrt/base.h>
@@ -176,6 +177,7 @@ Container Inspect(const std::string& bytes){
     else throw std::runtime_error("Only PNG, JPEG and WebP can be edited");
     if(standards.size()>1)throw std::runtime_error("Multiple standard XMP packets cannot be edited safely");
     if(!standards.empty())c.standard=standards.front();
+    if(c.webp)c.standard.resize(WebPXmpForParsing(c.standard).size());
     if(!c.standard.empty())c.standardDoc=Dom(c.standard,&c.standardFields);
     if(!extension.empty()||!c.standardFields.extendedGuid.empty()){std::wstring notes;c.extended=RestoreExtendedXmp(standards,extension,notes);
         if(c.extended.empty())throw std::runtime_error("Invalid or unreferenced Extended XMP; copy was not saved");

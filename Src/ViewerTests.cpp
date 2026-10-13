@@ -11,6 +11,7 @@ void RunV0412Tests(const fs::path&,std::ostream&);
 void RunV0420Tests(const fs::path&,std::ostream&);
 void RunV0420UiTests(std::ostream&);
 void RunV0421RegexTests(std::ostream&);
+void RunV0422Tests(const fs::path&,std::ostream&);
 void RunV0412UiTests(const fs::path&,std::ostream&);
 void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
     if(index>=0&&(state&LVIS_SELECTED)&&(mask&LVIS_SELECTED)){LVITEMW reset{};reset.stateMask=LVIS_SELECTED|LVIS_FOCUSED;SendMessageW(list,LVM_SETITEMSTATE,-1,reinterpret_cast<LPARAM>(&reset));}
@@ -106,7 +107,7 @@ int SelfTest() {
         RunExtendedXmpTests(directory, report);
         RunMetadataWriterTests(directory, report);
         RunV031Tests(directory, report);
-        RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);RunV0421RegexTests(report);RunV0421ThemeTests(report);
+        RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);RunV0421RegexTests(report);RunV0421ThemeTests(report);RunV0422Tests(directory,report);
 { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -650,6 +651,8 @@ int UiTest() {
             ResetViewer();app.sortMode=0;SaveSettings();
         }
         RunV0412UiTests(directory,report);RunV0413UiTests(directory,report);RunV0420UiTests(report);RunV0421ThemeTests(report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
+        app.layout=L"right";OpenFolder((directory/L"v0422").wstring());wait([]{return !app.folderPending;});int nulIndex=-1;for(int i=0;i<int(app.files.size());++i)if(fs::path(app.files[i]).filename()==L"nul-2.webp")nulIndex=i;require(nulIndex>=0,"v0.4.22 NUL WebP UI fixture found");TestSelectItem(app.list,nulIndex,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});TabCtrl_SetCurSel(app.metadataTabs,0);Layout();
+        require(app.summary.values[4]==L"撮影者"&&app.summary.values[9].find(L"同名")!=std::wstring::npos&&Text(app.simpleValues[4])==L"撮影者"&&IsWindowVisible(app.simpleLabels[4]),"v0.4.22 NUL WebP metadata is visible in simple tab");CaptureUiTest(directory/L"v0422-simple.png");TabCtrl_SetCurSel(app.metadataTabs,1);Layout();SendMessageW(app.window,WM_COMMAND,EditMetadata,0);require(app.editing&&app.editorUi.Read().values[1]==L"撮影者","v0.4.22 NUL WebP opens editor with existing author");SendMessageW(app.window,WM_COMMAND,CancelMetadata,0);
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
