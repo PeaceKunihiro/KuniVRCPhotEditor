@@ -1,4 +1,4 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 #include "TestOcr.h"
 namespace {
 constexpr int Mode=1801,Apply=1802,Target=1803,Output=1804,TestRun=1805,FpsField=1806,High=1807;
@@ -7,7 +7,7 @@ std::vector<person_ocr::Window> windows;
 std::wstring previousRaw,previousStatus,lastImage;
 int source=0;bool names=false,imageRunning=false;HWND testWindow{},normalWindow{};ULONGLONG refreshed=0;
 void TextChanged(HWND h,const std::wstring& text,std::wstring& previous){if(text!=previous){SetWindowTextW(h,text.c_str());previous=text;}}
-void RecognizeImage(){int count=ListView_GetSelectedCount(app.list);if(count!=1||app.selected<0||app.selected>=int(app.files.size())){test_ocr::Stop();lastImage.clear();TextChanged(status,L"画像認識：画像を1件選択してください",previousStatus);return;}lastImage=app.files[app.selected];test_ocr::Image(lastImage,true);}
+void RecognizeImage(){int count=SelectedImageCount();if(count!=1||app.selected<0||app.selected>=int(app.files.size())||IsFolderItem(app.selected)){test_ocr::Stop();lastImage.clear();TextChanged(status,L"画像認識：画像を1件選択してください",previousStatus);return;}lastImage=app.files[app.selected];test_ocr::Image(lastImage,true);}
 void FillTargets(){windows=source==1?test_ocr::Windows():person_ocr::Windows();auto missing=[&](HWND h){return h&&std::none_of(windows.begin(),windows.end(),[&](auto& w){return w.handle==h;});};if(source==0&&missing(normalWindow)){normalWindow=nullptr;person_ocr::SelectWindow(nullptr);}if(source==1&&missing(testWindow)){test_ocr::Stop();testWindow=nullptr;}SendMessageW(target,CB_RESETCONTENT,0,0);for(auto text:{L"VRChatウィンドウ：自動選択",L"テストキャプチャ（対象を選択）",L"画像認識（選択画像）"})SendMessageW(target,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text));int selected=source;for(size_t i=0;i<windows.size();++i){auto text=(source==1?L"テスト：":L"VRChat：")+windows[i].title+L" (PID "+std::to_wstring(windows[i].pid)+L")";SendMessageW(target,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));if(windows[i].handle==(source==1?testWindow:normalWindow))selected=int(i+3);}SendMessageW(target,CB_SETCURSEL,selected,0);}
 }
 bool OcrImageSource(){return source==2;}
@@ -60,7 +60,7 @@ void LayoutOcrUi(RECT page,bool visible){
 void RefreshOcrUi(){
     if(!status)return;
     if(!SendMessageW(target,CB_GETDROPPEDSTATE,0,0)&&GetTickCount64()-refreshed>2000){refreshed=GetTickCount64();auto next=source==1?test_ocr::Windows():person_ocr::Windows();bool changed=next.size()!=windows.size();if(!changed)for(size_t i=0;i<next.size();++i)if(next[i].handle!=windows[i].handle||next[i].title!=windows[i].title)changed=true;if(changed)FillTargets();}
-    bool one=app.list&&ListView_GetSelectedCount(app.list)==1&&app.selected>=0&&app.selected<int(app.files.size());
+    bool one=app.list&&SelectedImageCount()==1&&app.selected>=0&&app.selected<int(app.files.size())&&!IsFolderItem(app.selected);
     if(source==2){auto path=one?app.files[app.selected]:L"";if(path!=lastImage){if(one&&imageRunning)RecognizeImage();else{test_ocr::Stop();lastImage=path;}}}
     auto text=source?test_ocr::Status():(stage3::Recording()&&!stage3::RecordingOcr()?L"OCR停止：ログ情報のみ記録中":person_ocr::Status());if(!source&&!stage3::Recording()){auto monitor=stage3::MonitorStatus();if(!monitor.empty())text=monitor;}if(source==2&&!one)text=L"画像認識：画像を1件選択してください";else if(source==2&&!imageRunning)text=L"画像認識：停止（1FPS固定）";
     if(source&&stage3::Recording())text+=L"\r\n通常記録は別処理で継続";

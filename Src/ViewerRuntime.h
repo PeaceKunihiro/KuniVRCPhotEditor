@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
 #include "Stage3.h"
@@ -38,6 +38,7 @@
 #include <sstream>
 #include <vector>
 #include <memory>
+#include <unordered_set>
 #include <cmath>
 
 using Microsoft::WRL::ComPtr;
@@ -52,11 +53,13 @@ constexpr UINT_PTR ThumbnailTimer = 2;
 constexpr UINT_PTR ActivityTimer = 3;
 constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
-enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView, SortMenu };
-struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; int sortMode=0; };
-struct Result { Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
+enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView, SortMenu, HistoryBack, HistoryForward };
+struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; int sortMode=0; int navigationIndex=-1; bool clearSearch=false; };
+struct Result { std::vector<std::wstring> directories; Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
 struct State {
-    int sortMode=0; bool sorting=false,idLinks=true;
+    bool selectionCountsDirty=true;int selectedImageCount=0,selectedFolderCount=0;
+    int sortMode=0; bool sorting=false,idLinks=true,showBackupImages=true;
+    std::vector<std::wstring> directories,navigation; std::unordered_set<std::wstring> folderItems; int navigationIndex=-1;
     std::vector<std::wstring> batchFiles, restoreSelection, batchCompleted;
     std::vector<EditableMetadata> batchMetadata;
     bool batchLoading=false, updatingSelection=false,selectionPending=false;
@@ -70,7 +73,7 @@ struct State {
     HWND window{}, path{}, history{}, list{}, preview{}, details{}, status{}, placement{};
     HWND searchEdit{}, searchButton{};
     std::vector<std::wstring> allFiles;
-    std::wstring appliedQuery;
+    std::wstring appliedQuery,searchQuery;
     bool metadataSearch=false, searching=false, autoBackup=true, darkTheme=false, backupBusy=false;
     int backupLimit=10; bool autoThumbnails=true; int sideWidth=400,sideHeight=300,manualThumbnailWidth=128; RECT splitter{}; bool draggingSplitter=false;
     unsigned searchGeneration=0;std::atomic<unsigned> currentSearchGeneration{0};
@@ -132,6 +135,12 @@ struct State {
     std::atomic<unsigned> activeWorkers{0};
 };
 extern State app;
+enum class BrowserItemKind {Image,Folder};
+BrowserItemKind ItemKind(int); bool IsFolderItem(int); bool ShowImage(const std::wstring&);
+std::vector<std::wstring> VisibleImages();
+void CommitNavigation(const std::wstring&,int);void UpdateNavigationControls();void NavigateHistory(int);void OpenBrowserItem(int);void ToggleBackupImages();
+int SelectedImageCount();void CreateBrowserTooltips();
+void DrawFolderIcon(HDC,int);bool DrawBrowserButton(DRAWITEMSTRUCT*);bool BrowserInput(const MSG&);
 Job ThumbnailJob(int index);
 void LaunchSelectedPhotos();
 void RequestPhotos(int index);
@@ -177,7 +186,7 @@ void SubmitBackupDeletion(const std::vector<BackupCandidate>& candidates, const 
 void ResetViewer();
 std::wstring QuickHelpText();
 void ShowQuickHelp(const std::function<void(HWND)>& inspect = {});
-void OpenFolder(const std::wstring& path, bool reload = false, const std::wstring& preserveOverride = L"",bool userLoad=true);
+void OpenFolder(const std::wstring& path, bool reload = false, const std::wstring& preserveOverride = L"",bool userLoad=true,int navigationIndex=-1);
 HBITMAP Thumbnail(const Pixels& pixels, int width = 128);
 void UpdateThumbnailSpacing();
 void ArrangeImages();

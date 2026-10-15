@@ -1,4 +1,4 @@
-﻿#include "V048Features.h"
+#include "V048Features.h"
 #include "UpdateChecker.h"
 #include "ViewerRuntime.h"
 #include <unordered_set>
@@ -75,13 +75,12 @@ void Status(const std::wstring& message) {
 void SetActivity(const std::wstring& text){app.activityText=text;SetTimer(app.window,ActivityTimer,150,nullptr);Status(text);SetWindowTextW(app.editStatus,text.c_str());}
 void StopActivity(){app.activityText.clear();KillTimer(app.window,ActivityTimer);Counts();}
 void Counts(const std::wstring& message) {
-    Status(std::to_wstring(app.files.size()) + L" / "+std::to_wstring(app.allFiles.size())+L" 画像  |  " +
-        (app.selected < 0 ? L"未選択" : std::to_wstring(app.selected + 1) + L" / " + std::to_wstring(app.files.size())) + L"  | 選択: " + std::to_wstring(app.list?ListView_GetSelectedCount(app.list):0) + L"画像  |  " + message);
+    auto images=app.files.size()>=app.directories.size()?app.files.size()-app.directories.size():0;auto selectedImages=SelectedImageCount();auto selectedFolders=app.selectedFolderCount;
+    Status(std::to_wstring(images)+L" / "+std::to_wstring(app.allFiles.size())+L" 画像 | "+std::to_wstring(app.directories.size())+L" フォルダー | 選択: "+std::to_wstring(selectedImages)+L"画像 / "+std::to_wstring(selectedFolders)+L"フォルダー | "+message);
 }
-bool Same(const std::wstring& a, const std::wstring& b) { return _wcsicmp(a.c_str(), b.c_str()) == 0; }
-std::wstring Normalize(const std::wstring& value) {
-    return NormalizeFolderAddress(value);
-}
+
+bool Same(const std::wstring& a,const std::wstring& b){return _wcsicmp(a.c_str(),b.c_str())==0;}
+std::wstring Normalize(const std::wstring& value){return NormalizeFolderAddress(value);}
 void RefreshHistory() {
     SendMessageW(app.history, CB_RESETCONTENT, 0, 0);
     int selected = -1;
@@ -110,7 +109,7 @@ void LoadSettings() {
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
         auto settings = ParseViewerSettings(json);
-        app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
+        app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
@@ -124,7 +123,7 @@ void LoadSettings() {
 void SaveSettings() {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;
+        ViewerSettings settings;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
@@ -254,11 +253,12 @@ void ArrangeImages() {
     ListView_Arrange(app.list, LVA_DEFAULT);
 }
 void ResetThumbnailTracking() {
-    app.imageLabelsDirty = true; app.dirtyImageLabels.clear();
+    app.selectionCountsDirty=true;app.imageLabelsDirty = true; app.dirtyImageLabels.clear();
     app.thumbnailFailed.assign(app.files.size(), false);
     app.thumbnailDone.assign(app.files.size(), false); app.thumbnailRequested.assign(app.files.size(), false);
     app.itemSlots.assign(app.files.size(), -1); app.slotOwners.clear(); app.wantedFirst = 0; app.wantedLast = -1;
     app.thumbnailKeys.assign(app.files.size(),L"");
+    for(int i=0;i<int(app.files.size());++i)if(IsFolderItem(i))app.thumbnailDone[i]=true;
 }
 void ScheduleThumbnails() {
     if (app.folderPending || app.files.empty() || app.closing) return;
@@ -285,7 +285,7 @@ void ScheduleThumbnails() {
         return true;
     }), app.jobs.end());
     auto add = [&](int index) {
-        if (index < app.wantedFirst || index > app.wantedLast || app.thumbnailDone[index] || app.thumbnailRequested[index]) return;
+        if (index < app.wantedFirst || index > app.wantedLast || IsFolderItem(index) || app.thumbnailDone[index] || app.thumbnailRequested[index]) return;
         app.thumbnailRequested[index] = true; app.jobs.push_back(ThumbnailJob(index));
     };
     add(app.selected);
@@ -350,6 +350,7 @@ int WheelThumbnailWidth(int width, int& remainder, int delta) {
     return width;
 }
 LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) {
+    if(message==WM_XBUTTONUP){NavigateHistory(GET_XBUTTON_WPARAM(wparam)==XBUTTON1?-1:1);return TRUE;}
     if (message == WM_SETFONT) app.imageLabelsDirty = true;
     if (message == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL)) {
         if(app.autoThumbnails){app.autoThumbnails=false;app.thumbnailWidth=std::clamp(((app.activeThumbnailWidth+16)/32)*32,64,256);SaveSettings();}
@@ -428,12 +429,13 @@ void Results() {
             if (!result.error.empty()) {
                 // A failed folder change keeps the old list, including unfinished work.
                 app.thumbnailRequested.assign(app.files.size(), false); ScheduleThumbnails();
-                if (app.selected >= 0 && app.previewPixels.data.empty())
+                if (app.selected >= 0 && !IsFolderItem(app.selected) && app.previewPixels.data.empty())
                     Queue({ 2, app.generation, app.selection, app.selected, app.files[app.selected], L"" }, true);
-                Counts(L"フォルダーを開けません: " + result.error); continue;
+                SetWindowTextW(app.path,app.folder.c_str());UpdateNavigationControls();Counts(L"フォルダーを開けません: " + result.error); continue;
             }
             if(job.userLoad)app.disk.Visit(job.path);
-            app.folder=job.path;app.last=job.path;app.allFiles=std::move(result.files);
+            if(job.clearSearch){app.appliedQuery.clear();SetWindowTextW(app.searchEdit,L"");}
+            app.folder=job.path;app.last=job.path;app.allFiles=std::move(result.files);app.directories=std::move(result.directories);app.folderItems={app.directories.begin(),app.directories.end()};CommitNavigation(app.folder,job.navigationIndex);
             app.recent.erase(std::remove_if(app.recent.begin(),app.recent.end(),[&](auto& p){return SameFolderAddress(p,app.folder);}),app.recent.end());
             app.recent.insert(app.recent.begin(),app.folder);if(app.recent.size()>HistoryLimit)app.recent.resize(HistoryLimit);
             RefreshHistory();SetWindowTextW(app.path,app.folder.c_str());SaveSettings();
@@ -510,7 +512,9 @@ void Layout() {
         { GetDlgItem(app.window, OpenPath), width - 232, 8, 64, 26 },
         { GetDlgItem(app.window, Browse), width - 160, 8, 80, 26 },
         { GetDlgItem(app.window, ResetView), width-72,8,64,26 },
-        { app.history, 8, 42, std::max(120,width/3), 280 },
+        {GetDlgItem(app.window,HistoryBack),8,42,28,26},
+        {GetDlgItem(app.window,HistoryForward),40,42,28,26},
+        { app.history, 76, 42, std::max(52,width/3-68), 280 },
         { app.searchEdit, 16+std::max(120,width/3),42,std::max(100,width-96-std::max(120,width/3)),26 },
         { app.searchButton,width-72,42,64,26 },
         { GetDlgItem(app.window, Bookmarks),8,76,120,26 },
@@ -646,7 +650,7 @@ void LoadAddress(const std::wstring& address) {
     try {
         auto path = Normalize(address);
         if (!fs::is_directory(path)) throw std::runtime_error("folder");
-        SetWindowTextW(app.path, path.c_str()); OpenFolder(path, SameFolderAddress(path, app.folder));
+        OpenFolder(path, SameFolderAddress(path, app.folder));
     } catch (...) { Counts(L"無効なフォルダーパスです。現在の一覧を保持します。"); }
 }
 bool AddBookmark(const std::wstring& address) {
@@ -773,6 +777,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"ロード", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
         Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
+        Control(L"BUTTON",L"戻る",WS_TABSTOP|BS_OWNERDRAW,HistoryBack);Control(L"BUTTON",L"進む",WS_TABSTOP|BS_OWNERDRAW,HistoryForward);CreateBrowserTooltips();
         Control(L"BUTTON",L"リセット",WS_TABSTOP,ResetView);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);Control(L"BUTTON",L"並べ替え ▼",WS_TABSTOP,SortMenu);
         Control(L"BUTTON",L"記録開始",WS_TABSTOP|BS_OWNERDRAW,RecordToggle);Control(L"STATIC",L"記録状態",SS_OWNERDRAW,RecordIndicator);SetTimer(window,RecordTimer,500,nullptr);
         app.searchEdit=Control(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,SearchEdit);
@@ -823,7 +828,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_SYSCOLORCHANGE: app.imageLabelsDirty = true; ApplyTheme();EnumChildWindows(window,[](HWND child,LPARAM){SendMessageW(child,WM_SYSCOLORCHANGE,0,0);return TRUE;},0);return 0;
     case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
-    case WM_DRAWITEM: if(DrawOcrButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
+    case WM_APPCOMMAND: {int command=GET_APPCOMMAND_LPARAM(lparam);if(command==APPCOMMAND_BROWSER_BACKWARD||command==APPCOMMAND_BROWSER_FORWARD){NavigateHistory(command==APPCOMMAND_BROWSER_BACKWARD?-1:1);return TRUE;}break;}
+    case WM_DRAWITEM: if(DrawBrowserButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawOcrButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
     case WM_SETCURSOR: {POINT p{};GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&app.splitter,p)){SetCursor(LoadCursorW(nullptr,app.layout==L"bottom"?IDC_SIZENS:IDC_SIZEWE));return TRUE;}break;}
     case WM_LBUTTONDOWN: {POINT p{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)};if(PtInRect(&app.splitter,p)){app.draggingSplitter=true;SetCapture(window);return 0;}break;}
     case WM_MOUSEMOVE: if(app.draggingSplitter){RECT r{};GetClientRect(window,&r);if(app.layout==L"bottom")app.sideHeight=std::clamp(int(r.bottom-36-GET_Y_LPARAM(lparam)),120,10000);else app.sideWidth=std::clamp(app.layout==L"left"?GET_X_LPARAM(lparam)-8:int(r.right-8-GET_X_LPARAM(lparam)),280,std::max(280,int(r.right)-176));Layout();return 0;}break;
@@ -855,7 +861,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case RecordToggle: stage3::ToggleRecording();UpdateRecordingControls();Counts();break;
         case ResetView: ResetViewer();break;
 
-        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);break;}
+        case HistoryBack: NavigateHistory(-1);break;
+        case HistoryForward: NavigateHistory(1);break;
+        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();break;}
         case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");AppendMenuW(menu,MF_STRING,2,L"アップデートを確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();if(action==2)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
@@ -879,7 +887,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             } else if (header->code == LVN_ITEMCHANGING) {
                 auto changed=reinterpret_cast<NMLISTVIEW*>(lparam);
                 if((app.saving || app.backupBusy) && !app.transitionBypass && (changed->uChanged&LVIF_STATE) && ((changed->uNewState^changed->uOldState)&LVIS_SELECTED))return TRUE;
-                if(!app.updatingSelection && (changed->uChanged&LVIF_STATE) && ((changed->uNewState^changed->uOldState)&LVIS_SELECTED)){
+                app.selectionCountsDirty=true;if(!app.updatingSelection && (changed->uChanged&LVIF_STATE) && ((changed->uNewState^changed->uOldState)&LVIS_SELECTED)){
                     int target=(changed->uNewState&LVIS_SELECTED)?changed->iItem:-1;
                     if(!GuardTransition([index=changed->iItem,state=changed->uNewState]{ListView_SetItemState(app.list,index,state,LVIS_SELECTED|LVIS_FOCUSED);})){
                         app.transitionBypass=true;if(app.selected>=0)ListView_SetItemState(app.list,app.selected,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);app.transitionBypass=false;return TRUE;
@@ -888,10 +896,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
             } else if (header->code == LVN_ITEMCHANGED) {
                 auto changed = reinterpret_cast<NMLISTVIEW*>(lparam);
                 if(!app.updatingSelection && (changed->uChanged&LVIF_STATE) && ((changed->uNewState^changed->uOldState)&LVIS_SELECTED))ScheduleSelectionUpdate();
+            } else if(header->code==LVN_KEYDOWN){auto key=reinterpret_cast<NMLVKEYDOWN*>(lparam);if(key->wVKey==VK_RETURN)OpenBrowserItem(ListView_GetNextItem(app.list,-1,LVNI_FOCUSED));
             } else if (header->code == NM_DBLCLK) {
                 int index = reinterpret_cast<NMITEMACTIVATE*>(lparam)->iItem;
                 if (index >= 0 && index < static_cast<int>(app.files.size())) {
-                    RequestPhotos(index);
+                    OpenBrowserItem(index);
                 }
             }
         } return 0;
@@ -921,10 +930,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 void UpdateEditorControls(const MetadataEdit* snapshot,const std::wstring* validation) {
     MetadataEdit local;if(!snapshot&&app.editing)local=app.editorUi.Read();const auto& edit=snapshot?*snapshot:local;
     auto error=validation?*validation:edit.Validate();
-    EnableWindow(app.editButton,app.metadataReady && !app.previewPixels.data.empty() && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && !app.sorting && app.selected>=0);
+    EnableWindow(app.editButton,(SelectedImageCount()>1||(app.metadataReady&&!IsFolderItem(app.selected)&&!app.previewPixels.data.empty())) && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && !app.sorting && !app.folderPending && app.selected>=0);
     EnableWindow(app.saveButton,app.editing && !app.saving && !app.backupBusy && !app.sorting && edit.Changed() && error.empty());
     EnableWindow(app.cancelButton,app.editing && (!app.saving||!app.batchFiles.empty()) && !app.backupBusy && !app.sorting);SetWindowTextW(app.cancelButton,app.saving&&!app.batchFiles.empty()?L"一括保存中止":L"キャンセル");
     for(int id:{OpenPath,Browse,ResetView,History,Bookmarks,SearchButton,Options,SortMenu})EnableWindow(GetDlgItem(app.window,id),!app.saving&&!app.backupBusy&&!app.sorting);
+    UpdateNavigationControls();
     SetWindowPos(app.cancelButton,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     RedrawWindow(app.cancelButton,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_UPDATENOW);
     if(app.editing && !app.saving){if(!error.empty())SetWindowTextW(app.editStatus,error.c_str());}

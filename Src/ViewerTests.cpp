@@ -12,6 +12,8 @@ void RunV0420Tests(const fs::path&,std::ostream&);
 void RunV0420UiTests(std::ostream&);
 void RunV0421RegexTests(std::ostream&);
 void RunV0422Tests(const fs::path&,std::ostream&);
+void RunV0423Tests(const fs::path&,std::ostream&);
+void RunV0423UiTests(const fs::path&,std::ostream&,const std::function<void(const wchar_t*)>&);
 void RunV0412UiTests(const fs::path&,std::ostream&);
 void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
     if(index>=0&&(state&LVIS_SELECTED)&&(mask&LVIS_SELECTED)){LVITEMW reset{};reset.stateMask=LVIS_SELECTED|LVIS_FOCUSED;SendMessageW(list,LVM_SETITEMSTATE,-1,reinterpret_cast<LPARAM>(&reset));}
@@ -107,7 +109,7 @@ int SelfTest() {
         RunExtendedXmpTests(directory, report);
         RunMetadataWriterTests(directory, report);
         RunV031Tests(directory, report);
-        RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);RunV0421RegexTests(report);RunV0421ThemeTests(report);RunV0422Tests(directory,report);
+        RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);RunV0421RegexTests(report);RunV0421ThemeTests(report);RunV0422Tests(directory,report);RunV0423Tests(directory,report);
 { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -299,7 +301,7 @@ int UiTest() {
         require(std::wstring(tooltip) == longName,"infotip contains full Japanese filename and extension");
         auto brokenItem = std::find_if(app.files.begin(), app.files.end(), [](auto& path) { return fs::path(path).filename() == L"broken.png"; }); require(brokenItem != app.files.end(), "broken thumbnail fixture listed"); tip.iItem = static_cast<int>(brokenItem - app.files.begin()); ListView_EnsureVisible(app.list, tip.iItem, FALSE); ScheduleThumbnails(); wait([&] { return app.thumbnailDone[tip.iItem]; }); SendMessageW(app.window,WM_NOTIFY,Images,reinterpret_cast<LPARAM>(&tip));
         require(std::wstring(tooltip).find(L"読込みエラー") != std::wstring::npos,"infotip retains failed-thumbnail status");
-        TestSelectItem(app.list, 3, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        int imageFixtureIndex=int(app.directories.size())+3;TestSelectItem(app.list, imageFixtureIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         wait([] { return !app.previewPixels.data.empty(); });
         wait([] { return Text(app.details).find(L"読み込んでいます") == std::wstring::npos; });
         auto selected = app.files[app.selected]; auto details = Text(app.details);
@@ -316,7 +318,7 @@ int UiTest() {
             SetWindowPos(app.window, nullptr, 0, 0, 1480, 900, SWP_NOMOVE | SWP_NOZORDER); Layout();
             RECT large{}; GetClientRect(app.list, &large); auto largeColumns = rowCount();
             require(large.right > smallArea.right && large.bottom > smallArea.bottom && largeColumns > smallColumns, "list area and columns follow window size");
-            require(app.selected == 3 && Same(app.files[app.selected], selected), "selection retained on resize");
+            require(app.selected == imageFixtureIndex && Same(app.files[app.selected], selected), "selection retained on resize");
         }
         wait([] { return ThumbnailsReady(); });
         auto cacheHits = app.cache.hits.load();
@@ -326,7 +328,7 @@ int UiTest() {
         int width = 0, height = 0; ImageList_GetIconSize(app.thumbs, &width, &height);
         require(width == 160 && height == 120 && app.activeThumbnailWidth == 160, "Ctrl wheel changes thumbnail image list");
         require(app.cache.hits > cacheHits, "Ctrl wheel reuses decoded thumbnail cache");
-        require(app.selected == 3 && Text(app.details) == details, "zoom keeps selection and metadata");
+        require(app.selected == imageFixtureIndex && Text(app.details) == details, "zoom keeps selection and metadata");
         SendMessageW(app.list, WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA), 0);
         require(app.thumbnailWidth == 160, "plain wheel does not zoom");
         SendMessageW(app.list, WM_MOUSEWHEEL, MAKEWPARAM(MK_CONTROL, -WHEEL_DELTA), 0);
@@ -519,21 +521,21 @@ int UiTest() {
         wchar_t comboText[100]{};SendMessageW(app.placement,CB_GETLBTEXT,0,reinterpret_cast<LPARAM>(comboText));require(std::wstring(comboText)==L"サイドビュー: 右","owner-drawn placement retains Japanese item strings");
         require(app.autoBackup&&app.backupLimit==10&&!app.darkTheme&&!app.metadataSearch,"v0.3.1 option defaults");
         require(TestBackupCheckboxes(),"native backup checkboxes exclude unchecked files and disable zero-selection delete");
-        auto completeCount=app.allFiles.size();SetWindowTextW(app.searchEdit,L"grid-64");
+        auto completeCount=app.files.size();SetWindowTextW(app.searchEdit,L"grid-64");
         require(app.files.size()==completeCount&&!app.searching,"search typing does not filter list");
         SendMessageW(app.window,WM_COMMAND,SearchButton,0);wait([]{return !app.searching;});
-        require(!app.files.empty()&&app.files.size()<completeCount&&std::all_of(app.files.begin(),app.files.end(),[](auto& p){return SearchContains(fs::path(p).filename().wstring(),L"grid-64");}),"search button commits filename filter");
+        require(!app.files.empty()&&app.files.size()<completeCount&&std::all_of(app.files.begin(),app.files.end(),[](auto& p){return app.folderItems.count(p)||SearchContains(fs::path(p).filename().wstring(),L"grid-64");}),"search button commits filename filter");
         SetWindowTextW(app.searchEdit,L"");SendMessageW(app.window,WM_COMMAND,SearchButton,0);wait([]{return !app.searching;});require(app.files.size()==completeCount,"empty search restores full folder list");
         auto sub=directory/L"search-subfolder";fs::create_directories(sub);fs::copy_file(source,sub/L"nested-only.jpg",fs::copy_options::overwrite_existing);
-        StartSearch(L"nested-only");wait([]{return !app.searching;});require(app.files.empty(),"search does not descend into subfolders");
+        StartSearch(L"nested-only");wait([]{return !app.searching;});require(VisibleImages().empty(),"search does not descend into subfolders");
         app.metadataSearch=true;StartSearch(L"拡張撮影者");wait([]{return !app.searching;});require(std::any_of(app.files.begin(),app.files.end(),[](auto& p){return fs::path(p).filename()==L"extended-日本語.jpg";}),"metadata search matches Extended XMP author");
         StartSearch(L"no-match");CancelSearch();StartSearch(L"WebP撮影者");wait([]{return !app.searching;});require(std::any_of(app.files.begin(),app.files.end(),[](auto& p){return fs::path(p).filename()==L"webp-透過.WEBP";})&&app.appliedQuery==L"WebP撮影者","cancelled search cannot replace newer metadata results");
         app.metadataSearch=false;StartSearch(L"");wait([]{return !app.searching;});
         for(int i=0;i<static_cast<int>(app.files.size());++i)if(fs::path(app.files[i]).filename()==L"xmp-日本語.png")TestSelectItem(app.list,i,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
         wait([]{return app.metadataReady;});SetWindowPos(app.window,nullptr,0,0,1180,800,SWP_NOMOVE|SWP_NOZORDER);Layout();
         for(bool dark:{true,false}){app.darkTheme=dark;ApplyTheme();require(ListView_GetBkColor(app.list)==ThemeBackground()&&ListView_GetTextColor(app.list)==ThemeForeground(),"theme updates list background and text");for(auto layout:{L"left",L"right",L"bottom"}){app.layout=layout;Layout();RECT r{};GetWindowRect(app.details,&r);require(r.right>r.left&&r.bottom>r.top,"side pane remains valid after theme and placement changes");CaptureUiTest(directory/(std::wstring(dark?L"night-":L"light-")+layout+L".png"));}}
-        StartSearch(L"Stage2-ui-saved");wait([]{return !app.searching;});require(app.files.size()==1,"overwrite UI fixture found through filter");
-        TestSelectItem(app.list,0,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});
+        StartSearch(L"Stage2-ui-saved");wait([]{return !app.searching;});require(VisibleImages().size()==1,"overwrite UI fixture found through filter");
+        TestSelectItem(app.list,int(app.directories.size()),LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});
         SendMessageW(app.window,WM_COMMAND,EditMetadata,0);SetWindowTextW(authorInput,L"上書きUI & 検証");app.chooseSaveMode=[]{return 1;};app.confirmChanges=[]{return 3;};
         auto beforeSearch=app.searchGeneration;StartSearch(L"grid");require(app.searchGeneration==beforeSearch&&app.editing,"cancel unsaved search retains edited image");
         auto originalHash=MetadataFingerprint(uiOutput.wstring());StartSave();wait([&]{return !app.saving&&!app.folderPending&&!app.searching&&app.selected>=0&&app.metadataReady&&app.summary.values[4]==L"上書きUI & 検証";});
@@ -553,15 +555,15 @@ int UiTest() {
         OpenFolder(batchUi.wstring());wait([]{return !app.folderPending&&ThumbnailsReady();});
         require(!(GetWindowLongPtrW(app.list,GWL_STYLE)&LVS_SINGLESEL),"list supports Ctrl and Shift multiple selection");
         app.updatingSelection=true;
-        for(int i=0;i<3;++i){LVITEMW item{};item.state=LVIS_SELECTED;item.stateMask=LVIS_SELECTED;SendMessageW(app.list,LVM_SETITEMSTATE,i,reinterpret_cast<LPARAM>(&item));}
-        app.updatingSelection=false;Select(0);wait([]{return app.metadataReady;});
+        for(int i=0;i<3;++i){LVITEMW item{};item.state=LVIS_SELECTED;item.stateMask=LVIS_SELECTED;SendMessageW(app.list,LVM_SETITEMSTATE,i+app.directories.size(),reinterpret_cast<LPARAM>(&item));}
+        app.updatingSelection=false;Select(int(app.directories.size()));wait([]{return app.metadataReady;});
         BeginMetadataEdit();wait([]{return !app.batchLoading;});
         require(app.editing&&app.batchFiles.size()==3&&ListView_GetSelectedCount(app.list)==3,"three mixed-format selected images enter batch editor");
         require(!IsWindowEnabled(GetDlgItem(app.editorUi.Window(),1000))&&app.editorUi.Read().actions[0]==EditAction::Keep&&Text(GetDlgItem(app.editorUi.Window(),1001)).empty(),"batch capture date disabled and mixed author is not a literal saved value");
         SetWindowTextW(GetDlgItem(app.editorUi.Window(),1001),L"一括UI撮影者");SetWindowTextW(GetDlgItem(app.editorUi.Window(),1005),L"UI追加タグ");SendMessageW(GetDlgItem(app.editorUi.Window(),1105),CB_SETCURSEL,3,0);
         for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();for(auto layout:{L"left",L"right",L"bottom"}){app.layout=layout;Layout();CaptureUiTest(directory/(std::wstring(dark?L"batch-night-":L"batch-light-")+layout+L".png"));}}
         app.darkTheme=false;app.layout=L"right";ApplyTheme();Layout();
-        app.confirmChanges=[]{return 3;};TestSelectItem(app.list,0,0,LVIS_SELECTED);require(app.editing&&ListView_GetSelectedCount(app.list)==3,"cancel unsaved batch deselection preserves selected targets");app.confirmChanges={};
+        app.confirmChanges=[]{return 3;};TestSelectItem(app.list,int(app.directories.size()),0,LVIS_SELECTED);require(app.editing&&ListView_GetSelectedCount(app.list)==3,"cancel unsaved batch deselection preserves selected targets");app.confirmChanges={};
         app.chooseSaveMode=[]{return 2;};app.chooseBatchFolder=[&]{return batchCopies.wstring();};app.confirmBatch=[](const Job&){return true;};
         auto batchBefore=app.batchMetadata;StartSave();require(!app.activityText.empty(),"batch save shows preflight activity immediately");require(app.saving&&IsWindowEnabled(app.cancelButton),"batch save enables between-file cancellation");
         wait([]{return !app.saving&&!app.folderPending&&ThumbnailsReady();});require(app.activityText.empty(),"batch save completion stops animation");
@@ -653,6 +655,7 @@ int UiTest() {
         RunV0412UiTests(directory,report);RunV0413UiTests(directory,report);RunV0420UiTests(report);RunV0421ThemeTests(report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         app.layout=L"right";OpenFolder((directory/L"v0422").wstring());wait([]{return !app.folderPending;});int nulIndex=-1;for(int i=0;i<int(app.files.size());++i)if(fs::path(app.files[i]).filename()==L"nul-2.webp")nulIndex=i;require(nulIndex>=0,"v0.4.22 NUL WebP UI fixture found");TestSelectItem(app.list,nulIndex,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});TabCtrl_SetCurSel(app.metadataTabs,0);Layout();
         require(app.summary.values[4]==L"撮影者"&&app.summary.values[9].find(L"同名")!=std::wstring::npos&&Text(app.simpleValues[4])==L"撮影者"&&IsWindowVisible(app.simpleLabels[4]),"v0.4.22 NUL WebP metadata is visible in simple tab");CaptureUiTest(directory/L"v0422-simple.png");TabCtrl_SetCurSel(app.metadataTabs,1);Layout();SendMessageW(app.window,WM_COMMAND,EditMetadata,0);require(app.editing&&app.editorUi.Read().values[1]==L"撮影者","v0.4.22 NUL WebP opens editor with existing author");SendMessageW(app.window,WM_COMMAND,CancelMetadata,0);
+        RunV0423UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }

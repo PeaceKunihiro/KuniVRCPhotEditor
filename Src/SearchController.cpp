@@ -1,4 +1,4 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 #include <unordered_set>
 namespace {
 bool Active(const Job& j){return !app.stopping&&j.generation==app.currentGeneration&&((j.kind!=6&&j.kind!=12)||j.searchGeneration==app.currentSearchGeneration)&&(j.kind!=10||j.selection==app.currentSelection);}
@@ -6,8 +6,10 @@ void Deliver(Result result){if(!Active(result.job))return;std::unique_lock<std::
 }
 bool SearchContains(const std::wstring& text,const std::wstring& query){if(query.empty())return true;return FindNLSStringEx(LOCALE_NAME_INVARIANT,FIND_FROMSTART|NORM_IGNORECASE,text.c_str(),static_cast<int>(text.size()),query.c_str(),static_cast<int>(query.size()),nullptr,nullptr,nullptr,0)>=0;}
 void CancelSearch(){if(app.sorting){app.sorting=false;EnableWindow(app.list,TRUE);UpdateEditorControls();}++app.searchGeneration;app.currentSearchGeneration=app.searchGeneration;app.searching=false;{std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind==6||j.kind==12;}),app.jobs.end());}SetWindowTextW(app.searchButton,L"検索");app.wake.notify_all();}
-void StartSearch(const std::wstring& query,const std::wstring& preserve){FlushSelectionUpdate();if(app.folder.empty()||app.folderPending||app.saving||app.backupBusy)return;if(!GuardTransition([query,preserve]{StartSearch(query,preserve);}))return;CancelSearch();Job job{6,app.generation};job.query=query;job.metadataSearch=app.metadataSearch;job.files=app.allFiles;job.searchGeneration=app.searchGeneration;job.preserve=!preserve.empty()?preserve:app.selected>=0?app.files[app.selected]:L"";app.searching=true;SetWindowTextW(app.searchButton,L"中止");Queue(std::move(job));Counts(L"検索中…");}
+void StartSearch(const std::wstring& query,const std::wstring& preserve){FlushSelectionUpdate();if(app.folder.empty()||app.folderPending||app.saving||app.backupBusy)return;if(!GuardTransition([query,preserve]{StartSearch(query,preserve);}))return;CancelSearch();Job job{6,app.generation};job.query=query;job.metadataSearch=app.metadataSearch;for(auto& file:app.allFiles)if(ShowImage(file))job.files.push_back(file);job.searchGeneration=app.searchGeneration;job.preserve=!preserve.empty()?preserve:app.selected>=0?app.files[app.selected]:L"";app.searchQuery=query;app.searching=true;SetWindowTextW(app.searchButton,L"中止");Queue(std::move(job));Counts(L"検索中…");}
 void CommitDisplay(std::vector<std::wstring> files,const std::wstring& preserve){
+    files.erase(std::remove_if(files.begin(),files.end(),[](auto& path){return app.folderItems.count(path)||!ShowImage(path);}),files.end());
+    if(!app.folder.empty())files.insert(files.begin(),app.directories.begin(),app.directories.end());
     ++app.thumbnailGeneration;app.currentThumbnailGeneration=app.thumbnailGeneration;
     ListView_DeleteAllItems(app.list);Select(-1);app.files=std::move(files);app.loaded=0;ResetThumbnailTracking();
     auto placeholder=Thumbnail({},app.activeThumbnailWidth);ImageList_Replace(app.thumbs,0,placeholder,nullptr);DeleteObject(placeholder);

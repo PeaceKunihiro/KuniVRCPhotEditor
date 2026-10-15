@@ -1,5 +1,5 @@
-﻿#include "ViewerRuntime.h"
-void ScheduleSelectionUpdate(){if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
+#include "ViewerRuntime.h"
+void ScheduleSelectionUpdate(){app.selectionCountsDirty=true;if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
 void FlushSelectionUpdate(){if(!app.selectionPending)return;app.selectionPending=false;int index=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);if(index<0||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))index=ListView_GetNextItem(app.list,-1,LVNI_SELECTED);Select(index,false);}
 void Select(int index,bool reveal) {
     app.selectionPending=false;++app.selectionRefreshes;bool wasEditing=app.editing;
@@ -8,6 +8,7 @@ void Select(int index,bool reveal) {
     app.selected = index; ++app.previewRevision; app.previewPixels = {}; ++app.selection; app.currentSelection = app.selection;
     InvalidateRect(app.preview, nullptr, TRUE);
     if (index < 0) { SetWindowTextW(app.details, L"画像を選択してください。"); ShowSummary({}, L"画像を選択してください。"); Counts(); return; }
+    if(IsFolderItem(index)){ShowSummary({},L"フォルダーをダブルクリックまたはEnterで開きます。");SetWindowTextW(app.details,app.files[index].c_str());Counts(L"フォルダー選択中");return;}
     app.previewPixels=DisplayedThumbnail(index);
     try { if(app.previewPixels.data.empty())app.cache.Get(ThumbnailCache::Key(app.files[index]), app.previewPixels); } catch (...) {}
     InvalidateRect(app.preview,nullptr,TRUE);
@@ -17,10 +18,10 @@ void Select(int index,bool reveal) {
     Queue({ 2, app.generation, app.selection, index, app.files[index], L"" }, true);
     if(reveal)ListView_EnsureVisible(app.list,index,FALSE);ScheduleThumbnails();
 }
-void OpenFolder(const std::wstring& path, bool reload, const std::wstring& preserveOverride,bool userLoad) {
+void OpenFolder(const std::wstring& path, bool reload, const std::wstring& preserveOverride,bool userLoad,int navigationIndex) {
     FlushSelectionUpdate();
-    if (!GuardTransition([path,reload,preserveOverride,userLoad]{OpenFolder(path,reload,preserveOverride,userLoad);})) return;
-    if(app.batchLoading){StopActivity();app.batchLoading=false;}CancelSearch();if(!reload){app.appliedQuery.clear();SetWindowTextW(app.searchEdit,L"");}
+    if (!GuardTransition([path,reload,preserveOverride,userLoad,navigationIndex]{OpenFolder(path,reload,preserveOverride,userLoad,navigationIndex);})) return;
+    if(app.batchLoading){StopActivity();app.batchLoading=false;}CancelSearch();
     app.editing=false; UpdateEditorControls(); Layout();
     try {
         auto normalized = Normalize(path);
@@ -30,7 +31,7 @@ void OpenFolder(const std::wstring& path, bool reload, const std::wstring& prese
         { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind != 3; }), app.jobs.end()); }
         // The visible list is committed only after enumeration succeeds.
         auto preserve = !preserveOverride.empty()?preserveOverride:reload && app.selected >= 0 ? app.files[app.selected] : L"";
-        Job folderJob{0,app.generation,0,-1,normalized,preserve};folderJob.userLoad=userLoad&&preserveOverride.empty();Queue(std::move(folderJob), true); Counts(L"フォルダーを読み込んでいます…");
+        Job folderJob{0,app.generation,0,-1,normalized,preserve};folderJob.clearSearch=!reload;folderJob.navigationIndex=navigationIndex;folderJob.userLoad=userLoad&&preserveOverride.empty();UpdateNavigationControls();Queue(std::move(folderJob), true); Counts(L"フォルダーを読み込んでいます…");
     } catch (...) { Counts(L"無効なフォルダーパスです。現在の一覧を保持します。"); }
 }
 
@@ -82,7 +83,7 @@ void ResetViewer() {
     CancelSearch();StopActivity();
     ++app.generation;app.currentGeneration=app.generation;
     {std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind!=3;}),app.jobs.end());}
-    app.wake.notify_all();app.folderPending=false;app.folder.clear();app.last.clear();app.allFiles.clear();app.restoreSelection.clear();app.appliedQuery.clear();
+    app.wake.notify_all();app.folderPending=false;app.folder.clear();app.last.clear();app.allFiles.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;UpdateNavigationControls();app.restoreSelection.clear();app.appliedQuery.clear();
     SetWindowTextW(app.path,L"");SetWindowTextW(app.searchEdit,L"");SendMessageW(app.history,CB_SETCURSEL,-1,0);
     CommitDisplay({},L"");app.selectionPending=false;app.cache.Clear();
     Layout();SaveSettings();Counts(L"フォルダーを選択してください。");

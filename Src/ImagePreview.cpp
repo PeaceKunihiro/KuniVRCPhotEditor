@@ -1,6 +1,6 @@
 #include "ViewerRuntime.h"
 Pixels DisplayedThumbnail(int index) {
-    if(index<0||index>=static_cast<int>(app.itemSlots.size())||app.itemSlots[index]<0)return {};
+    if(IsFolderItem(index)||index<0||index>=static_cast<int>(app.itemSlots.size())||app.itemSlots[index]<0)return {};
     try { if(app.thumbnailKeys[index]!=ThumbnailCache::Key(app.files[index]))return {}; } catch (...) { return {}; }
     Pixels pixels;pixels.width=app.activeThumbnailWidth;pixels.height=app.activeThumbnailWidth*3/4;
     BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=pixels.width;info.bmiHeader.biHeight=-static_cast<LONG>(pixels.height);info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;

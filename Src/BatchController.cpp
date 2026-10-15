@@ -1,4 +1,4 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 #include <imm.h>
 #include <future>
 #include <set>
@@ -6,12 +6,12 @@
 std::vector<std::wstring> SelectedFiles() {
     std::vector<std::wstring> files;int index=-1;
     while((index=ListView_GetNextItem(app.list,index,LVNI_SELECTED))>=0)
-        if(index<static_cast<int>(app.files.size()))files.push_back(app.files[index]);
+        if(index<static_cast<int>(app.files.size())&&!IsFolderItem(index))files.push_back(app.files[index]);
     return files;
 }
 void BeginMetadataEdit() {
     FlushSelectionUpdate();
-    if(app.saving||app.backupBusy||app.batchLoading||!GuardTransition([]{BeginMetadataEdit();}))return;
+    if(app.folderPending||app.saving||app.backupBusy||app.batchLoading||!GuardTransition([]{BeginMetadataEdit();}))return;
     auto files=SelectedFiles();if(files.empty())return;
     app.batchFiles.clear();app.batchMetadata.clear();app.batchCompleted.clear();
     if(files.size()==1) {

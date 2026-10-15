@@ -41,7 +41,7 @@ HRESULT ActivatePhotos(const std::wstring& path, std::wstring& detail, HRESULT (
 }
 
 void RequestPhotos(int index){
-    if(index<0||index>=static_cast<int>(app.files.size()))return;
+    if(index<0||index>=static_cast<int>(app.files.size())||IsFolderItem(index))return;
     if(app.editing&&app.editorUi.Read().Changed())MessageBoxW(app.window,L"Windowsフォトへ渡すのは保存済み画像です。未保存の編集内容は反映されません。",L"未保存の変更",MB_OK|MB_ICONINFORMATION);
     Counts(L"Windowsフォトを起動しています…");
     if(app.photosRequest)app.photosRequest(app.files[index]);else Queue({3,app.generation,0,index,app.files[index],L""},true);

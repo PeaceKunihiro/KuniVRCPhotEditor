@@ -1,4 +1,4 @@
-﻿#define NOMINMAX
+#define NOMINMAX
 #include "ViewerSettings.h"
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -36,6 +36,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     };
     settings.idLinks=object.HasKey(L"pageButtons")?object.GetNamedBoolean(L"pageButtons"):object.GetNamedBoolean(L"idLinks",true);
     settings.sortMode=number(L"sortMode",0,0,3,1);
+    settings.showBackupImages=object.GetNamedBoolean(L"showBackupImages",true);
     settings.thumbnailWidth = number(L"thumbnailWidth", 128, 64, 256, 32);
     settings.autoThumbnails=object.GetNamedBoolean(L"autoThumbnails",false);
     settings.sideWidth=number(L"sideWidth",400,280,10000,1);settings.sideHeight=number(L"sideHeight",300,120,10000,1);
@@ -67,6 +68,16 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
         }
     };
     if (settings.saveHistory) paths(L"history", settings.history, 10); else settings.last.clear();
+    if(settings.saveHistory){
+        if(object.HasKey(L"navigation")){
+            for(auto item:object.GetNamedArray(L"navigation")){if(settings.navigation.size()>=10)throw std::runtime_error("navigation limit");settings.navigation.push_back(NormalizeFolderAddress(std::wstring(item.GetString())));}
+            settings.navigationIndex=number(L"navigationIndex",-1,-1,9,1);
+            if((settings.navigation.empty()&&settings.navigationIndex!=-1)||(!settings.navigation.empty()&&(settings.navigationIndex<0||settings.navigationIndex>=int(settings.navigation.size()))))throw std::runtime_error("navigation position");
+        }else{settings.navigation.assign(settings.history.rbegin(),settings.history.rend());settings.navigationIndex=int(settings.navigation.size())-1;}
+        if(settings.last.empty()){settings.navigation.clear();settings.navigationIndex=-1;}
+        else if(settings.navigation.empty()){settings.navigation.push_back(settings.last);settings.navigationIndex=0;}
+        else if(_wcsicmp(settings.navigation[settings.navigationIndex].c_str(),settings.last.c_str())!=0){auto it=std::find_if(settings.navigation.begin(),settings.navigation.end(),[&](auto& p){return _wcsicmp(p.c_str(),settings.last.c_str())==0;});if(it!=settings.navigation.end())settings.navigationIndex=int(it-settings.navigation.begin());else{settings.navigation.push_back(settings.last);if(settings.navigation.size()>10)settings.navigation.erase(settings.navigation.begin());settings.navigationIndex=int(settings.navigation.size())-1;}}
+    }
     paths(L"bookmarks", settings.bookmarks, 1000);
     return settings;
 }
@@ -74,6 +85,8 @@ std::string SerializeViewerSettings(const ViewerSettings& settings) {
     JsonObject object; object.Insert(L"version", JsonValue::CreateNumberValue(3));
     object.Insert(L"pageButtons",JsonValue::CreateBooleanValue(settings.idLinks));
     object.Insert(L"sortMode",JsonValue::CreateNumberValue(settings.sortMode));
+    object.Insert(L"showBackupImages",JsonValue::CreateBooleanValue(settings.showBackupImages));
+    JsonArray navigation;if(settings.saveHistory)for(auto& path:settings.navigation)navigation.Append(JsonValue::CreateStringValue(path));object.Insert(L"navigation",navigation);object.Insert(L"navigationIndex",JsonValue::CreateNumberValue(settings.saveHistory?settings.navigationIndex:-1));
     object.Insert(L"lastFolder", JsonValue::CreateStringValue(settings.saveHistory ? settings.last : L""));
     object.Insert(L"sideView", JsonValue::CreateStringValue(settings.layout));
     object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(settings.thumbnailWidth));

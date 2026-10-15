@@ -1,4 +1,4 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 namespace {
 struct CompositeCache {std::shared_ptr<const Pixels> frame;uint64_t revision=UINT64_MAX;COLORREF background=0;bool live=false;std::vector<BYTE> bytes;};
 CompositeCache composite;
@@ -12,13 +12,13 @@ void RefreshPreview(){
     if(last!=frame||revision!=app.previewRevision||source!=next||status!=text||color!=background){last=frame;revision=app.previewRevision;source=next;status=text;color=background;composite={};InvalidateRect(app.preview,nullptr,FALSE);}
 }
 LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
-    if (message == WM_LBUTTONDBLCLK) { if(!OcrImageSource()&&(stage3::RecordingOcr()||OcrTestSource()))return 0; if(OcrImageSource()){FlushSelectionUpdate();if(ListView_GetSelectedCount(app.list)!=1||app.selected<0||app.selected>=int(app.files.size())||!fs::is_regular_file(app.files[app.selected]))return 0;} LaunchSelectedPhotos(); return 0; }
+    if (message == WM_LBUTTONDBLCLK) { if(!OcrImageSource()&&(stage3::RecordingOcr()||OcrTestSource()))return 0; if(OcrImageSource()){FlushSelectionUpdate();if(SelectedImageCount()!=1||app.selected<0||app.selected>=int(app.files.size())||!fs::is_regular_file(app.files[app.selected]))return 0;} LaunchSelectedPhotos(); return 0; }
     if (message == WM_MOUSEWHEEL) {
         if (app.saving || stage3::RecordingOcr() || OcrTestSource()) return 0;
-        if (app.selected < 0 || app.files.empty()) return 0;
+        if (app.selected < 0 || app.files.empty() || IsFolderItem(app.selected)) return 0;
         app.wheel += GET_WHEEL_DELTA_WPARAM(wparam);
         int index = app.selected;
-        while (abs(app.wheel) >= WHEEL_DELTA) { int direction = app.wheel > 0 ? -1 : 1; app.wheel += direction * WHEEL_DELTA; index = std::clamp(index + direction, 0, static_cast<int>(app.files.size()) - 1); }
+        while (abs(app.wheel) >= WHEEL_DELTA) { int direction = app.wheel > 0 ? -1 : 1; app.wheel += direction * WHEEL_DELTA; int next=index+direction;while(next>=0&&next<int(app.files.size())&&IsFolderItem(next))next+=direction;if(next>=0&&next<int(app.files.size()))index=next; }
         if (index != app.selected) { ListView_SetItemState(app.list, -1, 0, LVIS_SELECTED); ListView_SetItemState(app.list, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED); ListView_EnsureVisible(app.list, index, FALSE); }
         return 0;
     }

@@ -1,4 +1,4 @@
-﻿#include "UpdateChecker.h"
+#include "UpdateChecker.h"
 #include "AppVersion.h"
 #include "ViewerRuntime.h"
 #include "resource.h"
@@ -18,7 +18,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     if (uiTest) {
         app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
         fs::create_directories(app.settings.parent_path());
-        app.last.clear(); app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
+        app.last.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;app.showBackupImages=true; app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
         app.residentMode=false;app.residentOcr=false;app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
         app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;
         app.autoThumbnails=false;app.sideWidth=400;app.sideHeight=300;app.manualThumbnailWidth=128;app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128; app.cacheMB = 100; app.saveHistory = true; app.bookmarks.clear();
@@ -36,6 +36,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
 
+        if(BrowserInput(message))continue;
         if (message.message == WM_KEYDOWN && message.wParam == VK_RETURN && message.hwnd == app.path) { LoadAddress(Text(app.path)); continue; }
         if (message.message == WM_MOUSEWHEEL) {
             // Route by pointer location even when another control has keyboard focus.
