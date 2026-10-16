@@ -14,12 +14,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     if (std::wstring(command) == L"--self-test") { auto result = SelfTest(); winrt::uninit_apartment(); return result; }
     if (std::wstring(command) == L"--photos-test") { auto result = PhotosTest(); winrt::uninit_apartment(); return result; }
     bool shutdownTest=std::wstring(command)==L"--shutdown-test";
-    bool uiTest=shutdownTest||std::wstring(command)==L"--ui-test";
+    bool updateDialogTest=std::wstring(command)==L"--update-ui-test";
+    bool comfortTest=std::wstring(command)==L"--comfort-test";
+    bool uiTest=updateDialogTest||comfortTest||shutdownTest||std::wstring(command)==L"--ui-test";
     if (uiTest) {
         app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
         fs::create_directories(app.settings.parent_path());
         app.last.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;app.showBackupImages=true; app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
-        app.residentMode=false;app.residentOcr=false;app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
+        app.hideFileNames=false;app.updateAttemptUtc=app.updateSuccessUtc=0;app.residentMode=false;app.residentOcr=false;app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
         app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;
         app.autoThumbnails=false;app.sideWidth=400;app.sideHeight=300;app.manualThumbnailWidth=128;app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128; app.cacheMB = 100; app.saveHistory = true; app.bookmarks.clear();
     }
@@ -31,8 +33,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     SendMessageW(window,WM_SETICON,ICON_SMALL,reinterpret_cast<LPARAM>(LoadImageW(instance,MAKEINTRESOURCEW(IDI_APP_ICON),IMAGE_ICON,GetSystemMetrics(SM_CXSMICON),GetSystemMetrics(SM_CYSMICON),LR_SHARED)));
     SendMessageW(window,WM_SETICON,ICON_BIG,reinterpret_cast<LPARAM>(main.hIcon));
     if(shutdownTest){SendMessageW(window,WM_CLOSE,0,0);int result=app.closing&&app.activeWorkers==0?0:1;winrt::uninit_apartment();return result;}
-    if(uiTest){int result=UiTest();SendMessageW(window,WM_CLOSE,0,0);if(!app.closing||app.activeWorkers)result=1;winrt::uninit_apartment();return result;}
-    ShowWindow(window, show); UpdateWindow(window);
+    if(uiTest){int result=updateDialogTest?UpdateDialogTest():comfortTest?ComfortTest():UiTest();SendMessageW(window,WM_CLOSE,0,0);if(!app.closing||app.activeWorkers)result=1;winrt::uninit_apartment();return result;}
+    ShowWindow(window, show); UpdateWindow(window);StartAutomaticUpdateCheck(window);
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
 

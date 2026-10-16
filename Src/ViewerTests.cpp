@@ -14,6 +14,7 @@ void RunV0421RegexTests(std::ostream&);
 void RunV0422Tests(const fs::path&,std::ostream&);
 void RunV0423Tests(const fs::path&,std::ostream&);
 void RunV0423UiTests(const fs::path&,std::ostream&,const std::function<void(const wchar_t*)>&);
+void RunV050UiTests(const fs::path&,std::ostream&,const std::function<void(const wchar_t*)>&);
 void RunV0412UiTests(const fs::path&,std::ostream&);
 void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
     if(index>=0&&(state&LVIS_SELECTED)&&(mask&LVIS_SELECTED)){LVITEMW reset{};reset.stateMask=LVIS_SELECTED|LVIS_FOCUSED;SendMessageW(list,LVM_SETITEMSTATE,-1,reinterpret_cast<LPARAM>(&reset));}
@@ -212,6 +213,7 @@ int UiTest() {
     };
     try {
         stage3::RunMonitorUiTests(directory,report,[&](HWND dialog){CaptureUiTest(directory/L"v048-person-settings.png",dialog);});
+        RunUpdateWorkflowTests(report);
         RunUpdateDialogTests(directory,report,[&](HWND dialog){CaptureUiTest(directory/L"v046-update-dialog.png",dialog);});
         app.autoThumbnails=false;app.thumbnailWidth=128;ApplyThumbnailSize();
         auto testLedger=directory/L"backups.json";if(fs::exists(testLedger)){auto records=ReadBackupLedger(testLedger);for(auto& e:records)if(Same(e.source,(directory/L"Stage2-ui-saved.jpg").wstring())&&SameFolderAddress(fs::path(e.path).parent_path().wstring(),directory.wstring()))fs::remove(e.path);fs::remove(testLedger);}
@@ -472,7 +474,7 @@ int UiTest() {
         auto displayed=DisplayedThumbnail(editableIndex);require(!displayed.data.empty(),"selected thumbnail exists before metadata read");
         app.metadataDelayMs=500;
         TestSelectItem(app.list,editableIndex,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
-        require(!app.metadataReady && app.previewPixels.data==displayed.data,"preview uses exact displayed thumbnail before delayed XMP");
+        require(!app.metadataReady && !app.previewDedicated && !app.previewPixels.data.empty(),"v0.5.0 unpadded cached preview is available before delayed metadata");
         require(!IsWindowEnabled(app.editButton),"edit disabled during metadata loading");
         wait([]{return app.metadataReady;});app.metadataDelayMs=0;
         TabCtrl_SetCurSel(app.metadataTabs,1);Layout();
@@ -656,6 +658,7 @@ int UiTest() {
         app.layout=L"right";OpenFolder((directory/L"v0422").wstring());wait([]{return !app.folderPending;});int nulIndex=-1;for(int i=0;i<int(app.files.size());++i)if(fs::path(app.files[i]).filename()==L"nul-2.webp")nulIndex=i;require(nulIndex>=0,"v0.4.22 NUL WebP UI fixture found");TestSelectItem(app.list,nulIndex,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);wait([]{return app.metadataReady;});TabCtrl_SetCurSel(app.metadataTabs,0);Layout();
         require(app.summary.values[4]==L"撮影者"&&app.summary.values[9].find(L"同名")!=std::wstring::npos&&Text(app.simpleValues[4])==L"撮影者"&&IsWindowVisible(app.simpleLabels[4]),"v0.4.22 NUL WebP metadata is visible in simple tab");CaptureUiTest(directory/L"v0422-simple.png");TabCtrl_SetCurSel(app.metadataTabs,1);Layout();SendMessageW(app.window,WM_COMMAND,EditMetadata,0);require(app.editing&&app.editorUi.Read().values[1]==L"撮影者","v0.4.22 NUL WebP opens editor with existing author");SendMessageW(app.window,WM_COMMAND,CancelMetadata,0);
         RunV0423UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
+        RunV050UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
@@ -672,3 +675,7 @@ void RunV0415Tests(const fs::path& directory,std::ostream& report){
     for(int mode=0;mode<4;++mode){ViewerSettings value;value.sortMode=mode;check(ParseViewerSettings(SerializeViewerSettings(value)).sortMode==mode,"sort settings round trip");}check(ParseViewerSettings("{\"version\":3}").sortMode==0,"legacy defaults to filename order");
     auto ledger=folder/L"legacy.json";{std::ofstream out(ledger);out<<"{\"version\":1,\"entries\":[{\"path\":\"AB_old.png\",\"source\":\"old.png\",\"fingerprint\":\"original-hash\",\"created\":\"1\"}]}";}auto entries=ReadBackupLedger(ledger);check(entries.size()==1&&entries[0].sourceFingerprint==L"original-hash","legacy backup fingerprints migrate safely");WriteBackupLedger(ledger,entries);check(ReadBackupLedger(ledger)[0].sourceFingerprint==L"original-hash","backup ledger retains source fingerprint");
 }
+
+int ComfortTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"comfort-result.txt");try{RunV050UiTests(folder,report,[&](const wchar_t* name){CaptureUiTest(folder/name);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+
+int UpdateDialogTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"update-dialog-result.txt");try{RunUpdateDialogTests(folder,report,[&](HWND dialog){CaptureUiTest(folder/L"v051-update-dialog.png",dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <cstdint>
 #include <vector>
 struct ViewerSettings {
     int thumbnailWidth = 128, cacheMB = 100;
@@ -9,6 +10,7 @@ struct ViewerSettings {
     std::vector<std::wstring> history, bookmarks;
     bool autoThumbnails=true; int sideWidth=400,sideHeight=300;
     bool residentMode=false,residentOcr=false;
+    bool hideFileNames=false; uint64_t updateAttemptUtc=0,updateSuccessUtc=0;
     int sortMode=0; bool idLinks=true,showBackupImages=true;
     std::vector<std::wstring> navigation; int navigationIndex=-1;
     bool diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;

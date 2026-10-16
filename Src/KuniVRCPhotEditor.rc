@@ -16,11 +16,11 @@ BEGIN
   BLOCK "040904B0"
   BEGIN
    VALUE "FileDescription", "KuniVRCPhotEditor"
-   VALUE "FileVersion", "0.4.23.0"
+   VALUE "FileVersion", "0.5.1.0"
    VALUE "InternalName", "KuniVRCPhotEditor"
-   VALUE "OriginalFilename", "KuniVRCPhotEditor_v0.4.23.exe"
+   VALUE "OriginalFilename", "KuniVRCPhotEditor_v0.5.1.exe"
    VALUE "ProductName", "KuniVRCPhotEditor"
-   VALUE "ProductVersion", "0.4.23"
+   VALUE "ProductVersion", "0.5.1"
   END
  END
  BLOCK "VarFileInfo"
@@ -34,3 +34,5 @@ END
 2001 RCDATA "Images\\folder_image.png"
 2002 RCDATA "Images\\Arrow_L.png"
 2003 RCDATA "Images\\Arrow_R.png"
+
+2004 RCDATA "Images\\updateButton.png"

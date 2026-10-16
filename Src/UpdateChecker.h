@@ -11,3 +11,9 @@ void RunUpdateTests(const std::filesystem::path&,std::ostream&);
 void RunUpdateNetworkTests(const std::filesystem::path&,std::ostream&);
 
 void RunUpdateDialogTests(const std::filesystem::path&,std::ostream&,const std::function<void(HWND)>&);
+
+void StartAutomaticUpdateCheck(HWND);
+void PollUpdateChecker();
+void StopUpdateChecker();
+
+void RunUpdateWorkflowTests(std::ostream&);

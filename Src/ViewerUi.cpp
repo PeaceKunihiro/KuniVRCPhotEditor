@@ -109,7 +109,7 @@ void LoadSettings() {
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
         auto settings = ParseViewerSettings(json);
-        app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
+        app.hideFileNames=settings.hideFileNames;app.updateAttemptUtc=settings.updateAttemptUtc;app.updateSuccessUtc=settings.updateSuccessUtc;app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
@@ -120,10 +120,10 @@ void LoadSettings() {
         app.settingsError = L"設定の読込みに失敗しました。元のsettings.jsonを保全し、今回は設定を保存しません。";
     }
 }
-void SaveSettings() {
+void SaveSettings(bool notify) {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;
+        ViewerSettings settings;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
@@ -134,7 +134,7 @@ void SaveSettings() {
         { std::ofstream output(temp, std::ios::binary | std::ios::trunc); output.write(bytes.data(), bytes.size()); output.flush(); if (!output) throw std::runtime_error("write"); }
         if (!MoveFileExW(temp.c_str(), app.settings.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) throw std::runtime_error("replace");
     } catch (...) {
-        MessageBoxW(app.window, L"アプリのフォルダーへsettings.jsonを保存できませんでした。", L"設定保存エラー", MB_OK | MB_ICONWARNING);
+        if(notify)MessageBoxW(app.window, L"アプリのフォルダーへsettings.jsonを保存できませんでした。", L"設定保存エラー", MB_OK | MB_ICONWARNING);
     }
 }
 
@@ -218,7 +218,8 @@ void UpdateThumbnailSpacing() {
     auto previous = SelectObject(dc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
     TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics);
     SelectObject(dc, previous); ReleaseDC(app.list, dc);
-    int labelHeight = std::max(1L, metrics.tmHeight + metrics.tmExternalLeading);
+    int labelHeight = app.hideFileNames?0:std::max(1L, metrics.tmHeight + metrics.tmExternalLeading);
+    ListView_SetExtendedListViewStyleEx(app.list,LVS_EX_HIDELABELS,app.hideFileNames?LVS_EX_HIDELABELS:0);
     ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 8, app.activeThumbnailWidth * 3 / 4 + labelHeight + 8);
 }
 void ArrangeImages() {
@@ -234,7 +235,7 @@ void ArrangeImages() {
             if (i < 0 || i >= static_cast<int>(app.files.size())) return;
             auto text = fs::path(app.files[i]).filename().wstring();
             if (i < static_cast<int>(app.thumbnailFailed.size()) && app.thumbnailFailed[i]) text += L" [読込みエラー]";
-            if (!fits(text)) {
+            if (!app.hideFileNames && !fits(text)) {
                 while (!text.empty() && !fits(text + L"…")) {
                     text.pop_back();
                     if (!text.empty() && text.back() >= 0xD800 && text.back() <= 0xDBFF) text.pop_back();
@@ -472,9 +473,9 @@ void Results() {
                 app.itemSlots[job.index] = slot;
                 app.thumbnailKeys[job.index]=job.sourceKey;
                 LVITEMW item{}; item.mask = LVIF_IMAGE; item.iItem = job.index; item.iImage = image; ListView_SetItem(app.list, &item);
-                if(job.index==app.selected){++app.previewRevision;app.previewPixels=DisplayedThumbnail(job.index);InvalidateRect(app.preview,nullptr,TRUE);UpdateEditorControls();}
+                if(job.index==app.selected&&!app.previewDedicated){++app.previewRevision;app.previewPixels=result.pixels;InvalidateRect(app.preview,nullptr,TRUE);UpdateEditorControls();}
             } else {
-                if(job.index==app.selected){app.previewFailed=true;++app.previewRevision;app.previewPixels={};app.metadataReady=false;UpdateEditorControls();InvalidateRect(app.preview,nullptr,TRUE);}
+                if(job.index==app.selected&&!app.previewDedicated){app.previewFailed=true;++app.previewRevision;app.previewPixels={};app.metadataReady=false;UpdateEditorControls();InvalidateRect(app.preview,nullptr,TRUE);}
                 app.thumbnailFailed[job.index] = true;
                 app.dirtyImageLabels.push_back(job.index);
                 ArrangeImages();
@@ -483,6 +484,7 @@ void Results() {
             for (int i = app.wantedFirst; i <= app.wantedLast; ++i) ready = ready && app.thumbnailDone[i];
             if (ready) Counts(app.thumbnailBudgetLimited ? L"キャッシュ上限により表示範囲の一部を保持しています。" : L"表示範囲のサムネイル読込み完了");
         } else if (job.selection == app.selection && job.index == app.selected) {
+            if(result.error.empty()&&!result.pixels.data.empty()){app.previewPixels=std::move(result.pixels);app.previewDedicated=true;app.previewFailed=false;++app.previewRevision;}
             app.editable=std::move(result.editable); app.editError=result.editError;
             app.metadataReady=result.error.empty() && result.editError.empty() && !app.previewFailed; UpdateEditorControls();
             auto text = result.error.empty() ? result.text : job.path + L"\r\n\r\n読込みエラー: " + result.error;
@@ -508,8 +510,8 @@ void Layout() {
     struct ToolbarPosition { HWND window; int x, y, width, height; };
     bool wrap=width<804;int recordingY=wrap?110:76,placementX=wrap?8:width-332;int listTop=wrap?144:110;
     const ToolbarPosition toolbar[]{
-        { app.path, 8, 8, std::max(80, width - 248), 26 },
-        { GetDlgItem(app.window, OpenPath), width - 232, 8, 64, 26 },
+        { app.path, 8, 8, std::max(80, width - 212), 26 },
+        { GetDlgItem(app.window, OpenPath), width - 196, 8, 28, 26 },
         { GetDlgItem(app.window, Browse), width - 160, 8, 80, 26 },
         { GetDlgItem(app.window, ResetView), width-72,8,64,26 },
         {GetDlgItem(app.window,HistoryBack),8,42,28,26},
@@ -639,6 +641,7 @@ LRESULT CALLBACK SummaryValueProc(HWND window, UINT message, WPARAM wparam, LPAR
 void BrowseFolder() {
     ComPtr<IFileOpenDialog> dialog;
     auto hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+    if(SUCCEEDED(hr)){auto start=FolderPickerStart();ComPtr<IShellItem> folder;if(!start.empty()&&SUCCEEDED(SHCreateItemFromParsingName(start.c_str(),nullptr,IID_PPV_ARGS(&folder))))dialog->SetFolder(folder.Get());}
     if (SUCCEEDED(hr)) { DWORD options = 0; hr = dialog->GetOptions(&options); if (SUCCEEDED(hr)) hr = dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM); }
     if (SUCCEEDED(hr)) hr = dialog->Show(app.window);
     if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return;
@@ -711,6 +714,7 @@ INT_PTR ShowCacheLimitDialog(int& mb) {
 }
 HMENU BuildOptionsMenu() {
     auto menu = CreatePopupMenu();
+    AppendMenuW(menu,MF_STRING|(app.hideFileNames?MF_CHECKED:0),16,app.hideFileNames?L"ファイル名省略: ON":L"ファイル名省略: OFF");
     AppendMenuW(menu,MF_STRING|(app.idLinks?MF_CHECKED:0),15,app.idLinks?L"ページを開くボタン: ON":L"ページを開くボタン: OFF");
     AppendMenuW(menu,MF_STRING|(app.residentMode?MF_CHECKED:0),13,app.residentMode?L"常駐モード: ON":L"常駐モード: OFF");
     AppendMenuW(menu,MF_STRING|(app.residentOcr?MF_CHECKED:0),14,app.residentOcr?L"常駐OCR: ON（次回記録開始から）":L"常駐OCR: OFF（次回記録開始から）");
@@ -733,7 +737,8 @@ void OptionsMenu() {
     auto menu = BuildOptionsMenu();
     RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
     auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if(action==15){app.idLinks=!app.idLinks;FormatLinks();LayoutSimple();SaveSettings();}
+    if(action==16){ToggleFileNames();}
+    else if(action==15){app.idLinks=!app.idLinks;FormatLinks();LayoutSimple();SaveSettings();}
     else if(action==12){ShowDiskCacheDialog();}
     else if(action==8){stage3::ShowMonitorDialog();UpdateRecordingControls();}
     else if (action >= 3) NewOptionsAction(static_cast<int>(action));
@@ -775,7 +780,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         ConfigureDiskCache();
         app.window = window;
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
-        Control(L"BUTTON", L"ロード", WS_TABSTOP, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
+        Control(L"BUTTON", L"ロード", WS_TABSTOP|BS_OWNERDRAW, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
         Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
         Control(L"BUTTON",L"戻る",WS_TABSTOP|BS_OWNERDRAW,HistoryBack);Control(L"BUTTON",L"進む",WS_TABSTOP|BS_OWNERDRAW,HistoryForward);CreateBrowserTooltips();
         Control(L"BUTTON",L"リセット",WS_TABSTOP,ResetView);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);Control(L"BUTTON",L"並べ替え ▼",WS_TABSTOP,SortMenu);
@@ -837,7 +842,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
+        if(wparam==RecordTimer){PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
@@ -864,7 +869,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case HistoryBack: NavigateHistory(-1);break;
         case HistoryForward: NavigateHistory(1);break;
         case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();break;}
-        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"バージョン…");AppendMenuW(menu,MF_STRING,2,L"アップデートを確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowVersion();if(action==2)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();break;}
+        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"更新確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
         case Options: OptionsMenu(); break;
@@ -912,7 +917,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if(app.closing)return 0;
         if(!GuardTransition([window]{SendMessageW(window,WM_CLOSE,0,0);}))return 0;
         KillTimer(window, ZoomTimer);
-        KillTimer(window, ThumbnailTimer);StopActivity();app.closing=true;StopOcrUi();stage3::Shutdown();TrayShutdown();
+        KillTimer(window, ThumbnailTimer);StopActivity();app.closing=true;StopUpdateChecker();StopOcrUi();stage3::Shutdown();TrayShutdown();
         if (app.thumbnailWidth != app.activeThumbnailWidth) SaveSettings();
         CancelSearch();{std::lock_guard<std::mutex> lock(app.mutex);app.stopping=true;}app.wake.notify_all();
         // COM teardown may call back into the UI STA. Keep it pumping until workers finish.

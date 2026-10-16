@@ -1,4 +1,5 @@
 #include "ViewerRuntime.h"
+#include <winrt/Windows.Storage.Search.h>
 bool IsPhotosId(const std::wstring& id) {
     const std::wstring family = L"Microsoft.Windows.Photos_8wekyb3d8bbwe!";
     return id.size() > family.size() && _wcsnicmp(id.c_str(), family.c_str(), family.size()) == 0;
@@ -36,6 +37,7 @@ HRESULT ActivatePhotos(const std::wstring& path, std::wstring& detail, HRESULT (
         winrt::Windows::System::LauncherOptions options;
         options.TargetApplicationPackageFamilyName(id.substr(0, id.find(L'!')));
         options.DisplayApplicationPicker(false);
+        try{auto folder=file.GetParentAsync().get();if(folder){winrt::Windows::Storage::Search::QueryOptions query;query.FolderDepth(winrt::Windows::Storage::Search::FolderDepth::Shallow);for(auto extension:{L".png",L".jpg",L".jpeg",L".webp"})query.FileTypeFilter().Append(extension);options.NeighboringFilesQuery(folder.CreateFileQueryWithOptions(query));}}catch(const winrt::hresult_error&){/* Single-file launch remains available. */}
         return winrt::Windows::System::Launcher::LaunchFileAsync(file, options).get() ? S_OK : E_FAIL;
     } catch (const winrt::hresult_error& error) { return error.code(); }
 }
