@@ -270,4 +270,4 @@
     <LocalDebuggerWorkingDirectory>$(TargetDir)</LocalDebuggerWorkingDirectory>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
-</Project>
+<ItemGroup><ClCompile Include="Src\LicenseUi.cpp"/><ClInclude Include="Src\LicenseUi.h"/></ItemGroup></Project>

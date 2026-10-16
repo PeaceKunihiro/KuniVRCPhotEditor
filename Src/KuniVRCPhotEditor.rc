@@ -16,11 +16,11 @@ BEGIN
   BLOCK "040904B0"
   BEGIN
    VALUE "FileDescription", "KuniVRCPhotEditor"
-   VALUE "FileVersion", "0.5.1.0"
+   VALUE "FileVersion", "0.5.2.0"
    VALUE "InternalName", "KuniVRCPhotEditor"
-   VALUE "OriginalFilename", "KuniVRCPhotEditor_v0.5.1.exe"
+   VALUE "OriginalFilename", "KuniVRCPhotEditor_v0.5.2.exe"
    VALUE "ProductName", "KuniVRCPhotEditor"
-   VALUE "ProductVersion", "0.5.1"
+   VALUE "ProductVersion", "0.5.2"
   END
  END
  BLOCK "VarFileInfo"
@@ -36,3 +36,8 @@ END
 2003 RCDATA "Images\\Arrow_R.png"
 
 2004 RCDATA "Images\\updateButton.png"
+
+2100 RCDATA "LICENSE.txt"
+2101 RCDATA "Documents\\THIRD_PARTY_NOTICES.md"
+2102 RCDATA "third_party\\libwebp-1.6.0\\COPYING"
+2103 RCDATA "third_party\\libwebp-1.6.0\\PATENTS"

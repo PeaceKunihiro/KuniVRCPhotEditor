@@ -266,3 +266,5 @@ void RequestSort(int mode);
 int ComfortTest();
 
 int UpdateDialogTest();
+
+int LicenseDialogTest();

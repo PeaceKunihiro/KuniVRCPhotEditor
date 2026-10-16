@@ -1,5 +1,6 @@
 #include "V048Features.h"
 #include "UpdateChecker.h"
+#include "LicenseUi.h"
 #include "ViewerRuntime.h"
 #include <unordered_set>
 #include <windowsx.h>
@@ -869,7 +870,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case HistoryBack: NavigateHistory(-1);break;
         case HistoryForward: NavigateHistory(1);break;
         case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();break;}
-        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"更新確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();break;}
+        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"更新確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");AppendMenuW(menu,MF_STRING,4,L"ライセンス情報…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();if(action==4)ShowLicenseInfo();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
         case Options: OptionsMenu(); break;

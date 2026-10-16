@@ -2,6 +2,7 @@
 #include "TestOcr.h"
 #include "V048Features.h"
 #include "UpdateChecker.h"
+#include "LicenseUi.h"
 #include "ViewerRuntime.h"
 #include "MetadataWriterTests.h"
 #include "V031Tests.h"
@@ -213,6 +214,7 @@ int UiTest() {
     };
     try {
         stage3::RunMonitorUiTests(directory,report,[&](HWND dialog){CaptureUiTest(directory/L"v048-person-settings.png",dialog);});
+        RunLicenseUiTests(directory,report,[&](HWND dialog,const wchar_t* name){CaptureUiTest(directory/name,dialog);});
         RunUpdateWorkflowTests(report);
         RunUpdateDialogTests(directory,report,[&](HWND dialog){CaptureUiTest(directory/L"v046-update-dialog.png",dialog);});
         app.autoThumbnails=false;app.thumbnailWidth=128;ApplyThumbnailSize();
@@ -679,3 +681,5 @@ void RunV0415Tests(const fs::path& directory,std::ostream& report){
 int ComfortTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"comfort-result.txt");try{RunV050UiTests(folder,report,[&](const wchar_t* name){CaptureUiTest(folder/name);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
 
 int UpdateDialogTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"update-dialog-result.txt");try{RunUpdateDialogTests(folder,report,[&](HWND dialog){CaptureUiTest(folder/L"v051-update-dialog.png",dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+
+int LicenseDialogTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"license-dialog-result.txt");try{RunLicenseUiTests(folder,report,[&](HWND dialog,const wchar_t* name){CaptureUiTest(folder/name,dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
