@@ -114,7 +114,7 @@ void LoadSettings() {
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
-        app.residentMode=settings.residentMode;app.residentOcr=settings.residentOcr;app.diskCache=settings.diskCache;app.diskCacheMiB=settings.diskCacheMiB;app.diskCacheMinutes=settings.diskCacheMinutes;app.diskCacheVisits=settings.diskCacheVisits;
+        app.residentMode=settings.residentMode;app.residentOcr=settings.residentOcr;app.diskCache=settings.diskCache;app.bookmarkCache=settings.bookmarkCache;app.diskCacheMiB=settings.diskCacheMiB;app.diskCacheMinutes=settings.diskCacheMinutes;app.diskCacheVisits=settings.diskCacheVisits;
         app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
     } catch (...) {
         app.settingsProtected = true;
@@ -127,7 +127,7 @@ void SaveSettings(bool notify) {
         ViewerSettings settings;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
-        settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
+        settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.bookmarkCache=app.bookmarkCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
         settings.autoBackup=app.autoBackup;settings.backupLimit=app.backupLimit;settings.darkTheme=app.darkTheme;settings.metadataSearch=app.metadataSearch;
         settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
         auto bytes = SerializeViewerSettings(settings);
@@ -283,7 +283,7 @@ void ScheduleThumbnails() {
     if(app.selected>=first && app.selected<=last && app.selected>app.wantedLast){app.wantedLast=app.selected;app.wantedFirst=std::max(first,app.wantedLast-app.slotLimit+1);}
     std::lock_guard<std::mutex> lock(app.mutex);
     app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [&](const Job& j) {
-        if (j.kind != 1) return false;
+        if (j.kind != 1 || j.diskPrefetch) return false;
         if (j.index >= 0 && j.index < count) app.thumbnailRequested[j.index] = false;
         return true;
     }), app.jobs.end());
@@ -425,7 +425,7 @@ void Results() {
             bool changed=false;
             try{changed=job.sourceKey!=ThumbnailCache::Key(job.path);}catch(...){changed=true;}
             if(changed){result.error=L"ファイルが外部で変更・削除されました。ロードで再読込みしてください。";
-                if(job.index==app.selected){++app.previewRevision;app.previewPixels={};app.previewFailed=true;InvalidateRect(app.preview,nullptr,TRUE);}}
+                if(!job.diskPrefetch&&job.index==app.selected){++app.previewRevision;app.previewPixels={};app.previewFailed=true;InvalidateRect(app.preview,nullptr,TRUE);}}
         }
         if (job.kind == 0) {
             app.folderPending = false;
@@ -437,6 +437,7 @@ void Results() {
                 SetWindowTextW(app.path,app.folder.c_str());UpdateNavigationControls();Counts(L"フォルダーを開けません: " + result.error); continue;
             }
             if(job.userLoad)app.disk.Visit(job.path);
+            app.diskPrefetchCursor=app.diskPrefetchCount=0;
             if(job.clearSearch){app.appliedQuery.clear();SetWindowTextW(app.searchEdit,L"");}
             app.folder=job.path;app.last=job.path;app.allFiles=std::move(result.files);app.directories=std::move(result.directories);app.folderItems={app.directories.begin(),app.directories.end()};CommitNavigation(app.folder,job.navigationIndex);
             app.recent.erase(std::remove_if(app.recent.begin(),app.recent.end(),[&](auto& p){return SameFolderAddress(p,app.folder);}),app.recent.end());
@@ -444,6 +445,7 @@ void Results() {
             RefreshHistory();SetWindowTextW(app.path,app.folder.c_str());SaveSettings();
             if(app.appliedQuery.empty())CommitDisplay(app.allFiles,job.preserve);else StartSearch(app.appliedQuery,job.preserve);
         } else if (job.kind == 1) {
+            if(job.diskPrefetch){ScheduleBookmarkPrefetch();continue;}
             app.thumbnailRequested[job.index] = false;
             if (job.index < app.wantedFirst || job.index > app.wantedLast) continue;
             if (app.thumbnailDone[job.index]) continue;
@@ -664,12 +666,12 @@ bool AddBookmark(const std::wstring& address) {
         if (!fs::is_directory(path)) throw std::runtime_error("folder");
         if (std::any_of(app.bookmarks.begin(), app.bookmarks.end(), [&](auto& p) { return SameFolderAddress(p, path); })) { Counts(L"既にブックマークに登録されています。"); return false; }
         if (app.bookmarks.size() >= 1000) { Counts(L"ブックマークの登録上限は1000件です。"); return false; }
-        app.bookmarks.push_back(path); SaveSettings(); Counts(L"ブックマークに追加しました。"); return true;
+        app.bookmarks.push_back(path); ConfigureDiskCache(); SaveSettings(); Counts(L"ブックマークに追加しました。"); return true;
     } catch (...) { Counts(L"ブックマークに追加できません。フォルダーを確認してください。"); return false; }
 }
 void RemoveBookmark(size_t index) {
     if (index >= app.bookmarks.size()) return;
-    app.bookmarks.erase(app.bookmarks.begin() + index); SaveSettings(); Counts(L"ブックマークを削除しました。");
+    app.bookmarks.erase(app.bookmarks.begin() + index); ConfigureDiskCache(); SaveSettings(); Counts(L"ブックマークを削除しました。");
 }
 INT_PTR CALLBACK CacheDialog(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_INITDIALOG) {
@@ -752,6 +754,7 @@ void OptionsMenu() {
 HMENU BuildBookmarkMenu() {
     auto menu = CreatePopupMenu(), remove = CreatePopupMenu();
     AppendMenuW(menu, MF_STRING, 1, L"このアドレスを追加");
+    AppendMenuW(menu,MF_STRING|(app.bookmarkCache?MF_CHECKED:0),2,app.bookmarkCache?L"キャッシュする：ON":L"キャッシュする：OFF");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     auto escape = [](std::wstring path) { size_t position = 0; while ((position = path.find(L'&', position)) != std::wstring::npos) { path.insert(position, 1, L'&'); position += 2; } return path; };
     for (size_t i = 0; i < app.bookmarks.size(); ++i) {
@@ -767,6 +770,7 @@ void BookmarkMenu() {
     RECT rect{}; GetWindowRect(GetDlgItem(app.window, Bookmarks), &rect);
     auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
     if (action == 1) AddBookmark(Text(app.path));
+    else if(action==2)SetBookmarkCache(!app.bookmarkCache);
     else if (action >= 1000 && action < 1000 + app.bookmarks.size()) LoadAddress(app.bookmarks[action - 1000]);
     else if (action >= 3000 && action < 3000 + app.bookmarks.size()) RemoveBookmark(action - 3000);
 }
@@ -844,7 +848,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
+        if(wparam==RecordTimer){ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;

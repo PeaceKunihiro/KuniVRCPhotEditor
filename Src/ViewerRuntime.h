@@ -55,7 +55,7 @@ constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
 enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView, SortMenu, HistoryBack, HistoryForward };
 struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; bool hideFileNames=false; uint64_t updateAttemptUtc=0,updateSuccessUtc=0;
-    int sortMode=0; int navigationIndex=-1; bool clearSearch=false; };
+    int sortMode=0; int navigationIndex=-1; bool clearSearch=false,diskPrefetch=false; unsigned diskGeneration=0; };
 struct Result { std::vector<std::wstring> directories; Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; };
 struct State {
     bool selectionCountsDirty=true;int selectedImageCount=0,selectedFolderCount=0;
@@ -99,7 +99,8 @@ struct State {
     int cacheMB = 100, slotLimit = ThumbnailSlots;
     size_t imageBytes = 0;
     bool residentMode=false,residentOcr=false;
-    bool diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
+    bool bookmarkCache=false,diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
+    size_t diskPrefetchCursor=0,diskPrefetchCount=0;std::atomic<unsigned> diskGeneration{0};
     bool saveHistory = true;
     bool thumbnailBudgetLimited = false;
     std::vector<bool> thumbnailDone, thumbnailFailed;
@@ -240,6 +241,8 @@ void NewOptionsAction(int action);
 void ShowVersion(const std::function<void(HWND)>& inspect = {});
 void ShowDiskCacheDialog(const std::function<void(HWND)>& inspect = {});
 void ConfigureDiskCache();
+void ScheduleBookmarkPrefetch();
+bool SetBookmarkCache(bool enabled,bool notify=true);
 void ApplyTheme();
 void RunV0421ThemeTests(std::ostream&,const std::function<void(const wchar_t*)>& capture = {});
 COLORREF ThemeBackground();
@@ -277,3 +280,5 @@ int TileTooltipTest();
 void RunV053UiTests(const fs::path&,std::ostream&,const std::function<void(const wchar_t*)>&);
 
 void DrawTileSelection(HDC,int);
+
+int BookmarkCacheTest();

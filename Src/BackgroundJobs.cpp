@@ -1,7 +1,7 @@
 #include "ViewerRuntime.h"
 bool CurrentJob(const Job& job) {
     if (job.kind == 3 || job.kind == 4) return true; // A click requests this exact file even if selection changes.
-    return job.generation == app.currentGeneration &&
+    return (!job.diskPrefetch||(job.diskGeneration==app.diskGeneration&&app.disk.PriorityFolder(fs::path(job.path).parent_path().wstring()))) && job.generation == app.currentGeneration &&
         (job.kind != 1 || job.thumbnailGeneration == app.currentThumbnailGeneration) &&
         (job.kind != 2 || job.selection == app.currentSelection);
 }
@@ -13,7 +13,8 @@ void Worker(bool thumbnails) {
     while (!app.stopping) {
         Job job;
         { std::unique_lock<std::mutex> lock(app.mutex);
-          auto next = [&] { return std::find_if(app.jobs.begin(), app.jobs.end(), [&](const Job& j) { return j.kind<6 && (j.kind == 1) == thumbnails; }); };
+          auto next = [&] { auto i=std::find_if(app.jobs.begin(),app.jobs.end(),[&](const Job& j){return j.kind<6&&(j.kind==1)==thumbnails&&!j.diskPrefetch;});
+              return i!=app.jobs.end()?i:std::find_if(app.jobs.begin(),app.jobs.end(),[&](const Job& j){return j.kind<6&&(j.kind==1)==thumbnails;}); };
           app.wake.wait(lock, [&] { return app.stopping || next() != app.jobs.end(); });
           if (app.stopping) break; auto i = next(); job = std::move(*i); app.jobs.erase(i); }
         if (!CurrentJob(job)) continue;
@@ -78,7 +79,7 @@ void Worker(bool thumbnails) {
                     result.text = Info(decoder.Get(), frame.Get(), job.path) + L"\r\n" + result.summary.notes + result.summary.xmpDetail;
                 }
                 }
-                if (job.kind == 1 && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) {app.cache.Put(cacheKey,result.pixels,cacheTicket);if(!diskHit)app.disk.Put(cacheKey+L"|256x256|v2",job.path,result.pixels);}
+                if (job.kind == 1 && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) {if(!job.diskPrefetch)app.cache.Put(cacheKey,result.pixels,cacheTicket);if(!diskHit)app.disk.Put(cacheKey+L"|256x256|v2",job.path,result.pixels);}
             }
         } catch (const winrt::hresult_error& error) { result.error = ErrorText(error.code()); }
           catch (const fs::filesystem_error& error) { result.error = ErrorText(HRESULT_FROM_WIN32(error.code().value())); }

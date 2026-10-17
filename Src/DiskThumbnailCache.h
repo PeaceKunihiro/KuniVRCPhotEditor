@@ -12,12 +12,14 @@
 class DiskThumbnailCache {
 public:
     using Clock=std::chrono::steady_clock;
-    struct Config {bool enabled=false;size_t limit=512ull*1024*1024;int minutes=30,visits=5;};
+    struct Config {bool enabled=false;size_t limit=512ull*1024*1024;int minutes=30,visits=5;bool bookmarkPriority=false;std::vector<std::wstring> bookmarks;};
     struct Status {size_t bytes=0,entries=0;bool pending=false;std::wstring error;};
     ~DiskThumbnailCache(){Stop();}
     void Configure(const std::filesystem::path&,Config);
     void Visit(const std::wstring&,Clock::time_point now=Clock::now());
     bool Eligible(const std::wstring&,Clock::time_point now=Clock::now());
+    bool PriorityFolder(const std::wstring&);
+    size_t PrefetchLimit(const std::wstring&);
     bool Get(const std::wstring&,Pixels&);
     void Put(const std::wstring&,const std::wstring& source,const Pixels&);
     void Clear();
@@ -25,7 +27,7 @@ public:
     void WaitIdle();
     void Stop();
 private:
-    struct Entry {size_t bytes;std::filesystem::file_time_type used;};
+    struct Entry {size_t bytes;std::filesystem::file_time_type used;std::wstring folder;};
     std::mutex control,io;
     std::condition_variable wake,idle;
     std::thread maintenance;
@@ -34,6 +36,8 @@ private:
     Config config;
     std::filesystem::path root,loadedRoot;
     std::map<std::wstring,std::deque<Clock::time_point>> visits;
+    std::vector<std::pair<std::wstring,int64_t>> pendingVisits;
+    std::map<std::wstring,int64_t> folderUses;
     std::map<std::wstring,Entry> entries;
     size_t usedBytes=0;
     std::set<std::pair<std::filesystem::file_time_type,std::wstring>> lru;
@@ -44,6 +48,7 @@ private:
     void Maintain();
     bool Snapshot(Config&,std::filesystem::path&,uint64_t&);
     bool Prepare(const std::filesystem::path&);
-    bool Trim(size_t,size_t extra=0);
+    bool Trim(size_t,size_t extra=0,const std::wstring* incoming=nullptr);
+    void FolderIndex(const std::filesystem::path&);
     void Publish(const std::wstring& error=L"");
 };
