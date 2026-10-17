@@ -1,8 +1,9 @@
 #include "ViewerRuntime.h"
+int ThumbnailHeight(int width){return app.hideFileNames?width:width*3/4;}
 Pixels DisplayedThumbnail(int index) {
     if(IsFolderItem(index)||index<0||index>=static_cast<int>(app.itemSlots.size())||app.itemSlots[index]<0)return {};
     try { if(app.thumbnailKeys[index]!=ThumbnailCache::Key(app.files[index]))return {}; } catch (...) { return {}; }
-    Pixels pixels;pixels.width=app.activeThumbnailWidth;pixels.height=app.activeThumbnailWidth*3/4;
+    Pixels pixels;pixels.width=app.activeThumbnailWidth;pixels.height=ThumbnailHeight(app.activeThumbnailWidth);
     BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=pixels.width;info.bmiHeader.biHeight=-static_cast<LONG>(pixels.height);info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;
     void* bits=nullptr;HDC dc=CreateCompatibleDC(nullptr);HBITMAP bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&bits,nullptr,0);
     if(!dc||!bitmap){if(bitmap)DeleteObject(bitmap);if(dc)DeleteDC(dc);return {};}
@@ -12,7 +13,7 @@ Pixels DisplayedThumbnail(int index) {
     SelectObject(dc,previous);DeleteObject(bitmap);DeleteDC(dc);return pixels;
 }
 HBITMAP Thumbnail(const Pixels& pixels, int width) {
-    const int height = width * 3 / 4;
+    const int height = ThumbnailHeight(width);
     BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = width; info.bmiHeader.biHeight = -height;
     info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
     void* bits = nullptr; HBITMAP bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
@@ -21,11 +22,14 @@ HBITMAP Thumbnail(const Pixels& pixels, int width) {
     for(int i=0;i<width*height;++i)for(int c=0;c<3;++c)target[i*4+c]=BYTE(background[c]);
     for (int i = 0; i < width * height; ++i) target[i * 4 + 3] = 255;
     if (!pixels.width || !pixels.height) return bitmap;
-    double scale = std::min({ 1.0, double(width) / pixels.width, double(height) / pixels.height });
-    UINT drawWidth = std::max(1U, UINT(pixels.width * scale)), drawHeight = std::max(1U, UINT(pixels.height * scale));
+    bool tile=app.hideFileNames;
+    double scale=tile?std::max(double(width)/pixels.width,double(height)/pixels.height):std::min({1.0,double(width)/pixels.width,double(height)/pixels.height});
+    UINT drawWidth=tile?UINT(width):std::max(1U,UINT(pixels.width*scale)),drawHeight=tile?UINT(height):std::max(1U,UINT(pixels.height*scale));
+    double spanX=tile?width/scale:pixels.width,spanY=tile?height/scale:pixels.height;
+    double sourceLeft=(pixels.width-spanX)/2,sourceTop=(pixels.height-spanY)/2;
     auto x = (width - drawWidth) / 2, y = (height - drawHeight) / 2;
     for (UINT row = 0; row < drawHeight; ++row) for (UINT col = 0; col < drawWidth; ++col) {
-        double sx = std::max(0.0, (col + 0.5) * pixels.width / drawWidth - 0.5), sy = std::max(0.0, (row + 0.5) * pixels.height / drawHeight - 0.5);
+        double sx=std::clamp(sourceLeft+(col+0.5)*spanX/drawWidth-0.5,0.0,double(pixels.width-1)),sy=std::clamp(sourceTop+(row+0.5)*spanY/drawHeight-0.5,0.0,double(pixels.height-1));
         UINT x0 = UINT(sx), y0 = UINT(sy), x1 = std::min(x0 + 1, pixels.width - 1), y1 = std::min(y0 + 1, pixels.height - 1);
         double fx = sx - x0, fy = sy - y0; double channels[4]{};
         for (int c = 0; c < 4; ++c) channels[c] =

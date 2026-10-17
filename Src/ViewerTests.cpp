@@ -22,6 +22,8 @@ void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
     LVITEMW item{};item.state=state;item.stateMask=mask;SendMessageW(list,LVM_SETITEMSTATE,index,reinterpret_cast<LPARAM>(&item));if(index>=0&&(state&LVIS_SELECTED))ListView_EnsureVisible(list,index,FALSE);FlushSelectionUpdate();
 }
 int SelfTest() {
+    // Unit fixtures exercise normal thumbnails independently of saved display preferences.
+    app.hideFileNames=false;
     auto directory = app.settings.parent_path() / L"self-test-data";
     fs::create_directories(directory);
     std::ofstream report(directory / L"result.txt");
@@ -661,6 +663,7 @@ int UiTest() {
         require(app.summary.values[4]==L"撮影者"&&app.summary.values[9].find(L"同名")!=std::wstring::npos&&Text(app.simpleValues[4])==L"撮影者"&&IsWindowVisible(app.simpleLabels[4]),"v0.4.22 NUL WebP metadata is visible in simple tab");CaptureUiTest(directory/L"v0422-simple.png");TabCtrl_SetCurSel(app.metadataTabs,1);Layout();SendMessageW(app.window,WM_COMMAND,EditMetadata,0);require(app.editing&&app.editorUi.Read().values[1]==L"撮影者","v0.4.22 NUL WebP opens editor with existing author");SendMessageW(app.window,WM_COMMAND,CancelMetadata,0);
         RunV0423UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         RunV050UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
+        RunV053UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
@@ -683,3 +686,5 @@ int ComfortTest(){auto folder=app.settings.parent_path();std::ofstream report(fo
 int UpdateDialogTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"update-dialog-result.txt");try{RunUpdateDialogTests(folder,report,[&](HWND dialog){CaptureUiTest(folder/L"v051-update-dialog.png",dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
 
 int LicenseDialogTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"license-dialog-result.txt");try{RunLicenseUiTests(folder,report,[&](HWND dialog,const wchar_t* name){CaptureUiTest(folder/name,dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+
+int TileTooltipTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"tile-tooltip-result.txt");try{RunV053UiTests(folder,report,[&](const wchar_t* name){CaptureUiTest(folder/name);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}

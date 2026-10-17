@@ -39,4 +39,12 @@ bool DrawBrowserButton(DRAWITEMSTRUCT* draw){if(draw->CtlID!=OpenPath&&draw->Ctl
 bool BrowserInput(const MSG& message){if(message.hwnd!=app.window&&!IsChild(app.window,message.hwnd))return false;if(!IsWindowEnabled(app.window))return false;int direction=0;if(message.message==WM_SYSKEYDOWN&&(message.lParam&(1LL<<29))){if(message.wParam==VK_LEFT)direction=-1;if(message.wParam==VK_RIGHT)direction=1;}if(message.message==WM_KEYDOWN){if(message.wParam==VK_BROWSER_BACK)direction=-1;if(message.wParam==VK_BROWSER_FORWARD)direction=1;}if(message.message==WM_XBUTTONUP)direction=GET_XBUTTON_WPARAM(message.wParam)==XBUTTON1?-1:1;if(!direction)return false;if(!(message.message!=WM_XBUTTONUP&&(message.lParam&(1LL<<30))))NavigateHistory(direction);return true;}
 
 std::wstring FolderPickerStart(){for(auto& candidate:std::vector<std::wstring>{Text(app.path),app.folder})try{if(!candidate.empty()){auto normalized=Normalize(candidate);std::error_code error;if(fs::is_directory(normalized,error))return normalized;}}catch(...){}return {};}
-void ToggleFileNames(){app.hideFileNames=!app.hideFileNames;app.imageLabelsDirty=true;UpdateThumbnailSpacing();ArrangeImages();InvalidateRect(app.list,nullptr,TRUE);ScheduleThumbnails();SaveSettings();}
+void ToggleFileNames(){
+    FlushSelectionUpdate();int focused=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);POINT scroll{};ListView_GetOrigin(app.list,&scroll);auto previous=app.hideFileNames;auto generation=app.thumbnailGeneration;
+    app.hideFileNames=!previous;ApplyThumbnailSize(true);
+    if(generation==app.thumbnailGeneration){app.hideFileNames=previous;return;}
+    Layout();if(focused>=0)ListView_EnsureVisible(app.list,focused,FALSE);else ListView_Scroll(app.list,0,scroll.y);
+    ScheduleThumbnails();
+}
+
+void DrawTileSelection(HDC dc,int index){if(!app.hideFileNames||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))return;RECT rect{};if(!ListView_GetItemRect(app.list,index,&rect,LVIR_ICON))return;InflateRect(&rect,-1,-1);auto brush=CreateSolidBrush(GetSysColor(COLOR_HIGHLIGHT));FrameRect(dc,&rect,brush);InflateRect(&rect,-1,-1);FrameRect(dc,&rect,brush);DeleteObject(brush);}

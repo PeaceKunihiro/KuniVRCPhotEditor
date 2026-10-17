@@ -73,7 +73,7 @@ struct State {
     std::function<std::wstring()> chooseBatchFolder;
     std::function<bool(const Job&)> confirmBatch;
     HWND window{}, path{}, history{}, list{}, preview{}, details{}, status{}, placement{};
-    HWND searchEdit{}, searchButton{};
+    HWND searchEdit{}, searchButton{},recordTooltip{};
     std::vector<std::wstring> allFiles;
     std::wstring appliedQuery,searchQuery;
     bool metadataSearch=false, searching=false, autoBackup=true, darkTheme=false, backupBusy=false;
@@ -268,3 +268,12 @@ int ComfortTest();
 int UpdateDialogTest();
 
 int LicenseDialogTest();
+
+int ThumbnailHeight(int);
+void CreateRecordingTooltip();
+void UpdateRecordingTooltip(bool recording,bool enabled);
+bool RecordingTooltipNotify(NMHDR*);
+int TileTooltipTest();
+void RunV053UiTests(const fs::path&,std::ostream&,const std::function<void(const wchar_t*)>&);
+
+void DrawTileSelection(HDC,int);

@@ -221,7 +221,8 @@ void UpdateThumbnailSpacing() {
     SelectObject(dc, previous); ReleaseDC(app.list, dc);
     int labelHeight = app.hideFileNames?0:std::max(1L, metrics.tmHeight + metrics.tmExternalLeading);
     ListView_SetExtendedListViewStyleEx(app.list,LVS_EX_HIDELABELS,app.hideFileNames?LVS_EX_HIDELABELS:0);
-    ListView_SetIconSpacing(app.list, app.activeThumbnailWidth + 8, app.activeThumbnailWidth * 3 / 4 + labelHeight + 8);
+    int gap=app.hideFileNames?2:8;
+    ListView_SetIconSpacing(app.list,app.activeThumbnailWidth+gap,ThumbnailHeight(app.activeThumbnailWidth)+labelHeight+gap);
 }
 void ArrangeImages() {
     auto font = reinterpret_cast<HFONT>(SendMessageW(app.list, WM_GETFONT, 0, 0));
@@ -307,9 +308,9 @@ size_t ImageListBytes(HIMAGELIST images) {
     return bytes(info.hbmImage) + (info.hbmMask != info.hbmImage ? bytes(info.hbmMask) : 0);
 }
 HIMAGELIST CreateThumbnails(int width, int& slots, size_t& retained) {
-    size_t budget = size_t(app.cacheMB) * 1000000, canvas = size_t(width) * (width * 3 / 4) * 4;
+    size_t budget = size_t(app.cacheMB) * 1000000, canvas = size_t(width) * ThumbnailHeight(width) * 4;
     slots = static_cast<int>(std::min(size_t(ThumbnailSlots), budget / 3 / canvas - 5));
-    auto images = ImageList_Create(width, width * 3 / 4, ILC_COLOR32, slots + 1, 1);
+    auto images = ImageList_Create(width, ThumbnailHeight(width), ILC_COLOR32, slots + 1, 1);
     auto placeholder = Thumbnail({}, width);
     bool ok = images && placeholder && ImageList_Add(images, placeholder, nullptr) == 0 && ImageList_SetImageCount(images, slots + 1);
     if (placeholder) DeleteObject(placeholder);
@@ -497,7 +498,7 @@ void Results() {
 }
 namespace {
 bool recordBlink=false;
-void UpdateRecordingControls(bool tick=false){TrayUpdate();auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=GetDlgItem(app.window,RecordToggle);auto text=stage3::Stopping()?L"停止処理中…":on?L"記録停止":L"記録開始";EnableWindow(button,!stage3::Stopping());if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(GetDlgItem(app.window,RecordIndicator),nullptr,FALSE);}
+void UpdateRecordingControls(bool tick=false){TrayUpdate();auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=GetDlgItem(app.window,RecordToggle);auto text=stage3::Stopping()?L"停止処理中…":on?L"記録停止":L"記録開始";EnableWindow(button,!stage3::Stopping());UpdateRecordingTooltip(on,!stage3::Stopping());if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(GetDlgItem(app.window,RecordIndicator),nullptr,FALSE);}
 bool DrawRecording(DRAWITEMSTRUCT* draw){if(draw->CtlID!=RecordToggle&&draw->CtlID!=RecordIndicator)return false;int saved=SaveDC(draw->hDC);bool on=stage3::Recording();auto rect=draw->rcItem;
     if(draw->CtlID==RecordIndicator){FillRect(draw->hDC,&rect,ThemeBrush());auto brush=CreateSolidBrush(on&&recordBlink?RGB(220,35,35):RGB(135,135,135));auto oldBrush=SelectObject(draw->hDC,brush);auto oldPen=SelectObject(draw->hDC,GetStockObject(NULL_PEN));int size=std::min(rect.right-rect.left,rect.bottom-rect.top)-10;int x=(rect.left+rect.right-size)/2,y=(rect.top+rect.bottom-size)/2;Ellipse(draw->hDC,x,y,x+size,y+size);SelectObject(draw->hDC,oldBrush);SelectObject(draw->hDC,oldPen);DeleteObject(brush);}
     else {auto color=on?RGB(185,25,25):RGB(0,90,190);if(draw->itemState&ODS_SELECTED)color=on?RGB(140,15,15):RGB(0,65,140);auto brush=CreateSolidBrush(color);FillRect(draw->hDC,&rect,brush);DeleteObject(brush);FrameRect(draw->hDC,&rect,GetSysColorBrush(COLOR_GRAYTEXT));auto font=SendMessageW(draw->hwndItem,WM_GETFONT,0,0);if(font)SelectObject(draw->hDC,reinterpret_cast<HGDIOBJ>(font));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,RGB(255,255,255));auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(draw->hDC,&rect);}}
@@ -575,7 +576,7 @@ void Layout() {
     for(auto h:{app.editButton,app.saveButton,app.cancelButton,app.editStatus})SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     if(noSide){for(auto h:{app.simple,app.details,app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(h,SW_HIDE);app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,false);}
     MoveWindow(app.status, 8, height - 28, width - 16, 24, TRUE);
-    if(app.autoThumbnails){int available=std::max(64L,list.right-list.left-GetSystemMetrics(SM_CXVSCROLL)-4);int columns=std::max(1,(available+263)/264);int desired=std::clamp(available/columns-8,64,256);if(desired!=app.thumbnailWidth){app.thumbnailWidth=desired;SetTimer(app.window,ZoomTimer,150,nullptr);}}
+    if(app.autoThumbnails){int available=std::max(64L,list.right-list.left-GetSystemMetrics(SM_CXVSCROLL)-4);int gap=app.hideFileNames?2:8;int span=256+gap;int columns=std::max(1,(available+span-1)/span);int desired=std::clamp(available/columns-gap,64,256);if(desired!=app.thumbnailWidth){app.thumbnailWidth=desired;SetTimer(app.window,ZoomTimer,150,nullptr);}}
     ArrangeImages();
     // Erase the vacated button locations as well as repainting the controls.
     RECT toolbarArea{ 0, 0, width, height-30 };
@@ -785,7 +786,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
         Control(L"BUTTON",L"戻る",WS_TABSTOP|BS_OWNERDRAW,HistoryBack);Control(L"BUTTON",L"進む",WS_TABSTOP|BS_OWNERDRAW,HistoryForward);CreateBrowserTooltips();
         Control(L"BUTTON",L"リセット",WS_TABSTOP,ResetView);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);Control(L"BUTTON",L"並べ替え ▼",WS_TABSTOP,SortMenu);
-        Control(L"BUTTON",L"記録開始",WS_TABSTOP|BS_OWNERDRAW,RecordToggle);Control(L"STATIC",L"記録状態",SS_OWNERDRAW,RecordIndicator);SetTimer(window,RecordTimer,500,nullptr);
+        Control(L"BUTTON",L"記録開始",WS_TABSTOP|BS_OWNERDRAW,RecordToggle);Control(L"STATIC",L"記録状態",SS_OWNERDRAW,RecordIndicator);CreateRecordingTooltip();SetTimer(window,RecordTimer,500,nullptr);
         app.searchEdit=Control(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,SearchEdit);
         SendMessageW(app.searchEdit,EM_SETCUEBANNER,TRUE,reinterpret_cast<LPARAM>(L"検索文字列（Enter／ボタンで実行）"));
         SetWindowSubclass(app.searchEdit,SearchEditProc,40,0);app.searchButton=Control(L"BUTTON",L"検索",WS_TABSTOP,SearchButton);
@@ -879,6 +880,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case Placement: if (HIWORD(wparam) == CBN_SELCHANGE) { auto index = SendMessageW(app.placement, CB_GETCURSEL, 0, 0); auto layout=index==1?L"left":index==2?L"bottom":index==3?L"none":L"right";auto apply=[layout]{app.layout=layout;SendMessageW(app.placement,CB_SETCURSEL,app.layout==L"left"?1:app.layout==L"bottom"?2:app.layout==L"none"?3:0,0);Layout();SaveSettings();};if(GuardTransition(apply))apply();else SendMessageW(app.placement,CB_SETCURSEL,app.layout==L"left"?1:app.layout==L"bottom"?2:app.layout==L"none"?3:0,0); } break;
         } return 0;
     case WM_NOTIFY:
+        if(RecordingTooltipNotify(reinterpret_cast<NMHDR*>(lparam)))return 0;
         if(reinterpret_cast<NMHDR*>(lparam)->code==NM_CUSTOMDRAW)return ThemeNotify(reinterpret_cast<NMHDR*>(lparam));
         if (reinterpret_cast<NMHDR*>(lparam)->hwndFrom == app.metadataTabs && reinterpret_cast<NMHDR*>(lparam)->code == TCN_SELCHANGE) { Layout(); return 0; }
         if (reinterpret_cast<NMHDR*>(lparam)->hwndFrom == app.list) {

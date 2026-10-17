@@ -19,7 +19,7 @@ bool Owned(const fs::path& p){auto s=p.filename().wstring();return s.size()==72&
 bool Safe(const fs::path& p){auto flags=GetFileAttributesW(p.c_str());return flags!=INVALID_FILE_ATTRIBUTES&&!(flags&FILE_ATTRIBUTE_REPARSE_POINT);}
 std::wstring Folder(const std::wstring& value){auto s=NormalizeFolderAddress(value);for(auto& c:s)c=static_cast<wchar_t>(towlower(c));return s;}
 struct Header {uint32_t magic=0x31435444,width=0,height=0,keyChars=0;std::array<BYTE,32> digest{};};
-constexpr size_t MaxPixels=256*192*4;
+constexpr size_t MaxPixels=256*256*4;
 }
 void DiskThumbnailCache::ResetEntries(){entries.clear();lru.clear();usedBytes=0;}
 void DiskThumbnailCache::EraseEntry(std::map<std::wstring,Entry>::iterator i){lru.erase({i->second.used,i->first});usedBytes-=i->second.bytes;entries.erase(i);}
@@ -76,7 +76,7 @@ bool DiskThumbnailCache::Get(const std::wstring& key,Pixels& pixels){
         std::lock_guard<std::mutex> diskLock(io);Prepare(path);auto name=Name(key);auto found=entries.find(name);if(found==entries.end())return false;
         if(!fs::exists(path/name)){EraseEntry(found);Publish();return false;}if(!Safe(path/name))return false;std::ifstream in(path/name,std::ios::binary);Header h{};in.read(reinterpret_cast<char*>(&h),sizeof(h));
         size_t bytes=static_cast<size_t>(h.width)*h.height*4;
-        if(!in||h.magic!=0x31435444||!h.width||h.width>256||!h.height||h.height>192||h.keyChars!=key.size()||h.keyChars>32768||bytes>MaxPixels||found->second.bytes!=sizeof(h)+h.keyChars*sizeof(wchar_t)+bytes)return false;
+        if(!in||h.magic!=0x31435444||!h.width||h.width>256||!h.height||h.height>256||h.keyChars!=key.size()||h.keyChars>32768||bytes>MaxPixels||found->second.bytes!=sizeof(h)+h.keyChars*sizeof(wchar_t)+bytes)return false;
         std::wstring stored(h.keyChars,L'\0');in.read(reinterpret_cast<char*>(stored.data()),h.keyChars*sizeof(wchar_t));if(stored!=key)return false;
         Pixels candidate{h.width,h.height,std::vector<BYTE>(bytes)};in.read(reinterpret_cast<char*>(candidate.data.data()),bytes);
         if(!in||Hash(candidate.data.data(),bytes)!=h.digest)return false;
@@ -87,7 +87,7 @@ bool DiskThumbnailCache::Get(const std::wstring& key,Pixels& pixels){
 void DiskThumbnailCache::Put(const std::wstring& key,const std::wstring& source,const Pixels& pixels){
     fs::path temporary;
     try{Config c;fs::path path;uint64_t ticket;if(!Snapshot(c,path,ticket)||!Eligible(fs::path(source).parent_path().wstring()))return;
-        if(key.size()>32768||!pixels.width||pixels.width>256||!pixels.height||pixels.height>192||pixels.data.size()!=static_cast<size_t>(pixels.width)*pixels.height*4)return;
+        if(key.size()>32768||!pixels.width||pixels.width>256||!pixels.height||pixels.height>256||pixels.data.size()!=static_cast<size_t>(pixels.width)*pixels.height*4)return;
         std::lock_guard<std::mutex> diskLock(io);Prepare(path);auto name=Name(key);if(entries.count(name)){
             // A corrupt existing entry must be replaceable after a failed disk hit.
             if(fs::exists(path/name)){if(!Safe(path/name))return;std::error_code ec;fs::remove(path/name,ec);if(ec)return;}auto old=entries.find(name);if(old!=entries.end())EraseEntry(old);

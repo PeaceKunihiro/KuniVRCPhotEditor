@@ -10,8 +10,8 @@ void RunV050UiTests(const fs::path& root,std::ostream& report,const std::functio
     int selected=int(app.directories.size());ListView_SetItemState(app.list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);ListView_SetItemState(app.list,selected,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);FlushSelectionUpdate();wait([&]{return app.previewDedicated&&app.metadataReady;});
     require(app.previewPixels.width==1024&&app.previewPixels.height==512,"v0.5.0 selected preview has bounded independent resolution and source aspect");auto pixels=app.previewPixels.data;
     for(int width:{64,256,96}){app.thumbnailWidth=width;ApplyThumbnailSize();wait([&]{return ThumbnailsReady();});require(app.previewDedicated&&app.previewPixels.data==pixels,"v0.5.0 list zoom cannot replace dedicated preview");}
-    DWORD normal=DWORD(SendMessageW(app.list,LVM_GETITEMSPACING,FALSE,0));ToggleFileNames();DWORD compact=DWORD(SendMessageW(app.list,LVM_GETITEMSPACING,FALSE,0));
-    require((ListView_GetExtendedListViewStyle(app.list)&LVS_EX_HIDELABELS)&&HIWORD(compact)<HIWORD(normal),"v0.5.0 hidden filenames reduce row spacing");
+    ToggleFileNames();DWORD compact=DWORD(SendMessageW(app.list,LVM_GETITEMSPACING,FALSE,0));
+    require((ListView_GetExtendedListViewStyle(app.list)&LVS_EX_HIDELABELS)&&HIWORD(compact)==app.activeThumbnailWidth+2,"v0.5.3 hidden filenames use compact square tile spacing");
     wchar_t text[128]{};ListView_GetItemText(app.list,selected,0,text,128);require(*text&&app.selected==selected&&(ListView_GetItemState(app.list,selected,LVIS_SELECTED)&LVIS_SELECTED),"v0.5.0 hidden labels preserve accessible text and selection");
     POINT first{},second{};ListView_GetItemPosition(app.list,selected,&first);ListView_GetItemPosition(app.list,selected+1,&second);require(first.x!=second.x||first.y!=second.y,"v0.5.0 hidden labels do not overlap icon positions");
     auto settings=ParseViewerSettings([&]{std::ifstream in(app.settings,std::ios::binary);return std::string((std::istreambuf_iterator<char>(in)),{});}());require(settings.hideFileNames,"v0.5.0 filename option persists");

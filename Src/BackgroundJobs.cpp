@@ -53,9 +53,9 @@ void Worker(bool thumbnails) {
                 auto cacheTicket = app.cache.Ticket();
                 bool cached = false,diskHit=false;
                 if (job.kind == 1) { cacheKey = ThumbnailCache::Key(job.path); cached = app.cache.Get(cacheKey, result.pixels);
-                    if(!cached)cached=diskHit=app.disk.Get(cacheKey+L"|256x192|v1",result.pixels); }
+                    if(!cached)cached=diskHit=app.disk.Get(cacheKey+L"|256x256|v2",result.pixels); }
                 if (!cached && Same(fs::path(job.path).extension().wstring(), L".webp")) {
-                    auto image = ReadWebP(job.path, job.kind==1?256:1024, job.kind==1?192:1024);
+                    auto image = ReadWebP(job.path, job.kind==1?256:1024, job.kind==1?256:1024);
                     result.pixels = { image.width, image.height, std::move(image.pixels) };
                     if (job.kind == 2) {
                         result.summary.values[2] = std::to_wstring(image.sourceWidth) + L" × " + std::to_wstring(image.sourceHeight) + L" px";
@@ -70,7 +70,7 @@ void Worker(bool thumbnails) {
                 ComPtr<IWICBitmapDecoder> decoder;
                 winrt::check_hresult(factory->CreateDecoderFromFilename(job.path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder));
                 ComPtr<IWICBitmapFrameDecode> frame; winrt::check_hresult(decoder->GetFrame(0, &frame));
-                if (job.kind == 1) result.pixels = Decode(factory.Get(), frame.Get(), 256, 192);
+                if (job.kind == 1) result.pixels = Decode(factory.Get(), frame.Get(), 256, 256);
                 if (job.kind == 2) {
                     result.pixels=Decode(factory.Get(),frame.Get(),1024,1024);
                     UINT width = 0, height = 0; winrt::check_hresult(frame->GetSize(&width, &height));
@@ -78,7 +78,7 @@ void Worker(bool thumbnails) {
                     result.text = Info(decoder.Get(), frame.Get(), job.path) + L"\r\n" + result.summary.notes + result.summary.xmpDetail;
                 }
                 }
-                if (job.kind == 1 && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) {app.cache.Put(cacheKey,result.pixels,cacheTicket);if(!diskHit)app.disk.Put(cacheKey+L"|256x192|v1",job.path,result.pixels);}
+                if (job.kind == 1 && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) {app.cache.Put(cacheKey,result.pixels,cacheTicket);if(!diskHit)app.disk.Put(cacheKey+L"|256x256|v2",job.path,result.pixels);}
             }
         } catch (const winrt::hresult_error& error) { result.error = ErrorText(error.code()); }
           catch (const fs::filesystem_error& error) { result.error = ErrorText(HRESULT_FROM_WIN32(error.code().value())); }
