@@ -353,6 +353,7 @@ int WheelThumbnailWidth(int width, int& remainder, int delta) {
     return width;
 }
 LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) {
+    LRESULT tooltipResult=0;if(MdbHeaderTooltip(window,message,lparam,tooltipResult))return tooltipResult;
     if(message==WM_XBUTTONUP){NavigateHistory(GET_XBUTTON_WPARAM(wparam)==XBUTTON1?-1:1);return TRUE;}
     if (message == WM_SETFONT) app.imageLabelsDirty = true;
     if (message == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wparam) & MK_CONTROL)) {

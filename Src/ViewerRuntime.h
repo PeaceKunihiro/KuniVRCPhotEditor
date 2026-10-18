@@ -8,6 +8,7 @@
 #include "ThumbnailCache.h"
 #include "DiskThumbnailCache.h"
 #include "MdbStore.h"
+#include "IdDisplayNames.h"
 #include <map>
 #include "WebPTests.h"
 #include "ViewerSettings.h"
@@ -61,6 +62,7 @@ struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -
 struct Result { std::vector<std::wstring> directories; Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; std::vector<MdbRow> mdbRows; };
 struct State {
     bool mdbEnabled=false,categoryCommitting=false;int mdbMode=0,mdbCapacityMB=100,categoryMode=0,displayCategoryMode=0;
+    IdNameStore idNames;
     MetadataDb mdb;std::vector<MdbRow> mdbRows;std::map<std::wstring,bool> mdbSelectionChanges;
     bool selectionCountsDirty=true;int selectedImageCount=0,selectedFolderCount=0;
     bool hideFileNames=false; uint64_t updateAttemptUtc=0,updateSuccessUtc=0;

@@ -113,7 +113,7 @@ int SelfTest() {
         RunExtendedXmpTests(directory, report);
         RunMetadataWriterTests(directory, report);
         RunV031Tests(directory, report);
-        RunMdbTests(directory,report);RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);RunV0421RegexTests(report);RunV0421ThemeTests(report);RunV0422Tests(directory,report);RunV0423Tests(directory,report);
+        RunMdbTests(directory,report);RunIdNameTests(directory,report);RunV035Tests(directory,report);RunV048Tests(directory,report);stage3::RunTests(directory,report);person_ocr::RunTests(directory,report);RunV0420Tests(directory,report);RunV0421RegexTests(report);RunV0421ThemeTests(report);RunV0422Tests(directory,report);RunV0423Tests(directory,report);
 { std::ofstream output(broken, std::ios::binary); output << "invalid image"; }
         ComPtr<IWICBitmapDecoder> decoder;
         require(FAILED(factory->CreateDecoderFromFilename(broken.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)), "broken image rejected");
@@ -664,7 +664,7 @@ int UiTest() {
         RunV0423UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         RunV050UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
         RunV053UiTests(directory,report,[&](const wchar_t* name){CaptureUiTest(directory/name);});
-        RunMdbUiTests(directory,report);
+        RunMdbUiTests(directory,report);RunIdNameUiTests(directory,report);
         fs::remove(sub/L"nested-only.jpg");fs::remove(sub);
         report << "ALL PASSED\n"; return 0;
     } catch (const std::exception& error) { report << "FAIL: " << error.what() << '\n'; }
