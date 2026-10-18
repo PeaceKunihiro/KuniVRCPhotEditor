@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "ThumbnailCache.h"
 #include <map>
 #include <deque>
@@ -20,7 +20,7 @@ public:
     bool Eligible(const std::wstring&,Clock::time_point now=Clock::now());
     bool PriorityFolder(const std::wstring&);
     size_t PrefetchLimit(const std::wstring&);
-    bool Get(const std::wstring&,Pixels&);
+    bool Get(const std::wstring&,Pixels&,bool touch=true);
     void Put(const std::wstring&,const std::wstring& source,const Pixels&);
     void Clear();
     Status GetStatus();

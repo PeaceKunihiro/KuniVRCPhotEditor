@@ -270,4 +270,4 @@
     <LocalDebuggerWorkingDirectory>$(TargetDir)</LocalDebuggerWorkingDirectory>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
-<ItemGroup><ClCompile Include="Src\LicenseUi.cpp"/><ClInclude Include="Src\LicenseUi.h"/></ItemGroup><ItemGroup><ClCompile Include="Src\RecordingTooltip.cpp"/><ClCompile Include="Src\V053Tests.cpp"/></ItemGroup></Project>
+<ItemGroup><ClCompile Include="Src\LicenseUi.cpp"/><ClInclude Include="Src\LicenseUi.h"/></ItemGroup><ItemGroup><ClCompile Include="Src\RecordingTooltip.cpp"/><ClCompile Include="Src\V053Tests.cpp"/></ItemGroup><ItemGroup><ClCompile Include="Src\MdbStore.cpp"/><ClCompile Include="Src\MdbUi.cpp"/><ClCompile Include="Src\MdbTests.cpp"/><ClInclude Include="Src\MdbStore.h"/><Image Include="Images\TAGs_B.png"/></ItemGroup></Project>

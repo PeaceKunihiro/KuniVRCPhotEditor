@@ -104,7 +104,7 @@ bool DiskThumbnailCache::Trim(size_t limit,size_t extra,const std::wstring* inco
         std::error_code ec;bool removed=fs::remove(loadedRoot/old->first,ec);if(ec||!removed)return false;EraseEntry(old);
     }return usedBytes+extra<=limit;
 }
-bool DiskThumbnailCache::Get(const std::wstring& key,Pixels& pixels){
+bool DiskThumbnailCache::Get(const std::wstring& key,Pixels& pixels,bool touch){
     try{Config c;fs::path path;uint64_t ticket;if(!Snapshot(c,path,ticket))return false;
         std::lock_guard<std::mutex> diskLock(io);Prepare(path);auto name=Name(key);auto found=entries.find(name);if(found==entries.end())return false;
         if(!fs::exists(path/name)){EraseEntry(found);Publish();return false;}if(!Safe(path/name))return false;std::ifstream in(path/name,std::ios::binary);Header h{};in.read(reinterpret_cast<char*>(&h),sizeof(h));
@@ -114,7 +114,7 @@ bool DiskThumbnailCache::Get(const std::wstring& key,Pixels& pixels){
         Pixels candidate{h.width,h.height,std::vector<BYTE>(bytes)};in.read(reinterpret_cast<char*>(candidate.data.data()),bytes);
         if(!in||Hash(candidate.data.data(),bytes)!=h.digest)return false;
         {std::lock_guard<std::mutex> lock(control);if(epoch!=ticket||!config.enabled||erase)return false;}
-        pixels=std::move(candidate);std::error_code ec;auto now=fs::file_time_type::clock::now();fs::last_write_time(path/name,now,ec);auto value=found->second;value.used=now;SetEntry(name,value);Publish();return true;
+        pixels=std::move(candidate);if(!touch)return true;std::error_code ec;auto now=fs::file_time_type::clock::now();fs::last_write_time(path/name,now,ec);auto value=found->second;value.used=now;SetEntry(name,value);Publish();return true;
     }catch(...){std::lock_guard<std::mutex> lock(io);Publish(L"キャッシュ読込み不可。原画像から生成します。");return false;}
 }
 void DiskThumbnailCache::Put(const std::wstring& key,const std::wstring& source,const Pixels& pixels){

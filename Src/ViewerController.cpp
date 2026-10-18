@@ -1,6 +1,6 @@
 #include "ViewerRuntime.h"
 void ScheduleSelectionUpdate(){app.selectionCountsDirty=true;if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
-void FlushSelectionUpdate(){if(!app.selectionPending)return;app.selectionPending=false;int index=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);if(index<0||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))index=ListView_GetNextItem(app.list,-1,LVNI_SELECTED);Select(index,false);}
+void FlushSelectionUpdate(){if(!app.selectionPending||MdbSelectionBusy())return;app.selectionPending=false;SyncMdbSelection();int index=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);if(index<0||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))index=ListView_GetNextItem(app.list,-1,LVNI_SELECTED);Select(index,false);}
 void Select(int index,bool reveal) {
     app.selectionPending=false;++app.selectionRefreshes;bool wasEditing=app.editing;
     if(app.batchLoading)StopActivity();app.batchLoading=false;app.batchFiles.clear();app.batchMetadata.clear();app.batchCompleted.clear();

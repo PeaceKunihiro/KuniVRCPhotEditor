@@ -4,9 +4,9 @@
 #include <set>
 #pragma comment(lib,"imm32.lib")
 std::vector<std::wstring> SelectedFiles() {
-    std::vector<std::wstring> files;int index=-1;
+    std::vector<std::wstring> files;std::unordered_set<std::wstring> seen;int index=-1;
     while((index=ListView_GetNextItem(app.list,index,LVNI_SELECTED))>=0)
-        if(index<static_cast<int>(app.files.size())&&!IsFolderItem(index))files.push_back(app.files[index]);
+        if(index<static_cast<int>(app.files.size())&&!IsFolderItem(index))if(seen.insert(PathKeyForMdb(app.files[index])).second)files.push_back(app.files[index]);
     return files;
 }
 void BeginMetadataEdit() {
@@ -107,7 +107,7 @@ void RunBatchJob(const Job& job,Result& result,const std::function<void(size_t)>
                 else {CheckSource(job.files[i]);if(MetadataFingerprint(job.files[i])!=job.metadata[i].fingerprint)throw std::runtime_error("Source changed; reload before saving");
                     if(MetadataFingerprint(prepared.path)!=prepared.fingerprint)throw std::runtime_error("Prepared copy changed");
                     if(!MoveFileExW(prepared.path.c_str(),job.destinations[i].c_str(),MOVEFILE_WRITE_THROUGH))winrt::throw_last_error();}
-                prepared.path.clear();result.files.push_back(job.destinations[i]);if(afterFile)afterFile(i);
+                prepared.path.clear();app.mdb.Invalidate(job.destinations[i]);app.mdb.Queue(job.destinations[i]);result.files.push_back(job.destinations[i]);if(afterFile)afterFile(i);
                 BatchProgress(job,L"一括保存済み: "+std::to_wstring(result.files.size())+L" / "+std::to_wstring(job.files.size()));
             }catch(const winrt::hresult_error& e){result.error=ErrorText(e.code());break;}
             catch(const std::exception& error){auto detail=std::wstring(winrt::to_hstring(error.what()).c_str());if(detail.find(L"復旧用原本")!=std::wstring::npos)result.text+=detail;result.error=L"保存できませんでした。入力の変更・アクセス権・空き容量を確認してください。";break;}

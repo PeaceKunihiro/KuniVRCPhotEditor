@@ -4,7 +4,7 @@
 namespace {
 struct Artwork {HBITMAP bitmap=nullptr;UINT width=0,height=0;RECT source{};~Artwork(){if(bitmap)DeleteObject(bitmap);}};
 Artwork& Art(int resource){
-    static Artwork icons[4];auto& art=icons[resource-2001];if(art.bitmap)return art;
+    static Artwork icons[5];auto& art=icons[resource-2001];if(art.bitmap)return art;
     auto module=GetModuleHandleW(nullptr);auto found=FindResourceW(module,MAKEINTRESOURCEW(resource),RT_RCDATA);if(!found)return art;
     auto data=LockResource(LoadResource(module,found));auto length=SizeofResource(module,found);ComPtr<IWICImagingFactory> factory;ComPtr<IWICStream> stream;ComPtr<IWICBitmapDecoder> decoder;ComPtr<IWICBitmapFrameDecode> frame;
     if(FAILED(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)))||FAILED(factory->CreateStream(&stream))||FAILED(stream->InitializeFromMemory(static_cast<BYTE*>(data),length))||FAILED(factory->CreateDecoderFromStream(stream.Get(),nullptr,WICDecodeMetadataCacheOnLoad,&decoder))||FAILED(decoder->GetFrame(0,&frame)))return art;
@@ -16,14 +16,14 @@ Artwork& Art(int resource){
 void PaintArt(HDC target,RECT rect,int resource,BYTE opacity=255){auto& art=Art(resource);if(!art.bitmap)return;auto source=art.source;int sw=source.right-source.left,sh=source.bottom-source.top;double scale=std::min(double(rect.right-rect.left)/sw,double(rect.bottom-rect.top)/sh);int w=int(sw*scale),h=int(sh*scale);HDC dc=CreateCompatibleDC(target);auto old=SelectObject(dc,art.bitmap);BLENDFUNCTION blend{AC_SRC_OVER,0,opacity,AC_SRC_ALPHA};AlphaBlend(target,rect.left+(rect.right-rect.left-w)/2,rect.top+(rect.bottom-rect.top-h)/2,w,h,dc,source.left,source.top,sw,sh,blend);SelectObject(dc,old);DeleteDC(dc);}
 }
 BrowserItemKind ItemKind(int index){return index>=0&&index<int(app.files.size())&&app.folderItems.count(app.files[index])?BrowserItemKind::Folder:BrowserItemKind::Image;}
-int SelectedImageCount(){if(app.selectionCountsDirty){app.selectedImageCount=app.selectedFolderCount=0;int i=-1;if(app.list)while((i=ListView_GetNextItem(app.list,i,LVNI_SELECTED))>=0){if(IsFolderItem(i))++app.selectedFolderCount;else ++app.selectedImageCount;}app.selectionCountsDirty=false;}return app.selectedImageCount;}
+int SelectedImageCount(){if(app.selectionCountsDirty){app.selectedImageCount=app.selectedFolderCount=0;std::unordered_set<std::wstring> seen;int i=-1;if(app.list)while((i=ListView_GetNextItem(app.list,i,LVNI_SELECTED))>=0){if(IsFolderItem(i))++app.selectedFolderCount;else if(seen.insert(PathKeyForMdb(app.files[i])).second)++app.selectedImageCount;}app.selectionCountsDirty=false;}return app.selectedImageCount;}
 namespace {
 LRESULT CALLBACK ArrowKeys(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR){if(message==WM_KEYDOWN&&wp==VK_RETURN){if(!(lp&(1LL<<30)))SendMessageW(window,BM_CLICK,0,0);return 0;}if(message==WM_NCDESTROY)RemoveWindowSubclass(window,ArrowKeys,id);return DefSubclassProc(window,message,wp,lp);}
 }
 void CreateBrowserTooltips(){auto tooltip=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP,0,0,0,0,app.window,nullptr,GetModuleHandleW(nullptr),nullptr);for(int id:{HistoryBack,HistoryForward,OpenPath}){auto button=GetDlgItem(app.window,id);SetWindowSubclass(button,ArrowKeys,423,0);TOOLINFOW info{sizeof(info)};info.uFlags=TTF_IDISHWND|TTF_SUBCLASS;info.hwnd=app.window;info.uId=reinterpret_cast<UINT_PTR>(button);info.lpszText=const_cast<wchar_t*>(id==OpenPath?L"ロード":id==HistoryBack?L"戻る (Alt+←)":L"進む (Alt+→)");SendMessageW(tooltip,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&info));}}
 bool IsFolderItem(int index){return ItemKind(index)==BrowserItemKind::Folder;}
 bool ShowImage(const std::wstring& path){return app.showBackupImages||!SearchContains(fs::path(path).filename().wstring(),L"AB_");}
-std::vector<std::wstring> VisibleImages(){std::vector<std::wstring> images;for(size_t i=0;i<app.files.size();++i)if(!IsFolderItem(int(i)))images.push_back(app.files[i]);return images;}
+std::vector<std::wstring> VisibleImages(){std::vector<std::wstring> images;std::unordered_set<std::wstring> seen;for(size_t i=0;i<app.files.size();++i)if(!IsFolderItem(int(i))&&seen.insert(PathKeyForMdb(app.files[i])).second)images.push_back(app.files[i]);return images;}
 void CommitNavigation(const std::wstring& path,int position){
     if(position>=0&&position<int(app.navigation.size())&&Same(app.navigation[position],path))app.navigationIndex=position;
     else if(app.navigationIndex<0||app.navigationIndex>=int(app.navigation.size())||!Same(app.navigation[app.navigationIndex],path)){
@@ -48,3 +48,5 @@ void ToggleFileNames(){
 }
 
 void DrawTileSelection(HDC dc,int index){if(!app.hideFileNames||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))return;RECT rect{};if(!ListView_GetItemRect(app.list,index,&rect,LVIR_ICON))return;InflateRect(&rect,-1,-1);auto brush=CreateSolidBrush(GetSysColor(COLOR_HIGHLIGHT));FrameRect(dc,&rect,brush);InflateRect(&rect,-1,-1);FrameRect(dc,&rect,brush);DeleteObject(brush);}
+
+void DrawMdbBadge(HDC dc,int index){if(!MdbDuplicateRow(index))return;RECT r{};if(!ListView_GetItemRect(app.list,index,&r,LVIR_ICON))return;int side=std::clamp(int((r.right-r.left)/4),16,32);r.left=r.right-side-2;r.top=r.bottom-side-2;r.right-=2;r.bottom-=2;PaintArt(dc,r,2005);}

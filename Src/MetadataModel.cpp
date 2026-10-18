@@ -1,4 +1,4 @@
-﻿#define NOMINMAX
+#define NOMINMAX
 #include "MetadataModel.h"
 #include "ExtendedXmp.h"
 #include "PngCrc.h"
@@ -166,6 +166,7 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
         bool capture=std::any_of(stack.begin(),stack.end(),[&](const auto& p){return p.uri==kpe&&p.name==L"CaptureRecord";});
         if(capture&&element.name==L"Seq"&&element.uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&!stack.empty())stack.back().sequence=true;
         if(capture&&element.name==L"li"&&element.uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&stack.size()>=2&&stack.back().name==L"Seq"&&stack[stack.size()-2].uri==kpe&&stack[stack.size()-2].name==L"InstanceMembers"&&!element.personName.empty())parsed.people.push_back({element.personName,element.personId});
+        if(capture&&element.name==L"li"&&element.uri==L"http://www.w3.org/1999/02/22-rdf-syntax-ns#"&&stack.size()>=2&&stack.back().name==L"Seq"&&stack[stack.size()-2].uri==kpe&&stack[stack.size()-2].name==L"ModelCandidates"&&!element.personName.empty())parsed.candidatePeople.push_back({element.personName,element.personId});
         if(capture&&element.uri==kpe){
             if(element.name==L"InstanceMembers"&&!element.sequence)invalidMembers=true;
             if(element.name==L"ModelCandidates"&&!element.sequence)invalidCandidates=true;
@@ -201,7 +202,7 @@ bool ParseXmp(const std::string& xml, XmpFields& fields, std::wstring& error) {
     }
     if (FAILED(hr) || !stack.empty()) { error = L"XMPのXML読込みエラー。元の値は詳細で確認してください。"; return false; }
     if(invalidMembers){parsed.memberStatus=L"unknown";parsed.people.clear();}
-    if(invalidCandidates)parsed.candidateStatus=L"unknown";
+    if(invalidCandidates){parsed.candidateStatus=L"unknown";parsed.candidatePeople.clear();}
     fields = std::move(parsed); return true;
 }
 bool ValidXmpDate(const std::wstring& text) {
@@ -245,11 +246,12 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path, const std::vector<Valida
                     else if (!value.empty() && target != value) result.notes += L"XMP項目に異なる値があります。先に取得した標準側の値を優先します。\r\n";
                 };
                 if(fields.members.empty())fields.people=parsed.people;
+                if(fields.candidates.empty())fields.candidatePeople=parsed.candidatePeople;
                 merge(fields.date, parsed.date); merge(fields.author, parsed.author);
                 merge(fields.worldName, parsed.worldName); merge(fields.worldId, parsed.worldId); merge(fields.subjects, parsed.subjects); merge(fields.tags, parsed.tags); merge(fields.members,parsed.members);merge(fields.candidates,parsed.candidates);merge(fields.memberStatus,parsed.memberStatus);merge(fields.candidateStatus,parsed.candidateStatus);
-            } else result.notes += parseError + L"\r\n";
+            } else {result.metadataFailed=true;result.notes += parseError + L"\r\n";}
         }
-    } catch (...) { result.notes += L"XMP読込みエラー（破損・読込み不可・サイズ上限）。\r\n"; }
+    } catch (...) { result.metadataFailed=true; result.notes += L"XMP読込みエラー（破損・読込み不可・サイズ上限）。\r\n"; }
     if (!fields.date.empty() && !ValidXmpDate(fields.date)) result.notes += L"xmp:CreateDateが不正なため別の日時を使用しました。\r\n";
     result.values[3] = ChooseDate(fields.date, result.values[0], created, modified);
     result.values[4] = fields.author; result.values[5] = fields.worldName; result.values[6] = fields.worldId; result.values[7] = fields.subjects; result.values[8] = fields.tags;
@@ -259,7 +261,7 @@ PhotoSummary ReadPhotoSummary(const std::wstring& path, const std::vector<Valida
         if(names.empty()&&candidate&&status==L"observed")prefix=L"候補情報不完全";
         return prefix.empty()?names:prefix+(names.empty()?L"":L"\r\n"+names);
     };
-    result.people=fields.people;
+    result.people=fields.people;result.candidatePeople=fields.candidatePeople;
     result.values[9]=display(fields.members,fields.memberStatus,false);auto prefix=result.values[9].substr(0,result.values[9].size()-fields.members.size());prefix.erase(std::remove(prefix.begin(),prefix.end(),L'\n'),prefix.end());result.memberOffset=static_cast<long>(prefix.size());result.values[10]=display(fields.candidates,fields.candidateStatus,true);
     return result;
 }

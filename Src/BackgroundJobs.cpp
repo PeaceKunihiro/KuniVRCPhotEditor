@@ -85,6 +85,7 @@ void Worker(bool thumbnails) {
           catch (const fs::filesystem_error& error) { result.error = ErrorText(HRESULT_FROM_WIN32(error.code().value())); }
           catch (const std::exception& error) { result.error = winrt::to_hstring(error.what()).c_str(); }
           catch (...) { result.error = L"読込みエラー: パスまたはファイルを確認してください。"; }
+        if(result.error.empty()){if(job.kind==1||job.kind==2)app.mdb.Queue(job.path);if(job.kind==4){app.mdb.Invalidate(job.destination);app.mdb.Queue(job.destination);}}
         if (app.stopping || !CurrentJob(job)) continue;
         { std::unique_lock<std::mutex> lock(app.mutex);
           app.wake.wait(lock, [] { return app.stopping || app.results.size() < 32; });

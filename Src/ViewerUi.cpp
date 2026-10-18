@@ -76,8 +76,8 @@ void Status(const std::wstring& message) {
 void SetActivity(const std::wstring& text){app.activityText=text;SetTimer(app.window,ActivityTimer,150,nullptr);Status(text);SetWindowTextW(app.editStatus,text.c_str());}
 void StopActivity(){app.activityText.clear();KillTimer(app.window,ActivityTimer);Counts();}
 void Counts(const std::wstring& message) {
-    auto images=app.files.size()>=app.directories.size()?app.files.size()-app.directories.size():0;auto selectedImages=SelectedImageCount();auto selectedFolders=app.selectedFolderCount;
-    Status(std::to_wstring(images)+L" / "+std::to_wstring(app.allFiles.size())+L" 画像 | "+std::to_wstring(app.directories.size())+L" フォルダー | 選択: "+std::to_wstring(selectedImages)+L"画像 / "+std::to_wstring(selectedFolders)+L"フォルダー | "+message);
+    auto images=app.files.size()>=app.directories.size()?app.files.size()-app.directories.size():0;auto distinct=app.categoryMode?VisibleImages().size():images;auto selectedImages=SelectedImageCount();auto selectedFolders=app.selectedFolderCount;
+    Status(std::to_wstring(distinct)+(app.categoryMode?L"画像（延べ"+std::to_wstring(images)+L"）":L"")+L" / "+std::to_wstring(app.allFiles.size())+L" 画像 | "+std::to_wstring(app.directories.size())+L" フォルダー | 選択: "+std::to_wstring(selectedImages)+L"画像 / "+std::to_wstring(selectedFolders)+L"フォルダー | "+message);
 }
 
 bool Same(const std::wstring& a,const std::wstring& b){return _wcsicmp(a.c_str(),b.c_str())==0;}
@@ -110,7 +110,7 @@ void LoadSettings() {
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
         auto settings = ParseViewerSettings(json);
-        app.hideFileNames=settings.hideFileNames;app.updateAttemptUtc=settings.updateAttemptUtc;app.updateSuccessUtc=settings.updateSuccessUtc;app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
+        app.hideFileNames=settings.hideFileNames;app.updateAttemptUtc=settings.updateAttemptUtc;app.updateSuccessUtc=settings.updateSuccessUtc;app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.mdbEnabled=settings.mdbEnabled;app.mdbMode=settings.mdbMode;app.mdbCapacityMB=settings.mdbCapacityMB;app.categoryMode=settings.categoryMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
@@ -124,7 +124,7 @@ void LoadSettings() {
 void SaveSettings(bool notify) {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;
+        ViewerSettings settings;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.bookmarkCache=app.bookmarkCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
@@ -367,7 +367,10 @@ LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     }
     if (message == WM_MOUSEWHEEL) app.zoomWheel = 0;
     if (message == WM_NCDESTROY) RemoveWindowSubclass(window, ImagesProc, id);
+    BeginMdbInput(window,message,wparam,lparam);
     auto result = DefSubclassProc(window, message, wparam, lparam);
+    EndMdbInput(window,message);
+    if(app.categoryMode&&(message==WM_PAINT||message==WM_PRINTCLIENT||message==WM_PRINT)){auto dc=message!=WM_PAINT?reinterpret_cast<HDC>(wparam):GetDC(window);PaintMdbHeaders(window,dc);if(message==WM_PAINT)ReleaseDC(window,dc);}
     if (message == WM_MOUSEWHEEL || message == WM_VSCROLL || message == WM_HSCROLL || message == WM_KEYDOWN || message == WM_SIZE)
         SetTimer(app.window, ThumbnailTimer, 30, nullptr);
     return result;
@@ -380,13 +383,18 @@ void Results() {
     app.wake.notify_all();
     for (auto& result : results) {
         auto& job = result.job;
+        if(job.kind==13){if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;if(result.progress){Counts(result.text);continue;}
+            app.sorting=false;EnableWindow(app.list,TRUE);StopActivity();SetWindowTextW(app.searchButton,L"検索");UpdateEditorControls();
+            if(!result.error.empty()){Counts(L"カテゴリ表示に失敗: "+result.error);continue;}
+            app.categoryCommitting=true;app.mdbRows=std::move(result.mdbRows);CommitDisplay(std::move(result.files),job.preserve);app.categoryCommitting=false;Counts(L"カテゴリ表示完了");continue;
+        }
         if(job.kind==12){
             if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;
             app.sorting=false;EnableWindow(app.list,TRUE);StopActivity();UpdateEditorControls();
             if(!result.error.empty()){Counts(L"並べ替え失敗: "+result.error);continue;}
             FlushSelectionUpdate();auto preserve=app.selected>=0?app.files[app.selected]:L"";app.restoreSelection=SelectedFiles();
             app.allFiles=std::move(result.files);std::unordered_set<std::wstring> visible(job.destinations.begin(),job.destinations.end());std::vector<std::wstring> files;for(auto& file:app.allFiles)if(visible.count(file))files.push_back(file);
-            app.sortMode=job.sortMode;CommitDisplay(std::move(files),preserve);SaveSettings();Counts(L"並べ替え完了");continue;
+            app.categoryMode=0;app.sortMode=job.sortMode;CommitDisplay(std::move(files),preserve);SaveSettings();Counts(L"並べ替え完了");continue;
         }
         if(job.kind==6){if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;
             if(result.progress){Counts(result.text);continue;}
@@ -442,7 +450,7 @@ void Results() {
             app.folder=job.path;app.last=job.path;app.allFiles=std::move(result.files);app.directories=std::move(result.directories);app.folderItems={app.directories.begin(),app.directories.end()};CommitNavigation(app.folder,job.navigationIndex);
             app.recent.erase(std::remove_if(app.recent.begin(),app.recent.end(),[&](auto& p){return SameFolderAddress(p,app.folder);}),app.recent.end());
             app.recent.insert(app.recent.begin(),app.folder);if(app.recent.size()>HistoryLimit)app.recent.resize(HistoryLimit);
-            RefreshHistory();SetWindowTextW(app.path,app.folder.c_str());SaveSettings();
+            RefreshHistory();SetWindowTextW(app.path,app.folder.c_str());SaveSettings();app.mdb.Reconcile(app.folder,app.allFiles);app.mdb.QueueCached(app.allFiles);
             if(app.appliedQuery.empty())CommitDisplay(app.allFiles,job.preserve);else StartSearch(app.appliedQuery,job.preserve);
         } else if (job.kind == 1) {
             if(job.diskPrefetch){ScheduleBookmarkPrefetch();continue;}
@@ -718,6 +726,7 @@ INT_PTR ShowCacheLimitDialog(int& mb) {
 }
 HMENU BuildOptionsMenu() {
     auto menu = CreatePopupMenu();
+    AppendMenuW(menu,MF_STRING,17,L"MDB設定…");
     AppendMenuW(menu,MF_STRING|(app.hideFileNames?MF_CHECKED:0),16,app.hideFileNames?L"ファイル名省略: ON":L"ファイル名省略: OFF");
     AppendMenuW(menu,MF_STRING|(app.idLinks?MF_CHECKED:0),15,app.idLinks?L"ページを開くボタン: ON":L"ページを開くボタン: OFF");
     AppendMenuW(menu,MF_STRING|(app.residentMode?MF_CHECKED:0),13,app.residentMode?L"常駐モード: ON":L"常駐モード: OFF");
@@ -741,7 +750,8 @@ void OptionsMenu() {
     auto menu = BuildOptionsMenu();
     RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
     auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if(action==16){ToggleFileNames();}
+    if(action==17){ShowMdbDialog();}
+    else if(action==16){ToggleFileNames();}
     else if(action==15){app.idLinks=!app.idLinks;FormatLinks();LayoutSimple();SaveSettings();}
     else if(action==12){ShowDiskCacheDialog();}
     else if(action==8){stage3::ShowMonitorDialog();UpdateRecordingControls();}
@@ -783,7 +793,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     if(TrayMessage(window,message,wparam,lparam))return 0;
     switch (message) {
     case WM_CREATE: {
-        ConfigureDiskCache();
+        ConfigureDiskCache();ConfigureMdb();
         app.window = window;
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"ロード", WS_TABSTOP|BS_OWNERDRAW, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
@@ -848,7 +858,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
+        if(wparam==RecordTimer){MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
@@ -868,13 +878,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         case SaveMetadata: StartSave(); break;
         case CancelMetadata:
             if(app.saving&&!app.batchFiles.empty()){app.cancelBatch=true;SetWindowTextW(app.editStatus,L"現在の画像の保存完了後に中止します…");}else if(!app.saving){app.editing=false;app.batchLoading=false;app.batchFiles.clear();app.batchMetadata.clear();SetWindowTextW(app.editStatus,L"編集をキャンセルしました。");UpdateEditorControls();Layout();}break;
-        case SearchButton: if(app.searching)CancelSearch();else StartSearch(Text(app.searchEdit));break;
+        case SearchButton: if(app.searching||app.sorting)CancelSearch();else StartSearch(Text(app.searchEdit));break;
         case RecordToggle: stage3::ToggleRecording();UpdateRecordingControls();Counts();break;
         case ResetView: ResetViewer();break;
 
         case HistoryBack: NavigateHistory(-1);break;
         case HistoryForward: NavigateHistory(1);break;
-        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();break;}
+        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(!app.categoryMode&&i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);if(app.mdbEnabled){AppendMenuW(menu,MF_SEPARATOR,0,nullptr);const wchar_t* c[]{L"タグ別",L"人物ID別",L"人物名別",L"ワールド別",L"グループ別",L"撮影者別"};for(int i=0;i<6;++i)AppendMenuW(menu,MF_STRING|(app.categoryMode==i+1?MF_CHECKED:0),20+i,c[i]);}AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();else if(action>=20&&action<=25)RequestCategory(int(action-19));break;}
         case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"更新確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");AppendMenuW(menu,MF_STRING,4,L"ライセンス情報…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();if(action==4)ShowLicenseInfo();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
@@ -907,7 +917,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
                 }
             } else if (header->code == LVN_ITEMCHANGED) {
                 auto changed = reinterpret_cast<NMLISTVIEW*>(lparam);
-                if(!app.updatingSelection && (changed->uChanged&LVIF_STATE) && ((changed->uNewState^changed->uOldState)&LVIS_SELECTED))ScheduleSelectionUpdate();
+                if((changed->uChanged&LVIF_STATE)&&((changed->uOldState^changed->uNewState)&LVIS_SELECTED))NoteMdbSelection(changed->iItem,changed->uNewState);
+                if(!app.updatingSelection && (changed->uChanged&LVIF_STATE) && (((changed->uNewState^changed->uOldState)&LVIS_SELECTED)||(app.categoryMode&&!app.editing&&(changed->uNewState&LVIS_SELECTED)&&(changed->uNewState&LVIS_FOCUSED)&&((changed->uNewState^changed->uOldState)&LVIS_FOCUSED))))ScheduleSelectionUpdate();
             } else if(header->code==LVN_KEYDOWN){auto key=reinterpret_cast<NMLVKEYDOWN*>(lparam);if(key->wVKey==VK_RETURN)OpenBrowserItem(ListView_GetNextItem(app.list,-1,LVNI_FOCUSED));
             } else if (header->code == NM_DBLCLK) {
                 int index = reinterpret_cast<NMITEMACTIVATE*>(lparam)->iItem;
@@ -932,7 +943,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if (app.worker.joinable()) app.worker.join();
         for (auto& worker : app.thumbnailWorkers) if (worker.joinable()) worker.join();
         if(app.searchWorker.joinable())app.searchWorker.join();
-        app.disk.Stop();
+        app.mdb.Stop();app.disk.Stop();
         DestroyWindow(window); return 0; }
     case WM_DESTROY: ImageList_Destroy(app.thumbs); PostQuitMessage(0); return 0;
     }
