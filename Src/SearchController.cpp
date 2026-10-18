@@ -1,7 +1,7 @@
 #include "ViewerRuntime.h"
 #include <unordered_set>
 namespace {
-bool Active(const Job& j){return !app.stopping&&j.generation==app.currentGeneration&&((j.kind!=6&&j.kind!=12&&j.kind!=13)||j.searchGeneration==app.currentSearchGeneration)&&(j.kind!=10||j.selection==app.currentSelection);}
+bool Active(const Job& j){return !app.stopping&&j.generation==app.currentGeneration&&((j.kind!=6&&j.kind!=12&&j.kind!=13)||j.searchGeneration==app.currentSearchGeneration)&&(j.kind!=10||j.selection==app.currentSelection)&&(j.kind!=14||MdbApplyCurrent(j));}
 void Deliver(Result result){if(!Active(result.job))return;std::unique_lock<std::mutex> lock(app.mutex);app.wake.wait(lock,[&]{return app.stopping||app.results.size()<32;});if(app.stopping)return;bool notify=app.results.empty();app.results.push_back(std::move(result));if(notify)PostMessageW(app.window,WM_RESULTS,0,0);}
 }
 bool SearchContains(const std::wstring& text,const std::wstring& query){if(query.empty())return true;return FindNLSStringEx(LOCALE_NAME_INVARIANT,FIND_FROMSTART|NORM_IGNORECASE,text.c_str(),static_cast<int>(text.size()),query.c_str(),static_cast<int>(query.size()),nullptr,nullptr,nullptr,0)>=0;}
@@ -22,6 +22,7 @@ void CommitDisplay(std::vector<std::wstring> files,const std::wstring& preserve)
 void SearchWorker(){WorkerLifetime lifetime;auto initialized=RoInitialize(RO_INIT_MULTITHREADED);ComPtr<IWICImagingFactory> factory;CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory));
     while(!app.stopping){Job job;{std::unique_lock<std::mutex> lock(app.mutex);auto next=[&]{return std::find_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind>=6;});};app.wake.wait(lock,[&]{return app.stopping||next()!=app.jobs.end();});if(app.stopping)break;auto it=next();job=std::move(*it);app.jobs.erase(it);}if(!Active(job))continue;Result result;result.job=job;
         try{if(job.kind==10||job.kind==11){RunBatchJob(job,result);}
+        else if(job.kind==14){ReadMdbApply(job,result);}
         else if(job.kind==13){RunCategory(job,result);}
         else if(job.kind==12){result.files=job.files;SortFiles(result.files,job.sortMode,[&]{return Active(job);});}
         else if(job.kind==6){int examined=0;for(auto& file:job.files){if(!Active(job))break;bool hit=SearchContains(fs::path(file).filename().wstring(),job.query);if(!hit&&job.metadataSearch){try{if(job.useMdb){hit=SearchContains(app.mdb.Read(file).text,job.query);}else{auto revision=ThumbnailCache::Key(file);auto summary=ReadPhotoSummary(file);std::wstring metadata=summary.xmpDetail;for(size_t i=3;i<summary.values.size();++i)metadata+=L"\n"+summary.values[i];

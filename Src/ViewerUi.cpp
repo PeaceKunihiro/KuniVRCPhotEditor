@@ -384,6 +384,7 @@ void Results() {
     app.wake.notify_all();
     for (auto& result : results) {
         auto& job = result.job;
+        if(HandleMdbApplyResult(result))continue;
         if(job.kind==13){if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;if(result.progress){Counts(result.text);continue;}
             app.sorting=false;EnableWindow(app.list,TRUE);StopActivity();SetWindowTextW(app.searchButton,L"検索");UpdateEditorControls();
             if(!result.error.empty()){Counts(L"カテゴリ表示に失敗: "+result.error);continue;}
@@ -582,6 +583,7 @@ void Layout() {
     app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,detailed&&app.editing);
     ShowWindow(app.details, detailed && !app.editing ? SW_SHOW : SW_HIDE); ShowWindow(app.simple, TabCtrl_GetCurSel(app.metadataTabs)==0 ? SW_SHOW : SW_HIDE);
     LayoutOcrUi(page,!noSide&&TabCtrl_GetCurSel(app.metadataTabs)==2);
+    LayoutMdbApplyUi(page,!noSide&&TabCtrl_GetCurSel(app.metadataTabs)==3);
     LayoutSimple();
     for(auto h:{app.simple,app.details,app.editorUi.Window()})SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     for(auto h:{app.editButton,app.saveButton,app.cancelButton,app.editStatus})SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
@@ -819,6 +821,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.preview = Control(L"KuniPreview", L"", WS_BORDER, 0);
         app.metadataTabs = Control(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, MetadataTabs);
         for (auto label : { L"シンプル", L"詳細", L"OCR" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
+        CreateMdbApplyUi();
         app.simple = Control(L"KuniSimple", L"", WS_VSCROLL | WS_CLIPCHILDREN, 0);
         SetWindowLongPtrW(app.simple, GWL_EXSTYLE, GetWindowLongPtrW(app.simple, GWL_EXSTYLE) | WS_EX_CONTROLPARENT);
         const wchar_t* labels[]{ L"ファイル名", L"容量", L"解像度", L"作成日時", L"撮影者", L"ワールド名", L"ワールドID", L"モデル", L"タグ", L"同室者", L"モデル候補" };
@@ -859,7 +862,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
+        if(wparam==RecordTimer){RefreshMdbApplyUi();MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
@@ -936,7 +939,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if(app.closing)return 0;
         if(!GuardTransition([window]{SendMessageW(window,WM_CLOSE,0,0);}))return 0;
         KillTimer(window, ZoomTimer);
-        KillTimer(window, ThumbnailTimer);StopActivity();app.closing=true;StopUpdateChecker();StopOcrUi();stage3::Shutdown();TrayShutdown();
+        KillTimer(window, ThumbnailTimer);StopActivity();CancelMdbApply();app.closing=true;StopUpdateChecker();StopOcrUi();stage3::Shutdown();TrayShutdown();
         if (app.thumbnailWidth != app.activeThumbnailWidth) SaveSettings();
         CancelSearch();{std::lock_guard<std::mutex> lock(app.mutex);app.stopping=true;}app.wake.notify_all();
         // COM teardown may call back into the UI STA. Keep it pumping until workers finish.
@@ -952,6 +955,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 }
 
 void UpdateEditorControls(const MetadataEdit* snapshot,const std::wstring* validation) {
+    RefreshMdbApplyUi();
     MetadataEdit local;if(!snapshot&&app.editing)local=app.editorUi.Read();const auto& edit=snapshot?*snapshot:local;
     auto error=validation?*validation:edit.Validate();
     EnableWindow(app.editButton,(SelectedImageCount()>1||(app.metadataReady&&!IsFolderItem(app.selected)&&!app.previewPixels.data.empty())) && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && !app.sorting && !app.folderPending && app.selected>=0);

@@ -46,7 +46,7 @@ void IdNameStore::Load(const fs::path& path){
 }
 IdNameTable IdNameStore::Snapshot()const{std::lock_guard<std::mutex> lock(mutex);return names;}
 std::wstring IdNameStore::Error()const{std::lock_guard<std::mutex> lock(mutex);return error;}
-void IdNameStore::Save(const IdNameTable& table){
-    auto bytes=SerializeIdNames(table);auto normalized=ParseIdNames(bytes).names;std::lock_guard<std::mutex> lock(mutex);if(protectedFile||file.empty())throw std::runtime_error("name table is protected after a read failure");FileLock guard(file);
+void IdNameStore::Save(const IdNameTable& table,const IdNameTable* expected){
+    auto bytes=SerializeIdNames(table);auto normalized=ParseIdNames(bytes).names;std::lock_guard<std::mutex> lock(mutex);if(expected&&names!=*expected)throw std::runtime_error("name table changed during confirmation");if(protectedFile||file.empty())throw std::runtime_error("name table is protected after a read failure");FileLock guard(file);
     std::error_code ec;bool present=fs::exists(file,ec);if(ec||present!=exists||(present&&ReadIdNamesFile(file)!=original))throw std::runtime_error("name table changed externally; reopen the dialog");AtomicWrite(file,bytes);original=std::move(bytes);names=std::move(normalized);exists=true;error.clear();
 }

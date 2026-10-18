@@ -1,8 +1,8 @@
 #include "ViewerRuntime.h"
-void ScheduleSelectionUpdate(){app.selectionCountsDirty=true;if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
+void ScheduleSelectionUpdate(){CancelMdbApply(L"画像の選択が変わったため中止しました。");app.selectionCountsDirty=true;if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
 void FlushSelectionUpdate(){if(!app.selectionPending||MdbSelectionBusy())return;app.selectionPending=false;SyncMdbSelection();int index=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);if(index<0||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))index=ListView_GetNextItem(app.list,-1,LVNI_SELECTED);Select(index,false);}
 void Select(int index,bool reveal) {
-    app.selectionPending=false;++app.selectionRefreshes;bool wasEditing=app.editing;
+    CancelMdbApply(L"画像の選択が変わったため中止しました。");app.selectionPending=false;++app.selectionRefreshes;bool wasEditing=app.editing;
     if(app.batchLoading)StopActivity();app.batchLoading=false;app.batchFiles.clear();app.batchMetadata.clear();app.batchCompleted.clear();
     app.editing=false; app.metadataReady=false; app.previewFailed=false; app.editError.clear(); app.editable={}; SetWindowTextW(app.editStatus,L"PNG/JPEG/WebPの上書き・別名コピー保存に対応。");UpdateEditorControls();if(wasEditing)Layout();
     app.selected = index; ++app.previewRevision; app.previewPixels = {};app.previewDedicated=false; ++app.selection; app.currentSelection = app.selection;
@@ -21,7 +21,7 @@ void Select(int index,bool reveal) {
 void OpenFolder(const std::wstring& path, bool reload, const std::wstring& preserveOverride,bool userLoad,int navigationIndex) {
     FlushSelectionUpdate();
     if (!GuardTransition([path,reload,preserveOverride,userLoad,navigationIndex]{OpenFolder(path,reload,preserveOverride,userLoad,navigationIndex);})) return;
-    if(app.batchLoading){StopActivity();app.batchLoading=false;}CancelSearch();
+    CancelMdbApply(L"フォルダーの読込みにより中止しました。");if(app.batchLoading){StopActivity();app.batchLoading=false;}CancelSearch();
     app.editing=false; UpdateEditorControls(); Layout();
     try {
         auto normalized = Normalize(path);
@@ -80,7 +80,7 @@ void ResetViewer() {
     if(app.saving||app.backupBusy)return;
     FlushSelectionUpdate();
     if(!GuardTransition([]{ResetViewer();}))return;
-    CancelSearch();StopActivity();
+    CancelMdbApply(L"リセットにより中止しました。");CancelSearch();StopActivity();
     ++app.generation;app.currentGeneration=app.generation;
     {std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind!=3;}),app.jobs.end());}
     app.wake.notify_all();app.folderPending=false;app.folder.clear();app.last.clear();app.allFiles.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;UpdateNavigationControls();app.restoreSelection.clear();app.appliedQuery.clear();

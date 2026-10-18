@@ -9,6 +9,7 @@
 #include "DiskThumbnailCache.h"
 #include "MdbStore.h"
 #include "IdDisplayNames.h"
+#include "MdbApply.h"
 #include <map>
 #include "WebPTests.h"
 #include "ViewerSettings.h"
@@ -58,8 +59,8 @@ constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
 enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView, SortMenu, HistoryBack, HistoryForward };
 struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; bool hideFileNames=false; uint64_t updateAttemptUtc=0,updateSuccessUtc=0;
-    int categoryMode=0; int sortMode=0; int navigationIndex=-1; bool clearSearch=false,diskPrefetch=false,useMdb=false; unsigned diskGeneration=0; };
-struct Result { std::vector<std::wstring> directories; Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; std::vector<MdbRow> mdbRows; };
+    int categoryMode=0; int sortMode=0; int navigationIndex=-1; bool clearSearch=false,diskPrefetch=false,useMdb=false; unsigned diskGeneration=0,applyGeneration=0,applyDelayMs=0; };
+struct Result { std::vector<std::wstring> directories; Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; std::vector<MdbRow> mdbRows;MdbRecord mdbRecord; };
 struct State {
     bool mdbEnabled=false,categoryCommitting=false;int mdbMode=0,mdbCapacityMB=100,categoryMode=0,displayCategoryMode=0;
     IdNameStore idNames;

@@ -1,5 +1,5 @@
 # KuniVRCPhotEditor
-VRChat写真のメタデータを閲覧・編集し、新しい写真へ同室者とOCRモデル候補を記録するWindows用アプリです。アプリ本体はv0.5.8です。Stableの配布EXEはファイル名の版番号を確認してください。
+VRChat写真のメタデータを閲覧・編集し、新しい写真へ同室者とOCRモデル候補を記録するWindows用アプリです。アプリ本体はv0.5.9です。Stableの配布EXEはファイル名の版番号を確認してください。
 
 [更新履歴](Documents/UPDATELOG.md) ｜ [Stable向け簡易手順](Stable/readme.md)
 
@@ -73,6 +73,16 @@ MDBをONにして、[オプション]→[MDB設定]→[ID・表示名の編集]�
 対応表はEXE側の `IdDisplayNames.json` に独立保存し、MDBをOFF・削除・再構築しても保持します。編集・利用はMDB ON時だけ有効です。人物／ワールド／グループの有効IDをキーとし、IDなしはID別分類で情報なしへ置き、名前からIDを逆引きしません。同名でも別IDは別カテゴリを維持し、見出しのツールチップでIDを確認できます。写真・シンプル／詳細の原情報・検索・人物名別分類は変更せず、APIによる名称取得も行いません。保存直後は見出しを更新し、再読み込み・分類の再指定で新しい名前順へ整列します。
 
 JSONは8MiB／10万件まで、名前は1行・UTF-16で1024コード単位まで。日本語・多言語・絵文字に対応します。破損や外部変更で保存できない場合は元ファイルを保全します。外部で修復・変更した場合は編集画面を開き直してください。[仕様](Documents/V0.5.8_PLAN.md)／[実装・検証](Documents/V0.5.8_IMPLEMENTATION.md)。
+
+## 画像から対応表へ反映（v0.5.9）
+
+MDBをONにすると、サイドビューに[MDB]タブが追加されます。画像を1枚選び、[実行]を押すと、写真に記録されたワールドIDとワールド名、同室者・モデル候補のユーザーIDと名前の組を対応表へ取り込みます。重複表示された同じ写真は1枚として扱います。
+
+追加・上書き・変更なし・除外の件数と、変更前後の名前を確認し、[保存する]で `IdDisplayNames.json` をバックアップなしで上書きします。**既存の手動登録名も画像内の名前へ置き換わります。** 画像・画像内メタデータ・AB_バックアップは変更しません。v0.5.8のImportは既存名を維持しますが、この操作は確認後に上書きする点が異なります。
+
+IDなし・名前なし・不正な組や、同じIDに異なる名前がある組は除外して通知し、名前からIDを逆引きしません。グループ名の自動取得は行いません。キャンセル・変更0件では対応表を保存せず、読込み中の選択変更・MDB OFFでも中止します。確認中に画像や対応表が変わった場合、保存できない場合は元の表を保全して再実行を案内します。
+
+複数の異なる写真、フォルダー、メタデータ読込み未完了／失敗、画像の編集・保存中は実行できません。下配置など表示が狭い場合は[MDB]ページを縦スクロールできます。[仕様](Documents/V0.5.9_PLAN.md)／[実装・検証範囲](Documents/V0.5.9_IMPLEMENTATION.md)。
 
 ## メタデータ編集・保存
 [詳細]の[編集]から、撮影日時・撮影者・ワールド名・ワールドID・モデル・タグを編集します。既存値を読み込んで表示します。同室者・モデル候補と記録済みユーザーIDは読取り専用の参照欄に表示し、手動モデルへ転記しません。モデルとタグは1行1項目です。[変更しない]／[値を設定]／[値を削除する]を選び、タグは[追加]も使えます。
@@ -205,7 +215,7 @@ v0.4.11の文書方針により、実用性・負荷・開発コストを考慮�
 
 VS2022でリポジトリ直下の `KuniVRCPhotEditor.sln` を開き、Debug／x64を選びます。Ctrl＋Shift＋Bでビルド、Ctrl＋F5で起動します。
 
-`build.cmd Release` でRelease／x64を生成し、出力は `x64\Release\KuniVRCPhotEditor_vN.M.X.exe`（現在は `KuniVRCPhotEditor_v0.5.8.exe`）です。Debugも `x64\Debug` 配下に同じ版付き名称で生成します。build.cmdはこの開発PCのVS2022 Community配置を使用します。`build.cmd Debug Test`／`build.cmd Release Test` は自己・UI・終了試験を実行します。試験用書込み先はEXE配下のself-test-dataで、本番設定・参照写真は変更しません。試験成功は全要件や実VRChat精度の保証ではありません。
+`build.cmd Release` でRelease／x64を生成し、出力は `x64\Release\KuniVRCPhotEditor_vN.M.X.exe`（現在は `KuniVRCPhotEditor_v0.5.9.exe`）です。Debugも `x64\Debug` 配下に同じ版付き名称で生成します。build.cmdはこの開発PCのVS2022 Community配置を使用します。`build.cmd Debug Test`／`build.cmd Release Test` は自己・UI・終了試験を実行します。試験用書込み先はEXE配下のself-test-dataで、本番設定・参照写真は変更しません。試験成功は全要件や実VRChat精度の保証ではありません。
 
 - [更新履歴](Documents/UPDATELOG.md)
 - [閲覧要件](Documents/VIEWER_REQUIREMENTS.md)
@@ -214,6 +224,7 @@ VS2022でリポジトリ直下の `KuniVRCPhotEditor.sln` を開き、Debug／x6
 - [Stage4：今後の機能・検証計画](Documents/KuniVRCPhotEditor_Stage4.md)
 - [Stage5：MDB・写真カテゴライズ仕様](Documents/KuniVRCPhotEditor_Stage5.md)
 - [v0.5.8：ID・表示名対応表／Import・Export仕様](Documents/V0.5.8_PLAN.md)
+- [v0.5.9：選択画像から対応表への反映](Documents/V0.5.9_PLAN.md)
 - [第三者ライセンス通知](Documents/THIRD_PARTY_NOTICES.md)
 - [Stable向け簡易手順](Stable/readme.md)
 

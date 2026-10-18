@@ -25,7 +25,7 @@ public:
     void Load(const std::filesystem::path&);
     IdNameTable Snapshot()const;
     std::wstring Error()const;
-    void Save(const IdNameTable&);
+    void Save(const IdNameTable&,const IdNameTable* expected=nullptr);
 };
 struct IdNameUiHooks {
     std::function<void(HWND)> inspect;
