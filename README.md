@@ -188,6 +188,7 @@ VS2022でリポジトリ直下の `KuniVRCPhotEditor.sln` を開き、Debug／x6
 - [メタデータ編集・保持方針](Documents/STAGE2_IMPLEMENTATION.md)
 - [人物記録・OCRの実装状況](Documents/STAGE3_IMPLEMENTATION.md)
 - [Stage4：今後の機能・検証計画](Documents/KuniVRCPhotEditor_Stage4.md)
+- [Stage5：MDB・写真カテゴライズ仕様（未実装）](Documents/KuniVRCPhotEditor_Stage5.md)
 - [第三者ライセンス通知](Documents/THIRD_PARTY_NOTICES.md)
 - [Stable向け簡易手順](Stable/readme.md)
 
