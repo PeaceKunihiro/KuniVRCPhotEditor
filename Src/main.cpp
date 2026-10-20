@@ -11,6 +11,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     if(std::wstring(command)==L"--update-network-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"update-network-result.txt");int code=0;try{RunUpdateNetworkTests(folder,report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
     if(std::wstring(command).find(L"--stage3-evaluate")==0){int count=0;auto args=CommandLineToArgvW(GetCommandLineW(),&count);if(count!=6){LocalFree(args);return 2;}auto log=fs::path(args[2]),photos=fs::path(args[3]),samples=fs::path(args[4]),output=fs::path(args[5]);LocalFree(args);int code=0;std::thread probe([&]{auto init=RoInitialize(RO_INIT_MULTITHREADED);std::ofstream report(output);try{winrt::check_hresult(init);stage3::EvaluateReferences(log,photos,samples,report);report<<"EVALUATION COMPLETED\n";}catch(const winrt::hresult_error& e){report<<"FAILED HRESULT="<<std::hex<<static_cast<unsigned>(e.code())<<'\n';code=1;}catch(const std::exception& e){report<<"FAILED: "<<e.what()<<'\n';code=1;}if(SUCCEEDED(init))RoUninitialize();});probe.join();winrt::uninit_apartment();return code;}
     if(std::wstring(command)==L"--ocr-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"ocr-result.txt");int code=0;try{person_ocr::RunCaptureTests(report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
+    if(std::wstring(command)==L"--mdb-performance-test"){
+        auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"v0511-result.txt");int code=0;
+        try{RunV0511Tests(folder,report);report<<"ALL PASSED\n";}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}
+        winrt::uninit_apartment();return code;
+    }
     if (std::wstring(command) == L"--self-test") { auto result = SelfTest(); winrt::uninit_apartment(); return result; }
     if (std::wstring(command) == L"--photos-test") { auto result = PhotosTest(); winrt::uninit_apartment(); return result; }
     bool shutdownTest=std::wstring(command)==L"--shutdown-test";

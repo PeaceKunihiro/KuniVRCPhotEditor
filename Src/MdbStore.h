@@ -12,11 +12,14 @@ struct MdbConfig {bool enabled=false;int mode=0,capacityMB=100;uint64_t Limit()c
 struct MdbStatus {uint64_t bytes=0,entries=0,hits=0,parsed=0;size_t pending=0;bool working=false,deletionFailed=false;std::wstring error;};
 class MetadataDb {
     struct Impl;std::unique_ptr<Impl> impl;
+    MdbRecord ReadInternal(const std::wstring&,int,bool,uint64_t,uint64_t);
 public:
     MetadataDb();~MetadataDb();
     MetadataDb(const MetadataDb&)=delete;MetadataDb& operator=(const MetadataDb&)=delete;
-    void Configure(const std::filesystem::path&,MdbConfig,std::function<MdbRecord(const std::wstring&)>,std::function<bool(const std::wstring&)>);
+    void Configure(const std::filesystem::path&,MdbConfig,std::function<MdbRecord(const std::wstring&)>,std::function<int(const std::wstring&)>);
     MdbRecord Read(const std::wstring&,int priority=-1,bool includeText=true);
+    // Cached probe: 1=present, 0=absent, -1=retry, <-1=unavailable.
+    void SetDisplayBusy(bool);
     void Queue(const std::wstring&);
     void QueueCached(const std::vector<std::wstring>&);
     void Invalidate(const std::wstring&);

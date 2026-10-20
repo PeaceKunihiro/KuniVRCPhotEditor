@@ -104,6 +104,20 @@ bool DiskThumbnailCache::Trim(size_t limit,size_t extra,const std::wstring* inco
         std::error_code ec;bool removed=fs::remove(loadedRoot/old->first,ec);if(ec||!removed)return false;EraseEntry(old);
     }return usedBytes+extra<=limit;
 }
+DiskThumbnailCache::Presence DiskThumbnailCache::Probe(const std::wstring& key){
+    fs::path path;uint64_t ticket;
+    {std::lock_guard<std::mutex> lock(control);if(!config.enabled||stopping)return Presence::Missing;if(erase)return Presence::Pending;path=root;ticket=epoch;}
+    std::unique_lock<std::mutex> diskLock(io,std::try_to_lock);
+    if(!diskLock.owns_lock())return Presence::Pending;
+    if(loadedRoot!=path||loadedEpoch==UINT64_MAX){
+        std::lock_guard<std::mutex> lock(control);
+        if(!pending&&!working&&!status.error.empty())throw std::runtime_error("Disk cache index unavailable");
+        return Presence::Pending;
+    }
+    auto found=key.size()<=32768&&entries.count(Name(key))!=0;
+    {std::lock_guard<std::mutex> lock(control);if(!config.enabled||stopping)return Presence::Missing;if(ticket!=epoch||root!=path||erase)return Presence::Pending;}
+    return found?Presence::Present:Presence::Missing;
+}
 bool DiskThumbnailCache::Get(const std::wstring& key,Pixels& pixels,bool touch){
     try{Config c;fs::path path;uint64_t ticket;if(!Snapshot(c,path,ticket))return false;
         std::lock_guard<std::mutex> diskLock(io);Prepare(path);auto name=Name(key);auto found=entries.find(name);if(found==entries.end())return false;

@@ -290,10 +290,12 @@ void DrawTileSelection(HDC,int);
 
 int BookmarkCacheTest();
 
+void UpdateMdbDisplayPriority();
 void ConfigureMdb();void ShowMdbDialog(const std::function<void(HWND)>& inspect = {});void MdbTick();
 void RequestCategory(int);void StartCategory(const std::vector<std::wstring>&,const std::wstring&);void RunCategory(const Job&,Result&);
 bool MdbSelectionBusy();void BeginMdbInput(HWND,UINT,WPARAM,LPARAM);void EndMdbInput(HWND,UINT);
 void SetupMdbGroups();void SyncMdbSelection();void NoteMdbSelection(int,UINT);std::wstring PathKeyForMdb(const std::wstring&);bool MdbDuplicateRow(int);void DrawMdbBadge(HDC,int);
+void RunV0511Tests(const fs::path&,std::ostream&);
 void RunMdbTests(const fs::path&,std::ostream&);void RunMdbUiTests(const fs::path&,std::ostream&);int MdbTest();
 
 void DrawMdbGroupHeader(HDC,int);

@@ -7,6 +7,7 @@
 #include <chrono>
 #include <array>
 #include <set>
+#include <ostream>
 
 // Disk I/O is confined to thumbnail workers and a maintenance worker.
 class DiskThumbnailCache {
@@ -20,6 +21,9 @@ public:
     bool Eligible(const std::wstring&,Clock::time_point now=Clock::now());
     bool PriorityFolder(const std::wstring&);
     size_t PrefetchLimit(const std::wstring&);
+    enum class Presence {Pending=-1,Missing=0,Present=1};
+    // Index hint for MDB priority only. Never reads or validates pixel data.
+    Presence Probe(const std::wstring&);
     bool Get(const std::wstring&,Pixels&,bool touch=true);
     void Put(const std::wstring&,const std::wstring& source,const Pixels&);
     void Clear();
@@ -27,6 +31,7 @@ public:
     void WaitIdle();
     void Stop();
 private:
+    friend void RunV0511Tests(const std::filesystem::path&,std::ostream&);
     struct Entry {size_t bytes;std::filesystem::file_time_type used;std::wstring folder;};
     std::mutex control,io;
     std::condition_variable wake,idle;

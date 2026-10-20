@@ -263,8 +263,13 @@ void ResetThumbnailTracking() {
     app.thumbnailKeys.assign(app.files.size(),L"");
     for(int i=0;i<int(app.files.size());++i)if(IsFolderItem(i))app.thumbnailDone[i]=true;
 }
+void UpdateMdbDisplayPriority(){
+    bool busy=app.folderPending;
+    for(int i=std::max(0,app.wantedFirst);!busy&&i<=app.wantedLast&&i<int(app.thumbnailRequested.size());++i)busy=app.thumbnailRequested[i];
+    app.mdb.SetDisplayBusy(busy);
+}
 void ScheduleThumbnails() {
-    if (app.folderPending || app.files.empty() || app.closing) return;
+    if (app.folderPending || app.files.empty() || app.closing) {UpdateMdbDisplayPriority();return;}
     RECT client{}; GetClientRect(app.list, &client);
     const int count = static_cast<int>(app.files.size());
     auto boundary = [&](bool end) {
@@ -295,7 +300,7 @@ void ScheduleThumbnails() {
     for (int i = first; i <= std::min(last, app.wantedLast); ++i) add(i);
     for (int i = app.wantedFirst; i < first; ++i) add(i);
     for (int i = last + 1; i <= app.wantedLast; ++i) add(i);
-    app.wake.notify_all();
+    UpdateMdbDisplayPriority();app.wake.notify_all();
 }
 size_t ImageListBytes(HIMAGELIST images) {
     IMAGEINFO info{};
@@ -507,6 +512,7 @@ void Results() {
             SetWindowTextW(app.details, text.c_str()); InvalidateRect(app.preview, nullptr, TRUE); Counts(result.error.empty() ? L"表示完了" : L"画像読込みエラー");
         }
     }
+    UpdateMdbDisplayPriority();
 }
 namespace {
 bool recordBlink=false;

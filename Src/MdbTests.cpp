@@ -78,9 +78,80 @@ void RunMdbUiTests(const fs::path& directory,std::ostream& report){
         if(axis==6)check(std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[](auto& r){return r.label==L"Photographer";}),"MDB photographer is a separate category");}
     app.metadataSearch=true;StartSearch(L"Red");wait([]{return !app.searching&&!app.sorting&&ThumbnailsReady();});check(VisibleImages().size()==2,"MDB search includes excluded backup via direct metadata fallback");
     ShowMdbDialog([&](HWND h){SendMessageW(h,WM_COMMAND,2300,0);SendMessageW(h,WM_COMMAND,IDOK,0);});wait([]{return !app.searching&&!app.sorting;});app.mdb.WaitIdle();check(!app.mdbEnabled&&app.categoryMode==0&&!fs::exists(app.settings.parent_path()/L"MetadataDB"/L"mdb.sqlite"),"MDB OFF deletes DB and restores normal view");app.metadataSearch=false;app.appliedQuery.clear();wait([]{return ThumbnailsReady();});
+    {
+        auto first=app.wantedFirst,last=app.wantedLast;auto requested=app.thumbnailRequested;
+        app.mdbEnabled=true;ConfigureMdb();app.mdb.WaitIdle();
+        app.wantedFirst=app.wantedLast=0;app.thumbnailRequested[0]=true;UpdateMdbDisplayPriority();app.mdb.Queue(source.wstring());Sleep(100);
+        check(app.mdb.Status().pending>0,"v0511 real UI display requests pause background metadata collection");
+        app.thumbnailRequested[0]=false;UpdateMdbDisplayPriority();app.mdb.WaitIdle();
+        check(app.mdb.Status().entries>0,"v0511 UI request completion resumes collection without waiting for all images");
+        app.wantedFirst=first;app.wantedLast=last;app.thumbnailRequested=std::move(requested);UpdateMdbDisplayPriority();
+        app.mdbEnabled=false;ConfigureMdb();app.mdb.WaitIdle();
+    }
     app.diskCache=true;app.bookmarkCache=false;ConfigureDiskCache();app.disk.WaitIdle();app.disk.Clear();app.disk.WaitIdle();for(int i=0;i<5;++i)app.disk.Visit(root.wstring());Pixels thumb{16,16,std::vector<BYTE>(16*16*4,80)};app.disk.Put(ThumbnailCache::Key(files[0].wstring())+L"|256x256|v2",files[0].wstring(),thumb);
     app.mdbMode=1;app.mdbEnabled=true;ConfigureMdb();app.mdb.WaitIdle();check(app.mdb.Status().entries==1,"MDB automatic mode registers disk-cached source first without enabling recursion");
     app.categoryMode=1;StartCategory(app.allFiles,L"");SendMessageW(app.window,WM_COMMAND,SearchButton,0);check(!app.sorting&&!app.searching,"MDB category preparation can be cancelled");
     app.mdbEnabled=false;app.categoryMode=0;ConfigureMdb();app.mdb.WaitIdle();app.diskCache=false;ConfigureDiskCache();app.disk.WaitIdle();app.mdbMode=0;SaveSettings();
 }
 int MdbTest(){auto directory=app.settings.parent_path();std::ofstream report(directory/L"mdb-result.txt");try{RunMdbTests(directory,report);RunMdbUiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+
+
+void RunV0511Tests(const fs::path& directory,std::ostream& report){
+    auto check=[&](bool ok,const char* name){report<<(ok?"PASS: ":"FAIL: ")<<"v0.5.11 "<<name<<std::endl;if(!ok)throw std::runtime_error(name);};
+    auto wait=[&](auto ready){auto end=GetTickCount64()+5000;while(!ready()){if(GetTickCount64()>end)throw std::runtime_error("v0511 wait timeout");Sleep(5);}};
+    auto base=directory/L"v0511";fs::create_directories(base);auto source=base/L"source.png";
+    {std::ofstream out(source,std::ios::binary|std::ios::trunc);out<<"source";}
+    auto key=ThumbnailCache::Key(source.wstring())+L"|256x256|v2";
+    DiskThumbnailCache cache;DiskThumbnailCache::Config config{true,128ull*1024*1024,30,5,true,{base.wstring()}};
+    auto cacheRoot=base/L"ThumbnailDiskCache";cache.Configure(cacheRoot,config);cache.WaitIdle();cache.Clear();cache.WaitIdle();
+    Pixels pixels{256,256,std::vector<BYTE>(256*256*4,91)},out;cache.Put(key,source.wstring(),pixels);
+    using Presence=DiskThumbnailCache::Presence;
+    check(cache.Probe(key)==Presence::Present&&cache.Probe(key+L"changed")==Presence::Missing,"index probe distinguishes held keys without source parsing");
+    {
+        std::unique_lock<std::mutex> lock(cache.io);std::atomic<int> hint{0};
+        std::thread other([&]{hint=int(cache.Probe(key));});other.join();check(hint==int(Presence::Pending),"busy cache lock returns Pending instead of waiting or Missing");
+    }
+    {auto prior=cache.loadedEpoch;cache.loadedEpoch=UINT64_MAX;check(cache.Probe(key)==Presence::Pending,"index initialization is not mistaken for a cache miss");cache.loadedEpoch=prior;}
+    auto dtc=cacheRoot;for(auto& entry:fs::directory_iterator(cacheRoot))if(entry.path().extension()==L".dtc"){dtc=entry.path();break;}
+    auto stamp=fs::last_write_time(dtc);HANDLE locked=CreateFileW(dtc.c_str(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    check(locked!=INVALID_HANDLE_VALUE,"exclusive test cache handle acquired");
+    auto hinted=cache.Probe(key);CloseHandle(locked);
+    check(hinted==Presence::Present&&fs::last_write_time(dtc)==stamp,"index hint works with cache file exclusively locked and leaves LRU timestamp unchanged");
+    auto ms=[](auto start){return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
+    std::vector<double> full,probe;
+    for(int pass=0;pass<3;++pass){auto start=std::chrono::steady_clock::now();for(int i=0;i<256;++i)if(!cache.Get(key,out,false))throw std::runtime_error("benchmark Get");full.push_back(ms(start));
+        start=std::chrono::steady_clock::now();for(int i=0;i<256;++i)if(cache.Probe(key)!=Presence::Present)throw std::runtime_error("benchmark Probe");probe.push_back(ms(start));}
+    std::sort(full.begin(),full.end());std::sort(probe.begin(),probe.end());
+    report<<"INFO: v0511 warm single synthetic 256x256 cache x256 median/3 Get="<<full[1]<<"ms Probe="<<probe[1]<<"ms; not application startup timing"<<std::endl;
+    {std::fstream file(dtc,std::ios::binary|std::ios::in|std::ios::out);file.seekp(-1,std::ios::end);file.put('x');}
+    check(cache.Probe(key)==Presence::Present&&!cache.Get(key,out,false),"priority hint never replaces display pixel digest validation");
+    cache.Put(key,source.wstring(),pixels);check(cache.Get(key,out,false)&&out.data==pixels.data,"corrupt cached pixels can still be repaired");
+    cache.Clear();cache.WaitIdle();check(cache.Probe(key)==Presence::Missing,"clear removes index hints");
+    config.enabled=false;cache.Configure(cacheRoot,config);cache.WaitIdle();check(cache.Probe(key)==Presence::Missing,"disabled cache has no priority hints");cache.Stop();
+
+    MetadataDb db;MdbConfig cfg{true,1,100};auto root=base/L"MetadataDB";
+    std::atomic<int> loads{0},probes{0},hint{-1};
+    auto loader=[&](const std::wstring& path){++loads;MdbRecord row;row.path=path;row.text=L"metadata";return row;};
+    auto priority=[&](const std::wstring&){++probes;return hint.load();};
+    db.Configure(root,cfg,loader,priority);db.WaitIdle();db.Configure(root,{false,1,100},loader,priority);db.WaitIdle();db.Configure(root,cfg,loader,priority);db.WaitIdle();
+    db.SetDisplayBusy(true);db.QueueCached({source.wstring()});db.Queue(source.wstring());Sleep(120);
+    check(loads==0&&probes==0&&db.Status().pending==1,"display demand defers and merges automatic priority and ordinary collection");
+    auto direct=db.Read(source.wstring(),0);check(direct.text==L"metadata"&&loads==1,"explicit metadata operation bypasses background display gate");
+    db.SetDisplayBusy(false);wait([&]{return probes.load()>0;});auto before=probes.load();Sleep(160);
+    check(loads==1&&probes-before<=10,"Pending hint retries with bounded waits and never reparses the source");
+    hint=1;db.WaitIdle();check(db.Status().entries==1&&loads==1,"ready priority hint resumes and reuses existing metadata");
+    auto resumed=loads.load();db.Stop();db.Configure(root,cfg,loader,priority);db.WaitIdle();db.QueueCached({source.wstring()});db.WaitIdle();
+    check(loads==resumed&&db.Status().entries==1,"automatic priority refresh after restart does not reparse unchanged metadata");
+    db.SetDisplayBusy(true);auto old=base/L"old.png",next=base/L"next.png";for(auto path:{old,next}){std::ofstream f(path);f<<"source";}
+    db.QueueCached({old.wstring()});db.QueueCached({next.wstring()});db.SetDisplayBusy(false);db.WaitIdle();
+    check(loads==resumed+1&&db.Status().entries==2,"new folder scan discards old queued priority work");
+    // Change the scan while a source read is in flight. Its metadata must not be committed.
+    std::atomic<bool> entered{false},release{false};auto slow=[&](const std::wstring& path){entered=true;while(!release)Sleep(1);return loader(path);};
+    db.Configure(root,cfg,slow,priority);db.WaitIdle();db.QueueCached({old.wstring()});wait([&]{return entered.load();});
+    db.QueueCached({});release=true;db.WaitIdle();check(db.Status().entries==2&&db.Status().error.empty(),"obsolete in-flight priority scan cannot commit metadata or report a false failure");
+    db.SetDisplayBusy(true);db.Queue(source.wstring());db.Configure(root,{false,1,100},loader,priority);db.WaitIdle();
+    check(!fs::exists(root/L"mdb.sqlite"),"MDB OFF deletion bypasses a paused display gate and clears background work");db.Stop();
+    db.Configure(root,cfg,loader,priority);db.WaitIdle();db.Queue(source.wstring());auto start=GetTickCount64();db.Stop();
+    check(GetTickCount64()-start<3000,"stop interrupts paused collection without waiting for display completion");
+    // All writes above are synthetic and confined to self-test-data.
+}

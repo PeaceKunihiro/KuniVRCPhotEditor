@@ -41,11 +41,11 @@ MdbRecord ReadMdbSource(const std::wstring& path){
     if(row.revision!=MdbRevision(path))throw std::runtime_error("MDB input changed during read");return row;
 }
 struct MetadataDb::Impl {
-    struct Task{std::wstring path;bool cachedOnly=false;uint64_t epoch=0;std::shared_ptr<const std::vector<std::wstring>> present;};
+    struct Task{std::wstring path;bool cachedOnly=false;uint64_t epoch=0;std::shared_ptr<const std::vector<std::wstring>> present;uint64_t scan=0,retryAt=0;};
     std::mutex control,io;std::condition_variable wake,idle;std::vector<std::thread> workers;
     std::deque<Task> tasks;std::set<std::wstring> queued;std::vector<fs::path> eraseRoots;
-    MdbConfig cfg;fs::path root,openedRoot;uint64_t epoch=0;std::atomic<bool> stopping{false};bool pending=false;size_t active=0;
-    std::function<MdbRecord(const std::wstring&)> reader;std::function<bool(const std::wstring&)> priority;
+    MdbConfig cfg;fs::path root,openedRoot;uint64_t epoch=0;std::atomic<bool> stopping{false};bool pending=false,displayBusy=false;size_t active=0;uint64_t cachedScan=0;
+    std::function<MdbRecord(const std::wstring&)> reader;std::function<int(const std::wstring&)> priority;
     std::map<std::wstring,std::pair<int64_t,int>> touches;
     MdbStatus status;sqlite3* db=nullptr;HANDLE owner=INVALID_HANDLE_VALUE;int64_t tick=0;uint64_t applied=UINT64_MAX;
     ~Impl(){Close();}
@@ -89,40 +89,60 @@ struct MetadataDb::Impl {
         while(uint64_t(Scalar(db,"SELECT COALESCE(SUM(bytes),0) FROM photos"))+extra>available){Statement old(db,"SELECT path,priority FROM photos ORDER BY priority,used,path LIMIT 1");if(old.Step()!=SQLITE_ROW||(!incomingPriority&&old.Number(1)>0))return false;auto path=old.Text(0);Statement remove(db,"DELETE FROM photos WHERE path=?");remove.Text(1,path);remove.Step();}
         return true;
     }
+    static std::wstring QueueKey(const Task& t){return (t.cachedOnly?L"cached:"+std::to_wstring(t.scan)+L"|":L"read:")+PathKey(t.path);}
     void Work(MetadataDb* api){
         auto init=RoInitialize(RO_INIT_MULTITHREADED);
-        for(;;){Task task;bool config=false;{std::unique_lock<std::mutex> l(control);wake.wait(l,[&]{return stopping||pending||!tasks.empty();});if(stopping)break;config=pending;pending=false;if(!config){task=std::move(tasks.front());tasks.pop_front();}++active;}
+        for(;;){Task task;bool config=false,retry=false;{std::unique_lock<std::mutex> l(control);
+            wake.wait(l,[&]{return stopping||pending||(!displayBusy&&!tasks.empty());});if(stopping)break;
+            config=pending;pending=false;
+            if(!config){auto now=GetTickCount64();auto next=std::find_if(tasks.begin(),tasks.end(),[&](auto& t){return t.retryAt<=now;});
+                if(next==tasks.end()){wake.wait_for(l,std::chrono::milliseconds(50),[&]{return stopping||pending||displayBusy;});continue;}
+                task=std::move(*next);tasks.erase(next);}++active;}
             try{if(config){std::lock_guard<std::mutex> l(io);MdbConfig c;uint64_t t;if(Sync(c,t))FlushTouches();}
-                else{std::function<bool(const std::wstring&)> test;bool run=false;{std::lock_guard<std::mutex> l(control);run=task.epoch==epoch&&cfg.enabled;test=priority;}
-                    if(run){if(task.present){std::set<std::wstring> live;for(auto& p:*task.present)live.insert(PathKey(p));std::lock_guard<std::mutex> l(io);MdbConfig c;uint64_t t;if(Sync(c,t)){
+                else{std::function<int(const std::wstring&)> test;bool run=false;{std::lock_guard<std::mutex> l(control);run=task.epoch==epoch&&cfg.enabled&&(!task.cachedOnly||task.scan==cachedScan);test=priority;}
+                    if(run){if(task.present){std::set<std::wstring> live;for(auto& p:*task.present)live.insert(PathKey(p));std::lock_guard<std::mutex> l(io);MdbConfig c;uint64_t t;if(Sync(c,t)&&t==task.epoch){
                         auto folder=PathKey(task.path),prefix=folder+L"\\";std::wstring pattern;for(auto ch:prefix){if(ch==L'!'||ch==L'%'||ch==L'_')pattern+=L'!';pattern+=ch;}pattern+=L'%';std::vector<std::wstring> removed;
                         {Statement q(db,"SELECT path FROM photos WHERE path LIKE ? ESCAPE '!'");q.Text(1,pattern);while(q.Step()==SQLITE_ROW){auto p=q.Text(0);if(PathKey(fs::path(p).parent_path().wstring())==folder&&!live.count(p))removed.push_back(p);}}
                         for(auto& p:removed){Statement d(db,"DELETE FROM photos WHERE path=?");d.Text(1,p);d.Step();touches.erase(p);}Publish();}}
-                    else if(task.cachedOnly){bool cached=test&&test(task.path);if(cached)api->Read(task.path,1,false);else{std::lock_guard<std::mutex> l(io);MdbConfig c;uint64_t t;if(Sync(c,t)){Statement s(db,"UPDATE photos SET priority=0 WHERE path=?");s.Text(1,PathKey(task.path));s.Step();}}}else api->Read(task.path,-1,false);}}}
+                    else {bool automatic=false;{std::lock_guard<std::mutex> l(control);automatic=cfg.mode==1;}
+                        int cached=(automatic&&test)?test(task.path):0;
+                        if(cached==-1)retry=true;
+                        else if(cached< -1)throw std::runtime_error("Disk cache priority unavailable");
+                        else if(!task.cachedOnly||cached>0)api->ReadInternal(task.path,cached>0?1:0,false,task.epoch,task.cachedOnly?task.scan:UINT64_MAX);
+                        else {std::lock_guard<std::mutex> l(io);MdbConfig c;uint64_t t;if(Sync(c,t)&&t==task.epoch){
+                            bool current;{std::lock_guard<std::mutex> g(control);current=task.scan==cachedScan;}
+                            if(current){Statement s(db,"UPDATE photos SET priority=0 WHERE path=? AND priority<>0");s.Text(1,PathKey(task.path));s.Step();auto touched=touches.find(PathKey(task.path));if(touched!=touches.end())touched->second.second=0;}
+                        }}}
+}}}
             catch(...){std::lock_guard<std::mutex> l(control);if(!status.deletionFailed)status.error=L"MDBの読込み・収集・保存に失敗しました。元画像の閲覧と直接検索は継続できます。";}
-            {std::lock_guard<std::mutex> l(control);if(!config&&!task.present)queued.erase(PathKey(task.path));--active;idle.notify_all();}
+            {std::lock_guard<std::mutex> l(control);bool current=task.epoch==epoch&&cfg.enabled&&(!task.cachedOnly||task.scan==cachedScan);
+                if(retry&&current&&!stopping){task.retryAt=GetTickCount64()+50;tasks.push_back(std::move(task));wake.notify_all();}
+                else if(!config&&!task.present)queued.erase(QueueKey(task));--active;idle.notify_all();}
         }if(SUCCEEDED(init))RoUninitialize();
     }
 };
 MetadataDb::MetadataDb():impl(std::make_unique<Impl>()){}MetadataDb::~MetadataDb(){Stop();}
-void MetadataDb::Configure(const fs::path& path,MdbConfig cfg,std::function<MdbRecord(const std::wstring&)> reader,std::function<bool(const std::wstring&)> priority){
+void MetadataDb::Configure(const fs::path& path,MdbConfig cfg,std::function<MdbRecord(const std::wstring&)> reader,std::function<int(const std::wstring&)> priority){
     if(cfg.mode<0||cfg.mode>2||cfg.capacityMB<100||cfg.capacityMB>4000)throw std::runtime_error("Invalid MDB configuration");
     std::lock_guard<std::mutex> l(impl->control);if(impl->cfg.enabled&&!cfg.enabled&&std::find(impl->eraseRoots.begin(),impl->eraseRoots.end(),impl->root)==impl->eraseRoots.end())impl->eraseRoots.push_back(impl->root);
     impl->cfg=cfg;impl->root=path;impl->reader=std::move(reader);impl->priority=std::move(priority);++impl->epoch;impl->tasks.clear();impl->queued.clear();impl->pending=true;impl->status.error.clear();
     if(impl->workers.empty()&&(cfg.enabled||!impl->eraseRoots.empty())){impl->stopping=false;for(int n=0;n<2;++n)impl->workers.emplace_back([this]{impl->Work(this);});}if(impl->workers.empty())impl->pending=false;impl->wake.notify_all();
 }
-MdbRecord MetadataDb::Read(const std::wstring& path,int priority,bool includeText){
-    MdbConfig cfg;uint64_t epoch=0;std::function<MdbRecord(const std::wstring&)> reader;std::function<bool(const std::wstring&)> test;{std::lock_guard<std::mutex> l(impl->control);cfg=impl->cfg;epoch=impl->epoch;reader=impl->reader;test=impl->priority;}
+MdbRecord MetadataDb::Read(const std::wstring& path,int priority,bool includeText){return ReadInternal(path,priority,includeText,UINT64_MAX,UINT64_MAX);}
+MdbRecord MetadataDb::ReadInternal(const std::wstring& path,int priority,bool includeText,uint64_t expectedEpoch,uint64_t expectedScan){
+    MdbConfig cfg;uint64_t epoch=0;std::function<MdbRecord(const std::wstring&)> reader;std::function<int(const std::wstring&)> test;{std::lock_guard<std::mutex> l(impl->control);if((expectedEpoch!=UINT64_MAX&&expectedEpoch!=impl->epoch)||(expectedScan!=UINT64_MAX&&expectedScan!=impl->cachedScan))return {};
+        cfg=impl->cfg;epoch=impl->epoch;reader=impl->reader;test=impl->priority;}
     auto revision=MdbRevision(path),key=PathKey(path);bool available=false,stale=false;
     if(cfg.enabled&&!BackupName(path)){try{std::lock_guard<std::mutex> l(impl->io);MdbConfig current;uint64_t ticket;available=impl->Sync(current,ticket)&&epoch==ticket;
-        if(available){Statement find(impl->db,includeText?"SELECT revision,body,terms FROM photos WHERE path=?":"SELECT revision,'',terms FROM photos WHERE path=?");find.Text(1,key);bool found=find.Step()==SQLITE_ROW;stale=found&&find.Text(0)!=revision;if(found&&!stale){MdbRecord row;row.path=path;row.revision=revision;row.text=find.Text(1);Decode(find.Text(2),row);if(revision!=MdbRevision(path))throw std::runtime_error("MDB source changed");auto stamp=++impl->tick;auto it=impl->touches.find(key);int prior=it!=impl->touches.end()?it->second.second:-1;impl->touches[key]={stamp,priority<0?prior:priority};std::lock_guard<std::mutex> c(impl->control);++impl->status.hits;if(impl->touches.size()>=128){impl->pending=true;impl->wake.notify_one();}return row;}}}
+        if(available){Statement find(impl->db,includeText?"SELECT revision,body,terms FROM photos WHERE path=?":"SELECT revision,'',terms FROM photos WHERE path=?");find.Text(1,key);bool found=find.Step()==SQLITE_ROW;stale=found&&find.Text(0)!=revision;if(found&&!stale){MdbRecord row;row.path=path;row.revision=revision;row.text=find.Text(1);Decode(find.Text(2),row);if(revision!=MdbRevision(path))throw std::runtime_error("MDB source changed");std::lock_guard<std::mutex> c(impl->control);if(epoch!=impl->epoch||(expectedScan!=UINT64_MAX&&expectedScan!=impl->cachedScan))return row;auto stamp=++impl->tick;auto it=impl->touches.find(key);int prior=it!=impl->touches.end()?it->second.second:-1;impl->touches[key]={stamp,priority<0?prior:priority};++impl->status.hits;if(impl->touches.size()>=128){impl->pending=true;impl->wake.notify_one();}return row;}}}
         catch(...){if(!Status().deletionFailed)impl->Error(L"MDBを利用できません。直接メタデータを読み込みます。");}}
     if(stale)Invalidate(path);
     auto row=reader?reader(path):ReadMdbSource(path);row.path=path;row.revision=revision;row.backup=row.backup||BackupName(path);
     {std::lock_guard<std::mutex> l(impl->control);++impl->status.parsed;}
     if(revision!=MdbRevision(path))throw std::runtime_error("MDB source changed");
     if(!cfg.enabled||row.backup||row.failed){if(row.backup||row.failed)Invalidate(path);if(!includeText)std::wstring().swap(row.text);return row;}
-    if(priority<0)priority=cfg.mode==1&&test&&test(path)?1:0;
+    if(priority<0){auto hint=cfg.mode==1&&test?test(path):0;
+        if(hint<0){if(hint==-1)Queue(path);if(!includeText)std::wstring().swap(row.text);return row;}priority=hint>0?1:0;}
     try{auto json=Encode(row);uint64_t bytes=uint64_t((row.text.size()+json.size()+revision.size()+key.size())*2)+512;for(auto& t:row.terms)bytes+=(t.value.size()+t.label.size()+key.size())*2+128;
         std::lock_guard<std::mutex> l(impl->io);MdbConfig current;uint64_t ticket;if(!impl->Sync(current,ticket)||ticket!=epoch)return row;
         if(cfg.Limit()&&bytes>cfg.Limit()/4){impl->Error(L"MDB容量上限のため登録できない画像があります。直接検索で補完します。");return row;}
@@ -131,12 +151,20 @@ MdbRecord MetadataDb::Read(const std::wstring& path,int priority,bool includeTex
             {Statement d(impl->db,"DELETE FROM photos WHERE path=?");d.Text(1,key);d.Step();}
             {Statement s(impl->db,"INSERT INTO photos VALUES(?,?,?,?,?,?,?)");s.Text(1,key);s.Text(2,revision);s.Text(3,row.text);s.Text(4,json);s.Number(5,++impl->tick);s.Number(6,priority);s.Number(7,bytes);s.Step();}
             for(auto& t:row.terms){Statement s(impl->db,"INSERT OR REPLACE INTO items VALUES(?,?,?,?,?)");s.Text(1,key);s.Number(2,t.axis);s.Text(3,t.value);s.Text(4,t.label);s.Number(5,t.roles);s.Step();}
-            {std::lock_guard<std::mutex> c(impl->control);if(epoch!=impl->epoch||!impl->cfg.enabled)throw std::runtime_error("MDB generation changed");Sql(impl->db,"COMMIT");}
+            {std::lock_guard<std::mutex> c(impl->control);if(epoch!=impl->epoch||!impl->cfg.enabled||(expectedScan!=UINT64_MAX&&expectedScan!=impl->cachedScan))throw std::runtime_error("MDB generation changed");Sql(impl->db,"COMMIT");}
         }catch(...){sqlite3_exec(impl->db,"ROLLBACK",nullptr,nullptr,nullptr);throw;}impl->Publish();
-    }catch(...){if(!Status().deletionFailed)impl->Error(L"MDBへ保存できませんでした。直接検索の結果は利用できます。");}if(!includeText)std::wstring().swap(row.text);return row;
+    }catch(...){bool current;{std::lock_guard<std::mutex> l(impl->control);current=epoch==impl->epoch&&(expectedScan==UINT64_MAX||expectedScan==impl->cachedScan);}
+        if(current&&!Status().deletionFailed)impl->Error(L"MDBへ保存できませんでした。直接検索の結果は利用できます。");}if(!includeText)std::wstring().swap(row.text);return row;
 }
-void MetadataDb::Queue(const std::wstring& path){std::lock_guard<std::mutex> l(impl->control);if(!impl->cfg.enabled||impl->stopping||BackupName(path))return;auto key=PathKey(path);if(impl->queued.insert(key).second)impl->tasks.push_back({path,false,impl->epoch});impl->wake.notify_one();}
-void MetadataDb::QueueCached(const std::vector<std::wstring>& paths){std::lock_guard<std::mutex> l(impl->control);if(!impl->cfg.enabled||impl->cfg.mode!=1||impl->stopping)return;for(auto i=paths.rbegin();i!=paths.rend();++i){auto key=PathKey(*i);if(!BackupName(*i)&&impl->queued.insert(key).second)impl->tasks.push_front({*i,true,impl->epoch});}impl->wake.notify_all();}
+void MetadataDb::SetDisplayBusy(bool busy){std::lock_guard<std::mutex> l(impl->control);if(impl->displayBusy==busy)return;impl->displayBusy=busy;impl->wake.notify_all();}
+void MetadataDb::Queue(const std::wstring& path){std::lock_guard<std::mutex> l(impl->control);if(!impl->cfg.enabled||impl->stopping||BackupName(path))return;Impl::Task task{path,false,impl->epoch};auto key=Impl::QueueKey(task);if(impl->queued.count(key))return;
+    auto cached=std::find_if(impl->tasks.begin(),impl->tasks.end(),[&](auto& t){return t.cachedOnly&&t.scan==impl->cachedScan&&t.path==path;});
+    if(cached!=impl->tasks.end()){impl->queued.erase(Impl::QueueKey(*cached));cached->cachedOnly=false;impl->queued.insert(key);}
+    else if(impl->queued.insert(key).second)impl->tasks.push_back(std::move(task));impl->wake.notify_one();}
+void MetadataDb::QueueCached(const std::vector<std::wstring>& paths){std::lock_guard<std::mutex> l(impl->control);++impl->cachedScan;
+    for(auto i=impl->tasks.begin();i!=impl->tasks.end();)if(i->cachedOnly){impl->queued.erase(Impl::QueueKey(*i));i=impl->tasks.erase(i);}else ++i;
+    if(!impl->cfg.enabled||impl->cfg.mode!=1||impl->stopping)return;
+    for(auto& path:paths){Impl::Task task{path,true,impl->epoch};task.scan=impl->cachedScan;if(!BackupName(path)&&!impl->queued.count(L"read:"+PathKey(path))&&impl->queued.insert(Impl::QueueKey(task)).second)impl->tasks.push_back(std::move(task));}impl->wake.notify_all();}
 void MetadataDb::Reconcile(const std::wstring& folder,const std::vector<std::wstring>& files){std::lock_guard<std::mutex> l(impl->control);if(!impl->cfg.enabled||impl->stopping)return;Impl::Task t{folder,false,impl->epoch};t.present=std::make_shared<const std::vector<std::wstring>>(files);impl->tasks.push_front(std::move(t));impl->wake.notify_one();}
 void MetadataDb::Invalidate(const std::wstring& path){try{std::lock_guard<std::mutex> l(impl->io);MdbConfig c;uint64_t t;if(impl->Sync(c,t)){Statement s(impl->db,"DELETE FROM photos WHERE path=?");s.Text(1,PathKey(path));s.Step();impl->touches.erase(PathKey(path));impl->Publish();}}catch(...){}}
 std::vector<std::wstring> MetadataDb::Labels(int axis,const std::wstring& value){std::vector<std::wstring> labels;try{std::lock_guard<std::mutex> l(impl->io);MdbConfig c;uint64_t t;if(impl->Sync(c,t)){Statement s(impl->db,"SELECT DISTINCT label FROM items WHERE axis=? AND value=? LIMIT 2");s.Number(1,axis);s.Text(2,value);while(s.Step()==SQLITE_ROW)labels.push_back(s.Text(0));}}catch(...){}return labels;}
