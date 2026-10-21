@@ -17,8 +17,8 @@ void Check(int rc){if(rc!=SQLITE_OK&&rc!=SQLITE_DONE&&rc!=SQLITE_ROW)throw std::
 void Sql(sqlite3* db,const std::string& text){Check(sqlite3_exec(db,text.c_str(),nullptr,nullptr,nullptr));}
 struct Statement {sqlite3_stmt* p=nullptr;Statement(sqlite3* db,const char* sql){Check(sqlite3_prepare_v2(db,sql,-1,&p,nullptr));}~Statement(){sqlite3_finalize(p);}void Text(int n,const std::wstring& s){Check(sqlite3_bind_text16(p,n,s.data(),int(s.size()*sizeof(wchar_t)),SQLITE_TRANSIENT));}void Number(int n,int64_t value){Check(sqlite3_bind_int64(p,n,value));}int Step(){auto r=sqlite3_step(p);Check(r);return r;}std::wstring Text(int n){auto s=static_cast<const wchar_t*>(sqlite3_column_text16(p,n));return s?std::wstring(s,sqlite3_column_bytes16(p,n)/sizeof(wchar_t)):L"";}int64_t Number(int n){return sqlite3_column_int64(p,n);}};
 int64_t Scalar(sqlite3* db,const char* sql){Statement s(db,sql);return s.Step()==SQLITE_ROW?s.Number(0):0;}
-std::wstring Encode(const MdbRecord& row){JsonArray a;for(auto& t:row.terms){JsonObject o;o.Insert(L"a",JsonValue::CreateNumberValue(t.axis));o.Insert(L"v",JsonValue::CreateStringValue(t.value));o.Insert(L"l",JsonValue::CreateStringValue(t.label));o.Insert(L"r",JsonValue::CreateNumberValue(t.roles));a.Append(o);}return std::wstring(a.Stringify());}
-void Decode(const std::wstring& json,MdbRecord& row){for(auto v:JsonArray::Parse(json)){auto o=v.GetObject();MdbTerm t;t.axis=int(o.GetNamedNumber(L"a"));t.value=o.GetNamedString(L"v");t.label=o.GetNamedString(L"l");t.roles=int(o.GetNamedNumber(L"r",0));if(t.axis<0||t.axis>5||t.value.empty())throw std::runtime_error("MDB invalid term");row.terms.push_back(std::move(t));}}
+std::wstring Encode(const MdbRecord& row){JsonArray a;for(auto& t:row.terms){JsonObject o;o.Insert(L"a",JsonValue::CreateNumberValue(t.axis));o.Insert(L"v",JsonValue::CreateStringValue(t.value));o.Insert(L"l",JsonValue::CreateStringValue(t.label));o.Insert(L"r",JsonValue::CreateNumberValue(t.roles));a.Append(o);}if(row.peopleReady){JsonObject o;o.Insert(L"a",JsonValue::CreateNumberValue(7));o.Insert(L"v",JsonValue::CreateStringValue(L"people-v1"));o.Insert(L"l",JsonValue::CreateStringValue(L""));a.Append(o);}return std::wstring(a.Stringify());}
+void Decode(const std::wstring& json,MdbRecord& row){for(auto v:JsonArray::Parse(json)){auto o=v.GetObject();MdbTerm t;t.axis=int(o.GetNamedNumber(L"a"));t.value=o.GetNamedString(L"v");t.label=o.GetNamedString(L"l");t.roles=int(o.GetNamedNumber(L"r",0));if(t.axis==7&&t.value==L"people-v1"){row.peopleReady=true;continue;}if(t.axis<0||t.axis>6||t.value.empty())throw std::runtime_error("MDB invalid term");row.terms.push_back(std::move(t));}}
 }
 std::wstring MdbRevision(const std::wstring& path){
     auto key=ThumbnailCache::Key(path);HANDLE file=CreateFileW(path.c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
@@ -38,6 +38,10 @@ MdbRecord ReadMdbSource(const std::wstring& path){
     for(auto& s:Lines(summary.values[7]))add(2,s,s,2);
     for(auto& p:summary.people){add(2,p.name,p.name,1);add(1,p.id,p.name,1);}
     for(auto& p:summary.candidatePeople){add(2,p.name,p.name,4);add(1,p.id,p.name,4);}
+    for(auto& name:Lines(summary.values[7]))add(6,L"name:"+name,name,2);
+    for(auto& person:summary.categoryCandidates){auto id=CanonicalDisplayId(person.id);if(DisplayIdType(id)!=L"person")id.clear();
+        if(!id.empty())add(6,id,person.name,4);else if(!person.name.empty())add(6,L"name:"+person.name,person.name,4);}
+    row.peopleReady=true;
     if(row.revision!=MdbRevision(path))throw std::runtime_error("MDB input changed during read");return row;
 }
 struct MetadataDb::Impl {
@@ -128,13 +132,13 @@ void MetadataDb::Configure(const fs::path& path,MdbConfig cfg,std::function<MdbR
     impl->cfg=cfg;impl->root=path;impl->reader=std::move(reader);impl->priority=std::move(priority);++impl->epoch;impl->tasks.clear();impl->queued.clear();impl->pending=true;impl->status.error.clear();
     if(impl->workers.empty()&&(cfg.enabled||!impl->eraseRoots.empty())){impl->stopping=false;for(int n=0;n<2;++n)impl->workers.emplace_back([this]{impl->Work(this);});}if(impl->workers.empty())impl->pending=false;impl->wake.notify_all();
 }
-MdbRecord MetadataDb::Read(const std::wstring& path,int priority,bool includeText){return ReadInternal(path,priority,includeText,UINT64_MAX,UINT64_MAX);}
-MdbRecord MetadataDb::ReadInternal(const std::wstring& path,int priority,bool includeText,uint64_t expectedEpoch,uint64_t expectedScan){
+MdbRecord MetadataDb::Read(const std::wstring& path,int priority,bool includeText,bool requirePeople){return ReadInternal(path,priority,includeText,UINT64_MAX,UINT64_MAX,requirePeople);}
+MdbRecord MetadataDb::ReadInternal(const std::wstring& path,int priority,bool includeText,uint64_t expectedEpoch,uint64_t expectedScan,bool requirePeople){
     MdbConfig cfg;uint64_t epoch=0;std::function<MdbRecord(const std::wstring&)> reader;std::function<int(const std::wstring&)> test;{std::lock_guard<std::mutex> l(impl->control);if((expectedEpoch!=UINT64_MAX&&expectedEpoch!=impl->epoch)||(expectedScan!=UINT64_MAX&&expectedScan!=impl->cachedScan))return {};
         cfg=impl->cfg;epoch=impl->epoch;reader=impl->reader;test=impl->priority;}
-    auto revision=MdbRevision(path),key=PathKey(path);bool available=false,stale=false;
+    auto revision=MdbRevision(path),key=PathKey(path);bool available=false,stale=false;int existingPriority=-1;
     if(cfg.enabled&&!BackupName(path)){try{std::lock_guard<std::mutex> l(impl->io);MdbConfig current;uint64_t ticket;available=impl->Sync(current,ticket)&&epoch==ticket;
-        if(available){Statement find(impl->db,includeText?"SELECT revision,body,terms FROM photos WHERE path=?":"SELECT revision,'',terms FROM photos WHERE path=?");find.Text(1,key);bool found=find.Step()==SQLITE_ROW;stale=found&&find.Text(0)!=revision;if(found&&!stale){MdbRecord row;row.path=path;row.revision=revision;row.text=find.Text(1);Decode(find.Text(2),row);if(revision!=MdbRevision(path))throw std::runtime_error("MDB source changed");std::lock_guard<std::mutex> c(impl->control);if(epoch!=impl->epoch||(expectedScan!=UINT64_MAX&&expectedScan!=impl->cachedScan))return row;auto stamp=++impl->tick;auto it=impl->touches.find(key);int prior=it!=impl->touches.end()?it->second.second:-1;impl->touches[key]={stamp,priority<0?prior:priority};++impl->status.hits;if(impl->touches.size()>=128){impl->pending=true;impl->wake.notify_one();}return row;}}}
+        if(available){Statement find(impl->db,includeText?"SELECT revision,body,terms,priority FROM photos WHERE path=?":"SELECT revision,'',terms,priority FROM photos WHERE path=?");find.Text(1,key);bool found=find.Step()==SQLITE_ROW;if(found)existingPriority=int(find.Number(3));stale=found&&find.Text(0)!=revision;if(found&&!stale){MdbRecord row;row.path=path;row.revision=revision;row.text=find.Text(1);Decode(find.Text(2),row);if(!requirePeople||row.peopleReady){if(revision!=MdbRevision(path))throw std::runtime_error("MDB source changed");std::lock_guard<std::mutex> c(impl->control);if(epoch!=impl->epoch||(expectedScan!=UINT64_MAX&&expectedScan!=impl->cachedScan))return row;auto stamp=++impl->tick;auto it=impl->touches.find(key);int prior=it!=impl->touches.end()?it->second.second:-1;impl->touches[key]={stamp,priority<0?prior:priority};++impl->status.hits;if(impl->touches.size()>=128){impl->pending=true;impl->wake.notify_one();}return row;}}}}
         catch(...){if(!Status().deletionFailed)impl->Error(L"MDBを利用できません。直接メタデータを読み込みます。");}}
     if(stale)Invalidate(path);
     auto row=reader?reader(path):ReadMdbSource(path);row.path=path;row.revision=revision;row.backup=row.backup||BackupName(path);
@@ -142,7 +146,10 @@ MdbRecord MetadataDb::ReadInternal(const std::wstring& path,int priority,bool in
     if(revision!=MdbRevision(path))throw std::runtime_error("MDB source changed");
     if(!cfg.enabled||row.backup||row.failed){if(row.backup||row.failed)Invalidate(path);if(!includeText)std::wstring().swap(row.text);return row;}
     if(priority<0){auto hint=cfg.mode==1&&test?test(path):0;
-        if(hint<0){if(hint==-1)Queue(path);if(!includeText)std::wstring().swap(row.text);return row;}priority=hint>0?1:0;}
+        if(hint<0){if(hint==-1)Queue(path);
+            // Upgrade legacy people data even while the cache index is busy; keep its known priority.
+            if(!requirePeople||existingPriority<0){if(!includeText)std::wstring().swap(row.text);return row;}priority=existingPriority;
+        }else priority=hint>0?1:0;}
     try{auto json=Encode(row);uint64_t bytes=uint64_t((row.text.size()+json.size()+revision.size()+key.size())*2)+512;for(auto& t:row.terms)bytes+=(t.value.size()+t.label.size()+key.size())*2+128;
         std::lock_guard<std::mutex> l(impl->io);MdbConfig current;uint64_t ticket;if(!impl->Sync(current,ticket)||ticket!=epoch)return row;
         if(cfg.Limit()&&bytes>cfg.Limit()/4){impl->Error(L"MDB容量上限のため登録できない画像があります。直接検索で補完します。");return row;}

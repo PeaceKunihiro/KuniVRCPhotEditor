@@ -1,5 +1,8 @@
 # KuniVRCPhotEditor Stage5：MDB・写真カテゴライズ仕様
 
+> v0.5.12追補：[人物分類・優先表示・折り畳み仕様](V0.5.12_PLAN.md)を採用。以下の人物ID別／人物名別、人物の重複表示、分類時の開閉に関する旧記述は追補で置き換える。人物以外の分類条件は維持する。[実装・確認](V0.5.12_IMPLEMENTATION.md)参照。
+
+
 作成・最終更新日：2026-10-18（日本時間）。基準版：v0.5.5。ユーザー回答による確定事項を反映済み。v0.5.6の[実装・検証記録](V0.5.6_IMPLEMENTATION.md)を併せて参照。
 
 [機能説明](../README.md)／[更新履歴](UPDATELOG.md)／[Stage4](KuniVRCPhotEditor_Stage4.md)

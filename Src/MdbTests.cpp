@@ -72,7 +72,7 @@ void RunMdbUiTests(const fs::path& directory,std::ostream& report){
     app.metadataSearch=false;OpenFolder(root.wstring(),true);wait([]{return !app.folderPending&&ThumbnailsReady();});app.mdb.WaitIdle();
     auto names=app.mdb.Values(2);check(std::find(names.begin(),names.end(),L"Candidate")!=names.end()&&std::find(names.begin(),names.end(),L"Photographer")==names.end(),"MDB records candidates without treating photographer as a subject");
     auto all=app.mdb.Values(0);check(std::find(all.begin(),all.end(),L"Red")!=all.end(),"MDB observes loaded thumbnails and stores all tags");
-    for(int axis=1;axis<=6;++axis){RequestCategory(axis);wait([]{return !app.searching&&!app.sorting&&ThumbnailsReady();});check(ListView_GetGroupCount(app.list)>=2,"MDB category creates native nonselectable group headers");check(VisibleImages().size()==4,"MDB category retains every physical image including missing metadata and visible backup");if(axis==1){check(app.files.size()>4&&std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[](auto& r){return r.multiple;}),"MDB multi-tag photo appears in each group with duplicate badge");CaptureV0412Ui(directory/L"mdb-tag-groups.png",app.window);int a=-1;for(int i=0;i<int(app.files.size());++i)if(Same(app.files[i],files[0].wstring())){a=i;break;}ListView_SetItemState(app.list,-1,0,LVIS_SELECTED);ListView_SetItemState(app.list,a,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);FlushSelectionUpdate();check(SelectedFiles().size()==1&&SelectedImageCount()==1,"MDB duplicate selection counts one physical file");ListView_SetItemState(app.list,a,0,LVIS_SELECTED);FlushSelectionUpdate();check(SelectedFiles().empty(),"MDB deselecting one occurrence deselects all occurrences");RunMdbSelectionTests(directory,report);
+    for(int axis:{1,2,4,5,6}){RequestCategory(axis);wait([]{return !app.searching&&!app.sorting;});SetAllCategories(true);wait([]{return ThumbnailsReady();});check(ListView_GetGroupCount(app.list)>=2,"MDB category creates native nonselectable group headers");check(VisibleImages().size()==4,"MDB category retains every physical image including missing metadata and visible backup");if(axis==1){check(app.files.size()>4&&std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[](auto& r){return r.multiple;}),"MDB multi-tag photo appears in each group with duplicate badge");CaptureV0412Ui(directory/L"mdb-tag-groups.png",app.window);int a=-1;for(int i=0;i<int(app.files.size());++i)if(Same(app.files[i],files[0].wstring())){a=i;break;}ListView_SetItemState(app.list,-1,0,LVIS_SELECTED);ListView_SetItemState(app.list,a,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);FlushSelectionUpdate();check(SelectedFiles().size()==1&&SelectedImageCount()==1,"MDB duplicate selection counts one physical file");ListView_SetItemState(app.list,a,0,LVIS_SELECTED);FlushSelectionUpdate();check(SelectedFiles().empty(),"MDB deselecting one occurrence deselects all occurrences");RunMdbSelectionTests(directory,report);
             for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();for(auto layout:{L"left",L"right",L"bottom",L"none"}){app.layout=layout;Layout();check(ListView_GetGroupCount(app.list)>=2,"MDB groups survive side-view placement changes");}app.layout=L"right";Layout();app.hideFileNames=true;ApplyThumbnailSize(true);wait([]{return ThumbnailsReady();});CaptureV0412Ui(directory/(dark?L"mdb-tile-dark.png":L"mdb-tile-light.png"),app.window);app.hideFileNames=false;ApplyThumbnailSize(true);}app.darkTheme=false;ApplyTheme();}
         if(axis==4)check(std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[&](auto& r){return r.key==world&&r.label==world;}),"MDB conflicting world names use ID as category name");
         if(axis==6)check(std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[](auto& r){return r.label==L"Photographer";}),"MDB photographer is a separate category");}
@@ -155,3 +155,74 @@ void RunV0511Tests(const fs::path& directory,std::ostream& report){
     check(GetTickCount64()-start<3000,"stop interrupts paused collection without waiting for display completion");
     // All writes above are synthetic and confined to self-test-data.
 }
+
+
+void RunV0512Tests(const fs::path& directory,std::ostream& report){
+    auto check=[&](bool ok,const char* name){report<<(ok?"PASS: ":"FAIL: ")<<"v0.5.12 "<<name<<std::endl;if(!ok)throw std::runtime_error(name);};
+    auto base=directory/L"v0512-unit";fs::create_directories(base);
+    std::vector<MdbRecord> photos;
+    const std::vector<std::vector<std::wstring>> members{{L"たぬき"},{L"うさぎ"},{L"たぬき",L"うさぎ"},{L"たぬき",L"かめ"},{L"かめ"}};
+    for(int i=0;i<5;++i){MdbRecord row;row.path=(base/(std::wstring(1,wchar_t(L'A'+i))+L".png")).wstring();row.peopleReady=true;for(auto& name:members[i])row.terms.push_back({6,L"name:"+name,name,2});photos.push_back(row);}
+    Result result;BuildPersonView(photos,{},L"",result);auto fileNames=[&]{std::wstring names;for(auto& path:result.files)names+=fs::path(path).stem().wstring();return names;};
+    check(fileNames()==L"BCDEA"&&result.mdbRows[0].label==L"うさぎ"&&result.mdbRows[2].label==L"かめ","Japanese name order assigns example photos exactly once");
+    BuildPersonView(photos,{},L"name:たぬき",result);check(fileNames()==L"ACDBE"&&result.files.size()==5,"priority includes every matching photo and retains nonmatches once");
+    std::wstring id=L"usr_12345678-abcd-1234-abcd-123456789abc",other=L"usr_22345678-abcd-1234-abcd-123456789abc";
+    photos[0].terms={{6,id,L"同名",4}};photos[1].terms={{6,other,L"同名",4}};photos[2].terms={{6,L"name:同名",L"同名",2}};photos[3].terms={{1,id,L"同室者のみ",1}};photos[4].terms={{6,id,L"別名",4}};
+    BuildPersonView(photos,{},L"",result);std::set<std::wstring> keys;for(auto& row:result.mdbRows)keys.insert(row.key);
+    check(keys.count(id)&&keys.count(other)&&keys.count(L"name:同名")&&keys.count(L"\uffff1"),"same-name IDs and name-only models stay separate; roommates alone have no candidates");
+    check(std::any_of(result.mdbRows.begin(),result.mdbRows.end(),[&](auto& row){return row.key==id&&row.label==id;}),"conflicting names for an ID fall back to the ID");
+    BuildPersonView(photos,{{id,L"登録名"}},id,result);check(result.mdbRows[0].key==id&&result.mdbRows[0].label==L"登録名","explicit ID alias overrides recorded names");
+    photos[0].terms={{6,id,L"",4}};photos[4].terms.clear();photos[1].failed=true;photos[2].backup=true;
+    BuildPersonView(photos,{},L"",result);check(result.mdbRows[0].key==id&&result.mdbRows[0].label==id&&result.mdbRows.back().label==L"バックアップ（MDB対象外）","ID-only candidate, read error and backup have distinct categories");
+    std::string xml=R"(<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:k="urn:kunivrcphoteditor:metadata:1.0"><rdf:Description><k:CaptureRecord><k:ModelCandidates><rdf:Seq><rdf:li rdf:parseType="Resource"><k:UserId>usr_12345678-abcd-1234-abcd-123456789abc</k:UserId></rdf:li></rdf:Seq></k:ModelCandidates></k:CaptureRecord></rdf:Description></rdf:RDF>)";
+    XmpFields fields;std::wstring error;check(ParseXmp(xml,fields,error)&&fields.categoryCandidates.size()==1&&fields.categoryCandidates[0].id==id&&fields.candidatePeople.empty(),"ID-only candidate is retained for categorization without changing editable names");
+    for(int old:{2,3,4,5,6}){auto settings=ParseViewerSettings("{\"version\":3,\"mdbEnabled\":true,\"categoryMode\":"+std::to_string(old)+"}");check(settings.categoryMode==(old==3?2:old),"legacy category settings preserve world/group/photographer and merge person modes");}
+    auto source=base/L"source.bin";{std::ofstream f(source,std::ios::trunc);f<<"unchanged";}
+    int reads=0;MetadataDb db;MdbConfig config{true,0,100};auto oldReader=[&](const std::wstring& path){++reads;MdbRecord row;row.path=path;row.text=L"old metadata";return row;};
+    auto root=base/L"MetadataDB";db.Configure(root,config,oldReader,{});db.WaitIdle();db.Configure(root,{false,0,100},oldReader,{});db.WaitIdle();db.Configure(root,config,oldReader,{});db.WaitIdle();db.Read(source.wstring());
+    auto currentReader=[&](const std::wstring& path){auto row=oldReader(path);row.peopleReady=true;row.terms={{6,id,L"モデル",4}};return row;};db.Configure(root,config,currentReader,{});db.WaitIdle();int before=reads;
+    db.Read(source.wstring());check(reads==before,"old MDB is reusable without a forced global rebuild");
+    auto upgraded=db.Read(source.wstring(),-1,false,true);check(reads==before+1&&upgraded.peopleReady&&upgraded.terms.size()==1,"person projection upgrades one legacy entry on demand");
+    db.Read(source.wstring(),-1,false,true);check(reads==before+1&&fs::file_size(source)==9,"upgraded projection is reused and source stays unchanged");db.Stop();
+    std::atomic<int> hint{0};MetadataDb pending;pending.Configure(root,{true,1,100},oldReader,[&](auto&){return hint.load();});pending.WaitIdle();pending.Invalidate(source.wstring());pending.Read(source.wstring());
+    pending.Configure(root,{true,1,100},currentReader,[&](auto&){return hint.load();});pending.WaitIdle();hint=-1;pending.Read(source.wstring(),-1,false,true);hint=1;pending.WaitIdle();
+    check(pending.Read(source.wstring(),-1,false,true).peopleReady,"legacy projection upgrade is retained even when the cache probe was Pending");pending.Stop();
+}
+
+void RunV0512UiTests(const fs::path& directory,std::ostream& report){
+    auto check=[&](bool ok,const char* name){report<<(ok?"PASS: ":"FAIL: ")<<"v0.5.12 "<<name<<std::endl;if(!ok)throw std::runtime_error(name);};
+    auto wait=[&](auto ready){auto end=GetTickCount64()+20000;while(!ready()){if(GetTickCount64()>end)throw std::runtime_error("v0512 UI timeout");MSG m{};while(PeekMessageW(&m,nullptr,0,0,PM_REMOVE)){TranslateMessage(&m);DispatchMessageW(&m);}Sleep(5);}};
+    auto root=directory/L"v0512-ui";fs::create_directories(root);auto source=directory/L"sample-日本語.png";check(fs::exists(source),"existing synthetic PNG fixture available");
+    std::vector<fs::path> files;const wchar_t* names[]{L"たぬき",L"うさぎ",L"たぬき\nうさぎ",L"たぬき\nかめ",L"かめ"};
+    for(int i=0;i<5;++i){auto path=root/(std::wstring(1,wchar_t(L'A'+i))+L".png");MetadataEdit edit;edit.actions[4]=EditAction::Set;edit.values[4]=names[i];fs::remove(path);SaveMetadataCopy(source.wstring(),path.wstring(),MetadataFingerprint(source.wstring()),edit);files.push_back(path);}
+    app.mdbEnabled=true;app.mdbMode=0;app.categoryMode=0;app.sortMode=0;app.appliedQuery.clear();app.metadataSearch=false;report<<"INFO: configuring MDB"<<std::endl;ConfigureMdb();report<<"INFO: opening person fixture"<<std::endl;OpenFolder(root.wstring(),true);wait([]{return !app.folderPending&&ThumbnailsReady();});report<<"INFO: requesting person category"<<std::endl;
+    RequestCategory(2);wait([]{return !app.sorting&&!app.searching;});
+    check(app.files.size()==5&&ListView_GetGroupCount(app.list)==3&&app.personChoices.size()==3,"unified person categories have five unique photos and dynamic choices");
+    auto allCollapsed=[&]{for(int i=0;i<ListView_GetGroupCount(app.list);++i){LVGROUP group{sizeof(group)};group.mask=LVGF_GROUPID|LVGF_STATE;group.stateMask=LVGS_COLLAPSED;ListView_GetGroupInfoByIndex(app.list,i,&group);if(!(group.state&LVGS_COLLAPSED))return false;}return true;};
+    check(allCollapsed()&&app.wantedItems.empty(),"initial categories are collapsed with no hidden thumbnail demand");
+    auto fingerprint=MetadataFingerprint(source.wstring());auto parsed=app.mdb.Status().parsed;
+    auto bar=GetDlgItem(app.window,3050);SendMessageW(bar,WM_COMMAND,MAKEWPARAM(3202,BN_CLICKED),reinterpret_cast<LPARAM>(GetDlgItem(bar,3202)));wait([]{return ThumbnailsReady();});check(app.files.size()==5&&fs::path(app.files[0]).stem()==L"A"&&fs::path(app.files[1]).stem()==L"C"&&fs::path(app.files[2]).stem()==L"D"&&!app.wantedItems.empty(),"priority regroups every matching photo first and expands its category");
+    check(app.mdb.Status().parsed==parsed,"priority button reuses projection without metadata reparse");
+    ApplyPersonPriority(L"");check(allCollapsed(),"clearing priority restores initial collapsed state");SetAllCategories(true);wait([]{return ThumbnailsReady();});check(!app.wantedItems.empty(),"expand all schedules visible thumbnails");
+    int chosen=0;ListView_SetItemState(app.list,chosen,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);FlushSelectionUpdate();int count=SelectedImageCount();SetAllCategories(false);check(SelectedImageCount()==count&&count==1,"collapsing categories retains selected physical photos");
+    for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();for(auto side:{L"left",L"right",L"bottom",L"none"}){app.layout=side;Layout();check(allCollapsed(),"theme and side placement preserve collapse state");}app.layout=L"right";ApplyPersonPriority(L"name:たぬき");wait([]{return ThumbnailsReady();});check(SelectedImageCount()==1,"priority rebuild preserves selection without stale deselection notifications");CaptureV0412Ui(directory/(dark?L"v0512-dark.png":L"v0512-light.png"),app.window);ApplyPersonPriority(L"");}
+    for(int i=0;i<80;++i)app.personRecords[0].terms.push_back({6,L"name:Many"+std::to_wstring(i),L"Many"+std::to_wstring(i),2});
+    RefreshMdbIdLabels();auto panel=GetDlgItem(app.window,3050);int controls=0;for(auto child=GetWindow(panel,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT))++controls;
+    check(app.personChoices.size()>=80&&controls<40,"many dynamic names use a bounded scrollable button pool");SendMessageW(panel,WM_VSCROLL,SB_BOTTOM,0);check(GetScrollPos(panel,SB_VERT)>0,"person button region scrolls to later names");
+    std::wstring uid1=L"usr_12345678-abcd-1234-abcd-123456789abc",uid2=L"usr_22345678-abcd-1234-abcd-123456789abc";
+    app.personRecords[0].terms={{6,uid1,L"Same",4}};app.personRecords[1].terms={{6,uid2,L"Same",4}};RefreshMdbIdLabels();int identified=0;
+    for(int i=0;i<ListView_GetGroupCount(app.list);++i){wchar_t text[512]{};LVGROUP g{sizeof(g)};g.mask=LVGF_HEADER;g.pszHeader=text;g.cchHeader=512;ListView_GetGroupInfoByIndex(app.list,i,&g);if(std::wstring(text).find(L"Same［usr_")!=std::wstring::npos)++identified;}
+    check(identified==2,"same-name distinct IDs have disambiguated category headers as well as buttons");
+    app.darkTheme=false;app.layout=L"right";ApplyTheme();SetAllCategories(true);OpenFolder(root.wstring(),true);wait([]{return !app.folderPending&&!app.sorting;});check(allCollapsed(),"explicit reload resets all categories to collapsed");
+    ApplyPersonPriority(L"name:うさぎ");StartSearch(L"A.png");check(!IsWindowEnabled(GetDlgItem(app.window,3050)),"person controls are disabled while search is pending");wait([]{return !app.searching&&!app.sorting;});
+    check(app.priorityPerson.empty()&&app.files.size()==1&&app.personChoices.size()==1,"search removes an unavailable priority without retaining stale choices");
+    StartSearch(L"");wait([]{return !app.searching&&!app.sorting;});SetAllCategories(false);
+    LVGROUP group{sizeof(group)};group.mask=LVGF_GROUPID;ListView_GetGroupInfoByIndex(app.list,0,&group);RECT header{};ListView_GetGroupRect(app.list,group.iGroupId,LVGGR_HEADER,&header);
+    auto point=MAKELPARAM(header.left+12,(header.top+header.bottom)/2);SendMessageW(app.list,WM_LBUTTONDOWN,MK_LBUTTON,point);SendMessageW(app.list,WM_LBUTTONUP,0,point);
+    check(!(ListView_GetGroupState(app.list,group.iGroupId,LVGS_COLLAPSED)&LVGS_COLLAPSED),"category header click expands its group");
+    SendMessageW(app.list,WM_KEYDOWN,VK_LEFT,0);check((ListView_GetGroupState(app.list,group.iGroupId,LVGS_COLLAPSED)&LVGS_COLLAPSED)!=0,"focused category keyboard left collapses the group");
+    SendMessageW(app.list,WM_KEYDOWN,VK_RIGHT,0);check(!(ListView_GetGroupState(app.list,group.iGroupId,LVGS_COLLAPSED)&LVGS_COLLAPSED),"focused category keyboard right expands the group");
+    check(MetadataFingerprint(source.wstring())==fingerprint,"classification never writes source image");
+    app.mdbEnabled=false;app.categoryMode=0;ResetCategoryView();ConfigureMdb();app.mdb.WaitIdle();Layout();
+}
+int PeopleTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"v0512-result.txt");try{RunV0512Tests(folder,report);RunV0512UiTests(folder,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

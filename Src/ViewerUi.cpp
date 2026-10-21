@@ -260,16 +260,23 @@ void ResetThumbnailTracking() {
     app.thumbnailFailed.assign(app.files.size(), false);
     app.thumbnailDone.assign(app.files.size(), false); app.thumbnailRequested.assign(app.files.size(), false);
     app.itemSlots.assign(app.files.size(), -1); app.slotOwners.clear(); app.wantedFirst = 0; app.wantedLast = -1;
-    app.thumbnailKeys.assign(app.files.size(),L"");
+    app.thumbnailKeys.assign(app.files.size(),L"");app.wantedItems.clear();
     for(int i=0;i<int(app.files.size());++i)if(IsFolderItem(i))app.thumbnailDone[i]=true;
 }
 void UpdateMdbDisplayPriority(){
     bool busy=app.folderPending;
-    for(int i=std::max(0,app.wantedFirst);!busy&&i<=app.wantedLast&&i<int(app.thumbnailRequested.size());++i)busy=app.thumbnailRequested[i];
+    if(app.categoryMode&&ListView_IsGroupViewEnabled(app.list)){for(int i:app.wantedItems)if(i<int(app.thumbnailRequested.size())&&app.thumbnailRequested[i])busy=true;}
+    else for(int i=std::max(0,app.wantedFirst);!busy&&i<=app.wantedLast&&i<int(app.thumbnailRequested.size());++i)busy=app.thumbnailRequested[i];
     app.mdb.SetDisplayBusy(busy);
 }
 void ScheduleThumbnails() {
     if (app.folderPending || app.files.empty() || app.closing) {UpdateMdbDisplayPriority();return;}
+    if(app.categoryMode&&ListView_IsGroupViewEnabled(app.list)){
+        app.wantedItems=MdbVisibleItems(app.slotLimit,app.thumbnailBudgetLimited);app.wantedFirst=app.wantedItems.empty()?0:app.wantedItems.front();app.wantedLast=app.wantedItems.empty()?-1:app.wantedItems.back();
+        std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[&](const Job& j){if(j.kind!=1||j.diskPrefetch)return false;if(j.index>=0&&j.index<int(app.thumbnailRequested.size()))app.thumbnailRequested[j.index]=false;return true;}),app.jobs.end());
+        for(int i:app.wantedItems)if(!app.thumbnailDone[i]&&!app.thumbnailRequested[i]){app.thumbnailRequested[i]=true;app.jobs.push_back(ThumbnailJob(i));}
+        UpdateMdbDisplayPriority();app.wake.notify_all();return;
+    }
     RECT client{}; GetClientRect(app.list, &client);
     const int count = static_cast<int>(app.files.size());
     auto boundary = [&](bool end) {
@@ -358,6 +365,7 @@ int WheelThumbnailWidth(int width, int& remainder, int delta) {
     return width;
 }
 LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) {
+    if(MdbGroupInput(window,message,wparam,lparam))return 0;
     LRESULT tooltipResult=0;if(MdbHeaderTooltip(window,message,lparam,tooltipResult))return tooltipResult;
     if(message==WM_XBUTTONUP){NavigateHistory(GET_XBUTTON_WPARAM(wparam)==XBUTTON1?-1:1);return TRUE;}
     if (message == WM_SETFONT) app.imageLabelsDirty = true;
@@ -393,6 +401,7 @@ void Results() {
         if(job.kind==13){if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;if(result.progress){Counts(result.text);continue;}
             app.sorting=false;EnableWindow(app.list,TRUE);StopActivity();SetWindowTextW(app.searchButton,L"検索");UpdateEditorControls();
             if(!result.error.empty()){Counts(L"カテゴリ表示に失敗: "+result.error);continue;}
+            if(app.categoryMode==2){app.personRecords=std::move(result.personRecords);if(!app.priorityPerson.empty())BuildPersonView(app.personRecords,app.idNames.Snapshot(),app.priorityPerson,result);}else {app.personRecords.clear();app.priorityPerson.clear();}
             app.categoryCommitting=true;app.mdbRows=std::move(result.mdbRows);CommitDisplay(std::move(result.files),job.preserve);app.categoryCommitting=false;Counts(L"カテゴリ表示完了");continue;
         }
         if(job.kind==12){
@@ -401,7 +410,7 @@ void Results() {
             if(!result.error.empty()){Counts(L"並べ替え失敗: "+result.error);continue;}
             FlushSelectionUpdate();auto preserve=app.selected>=0?app.files[app.selected]:L"";app.restoreSelection=SelectedFiles();
             app.allFiles=std::move(result.files);std::unordered_set<std::wstring> visible(job.destinations.begin(),job.destinations.end());std::vector<std::wstring> files;for(auto& file:app.allFiles)if(visible.count(file))files.push_back(file);
-            app.categoryMode=0;app.sortMode=job.sortMode;CommitDisplay(std::move(files),preserve);SaveSettings();Counts(L"並べ替え完了");continue;
+            ResetCategoryView();app.categoryMode=0;app.sortMode=job.sortMode;CommitDisplay(std::move(files),preserve);SaveSettings();Counts(L"並べ替え完了");continue;
         }
         if(job.kind==6){if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;
             if(result.progress){Counts(result.text);continue;}
@@ -462,7 +471,7 @@ void Results() {
         } else if (job.kind == 1) {
             if(job.diskPrefetch){ScheduleBookmarkPrefetch();continue;}
             app.thumbnailRequested[job.index] = false;
-            if (job.index < app.wantedFirst || job.index > app.wantedLast) continue;
+            if (!WantedThumbnail(job.index)) continue;
             if (app.thumbnailDone[job.index]) continue;
             app.thumbnailDone[job.index] = true;
             ++app.loaded;
@@ -471,7 +480,7 @@ void Results() {
                 if (app.slotOwners.size() < app.slotLimit) slot = static_cast<int>(app.slotOwners.size());
                 else for (int i = 0; i < app.slotLimit; ++i) {
                     int owner = app.slotOwners[i];
-                    if (owner < app.wantedFirst || owner > app.wantedLast) {
+                    if (!WantedThumbnail(owner)) {
                         slot = i; break;
                     }
                 }
@@ -500,7 +509,7 @@ void Results() {
                 ArrangeImages();
             }
             bool ready = true;
-            for (int i = app.wantedFirst; i <= app.wantedLast; ++i) ready = ready && app.thumbnailDone[i];
+            if(app.categoryMode&&ListView_IsGroupViewEnabled(app.list)){for(int i:app.wantedItems)ready=ready&&app.thumbnailDone[i];}else for (int i = app.wantedFirst; i <= app.wantedLast; ++i) ready = ready && app.thumbnailDone[i];
             if (ready) Counts(app.thumbnailBudgetLimited ? L"キャッシュ上限により表示範囲の一部を保持しています。" : L"表示範囲のサムネイル読込み完了");
         } else if (job.selection == app.selection && job.index == app.selected) {
             if(result.error.empty()&&!result.pixels.data.empty()){app.previewPixels=std::move(result.pixels);app.previewDedicated=true;app.previewFailed=false;++app.previewRevision;}
@@ -524,6 +533,7 @@ bool DrawRecording(DRAWITEMSTRUCT* draw){if(draw->CtlID!=RecordToggle&&draw->Ctl
 }
 }
 void Layout() {
+
     RECT r{}; GetClientRect(app.window, &r); int width = r.right, height = r.bottom;
     // Move the toolbar as one batch and discard copied pixels from old positions.
     // Sequential MoveWindow(..., TRUE) can repaint while siblings still overlap.
@@ -561,13 +571,14 @@ void Layout() {
     bool noSide=app.layout==L"none";
     for(auto h:{app.preview,app.metadataTabs})ShowWindow(h,noSide?SW_HIDE:SW_SHOW);
     if (noSide) {}
-    else if (app.layout == L"bottom") { int split = std::max(listTop+80,height-36-std::clamp(app.sideHeight,120,std::max(120,height-listTop-116))); list.bottom = split - 4; side.top = split + 4; }
+    else if (app.layout == L"bottom") { int split = std::max(listTop+(app.categoryMode==2?164:app.categoryMode?112:80),height-36-std::clamp(app.sideHeight,120,std::max(120,height-listTop-116))); list.bottom = split - 4; side.top = split + 4; }
     else {
         int sideWidth = std::clamp(app.sideWidth,280,std::max(280,width-176));
         if (app.layout == L"left") { side.right = 8 + sideWidth; list.left = side.right + 8; }
         else { side.left = width - 8 - sideWidth; list.right = side.left - 8; }
     }
     app.splitter=noSide?RECT{}:app.layout==L"bottom"?RECT{8,list.bottom,width-8,side.top}:app.layout==L"left"?RECT{side.right,listTop,list.left,height-36}:RECT{list.right,listTop,side.left,height-36};
+    LayoutCategoryBar(list);
     MoveWindow(app.list, list.left, list.top, std::max(1L, list.right - list.left), std::max(1L, list.bottom - list.top), TRUE);
     if (app.layout == L"bottom") {
         int previewWidth = (side.right - side.left) / 3;
@@ -824,6 +835,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.thumbs = CreateThumbnails(app.activeThumbnailWidth, app.slotLimit, app.imageBytes);
         if (!app.thumbs) return -1;
         app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - app.imageBytes); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
+        CreateCategoryBar();
         app.preview = Control(L"KuniPreview", L"", WS_BORDER, 0);
         app.metadataTabs = Control(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, MetadataTabs);
         for (auto label : { L"シンプル", L"詳細", L"OCR" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
@@ -894,7 +906,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
         case HistoryBack: NavigateHistory(-1);break;
         case HistoryForward: NavigateHistory(1);break;
-        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(!app.categoryMode&&i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);if(app.mdbEnabled){AppendMenuW(menu,MF_SEPARATOR,0,nullptr);const wchar_t* c[]{L"タグ別",L"人物ID別",L"人物名別",L"ワールド別",L"グループ別",L"撮影者別"};for(int i=0;i<6;++i)AppendMenuW(menu,MF_STRING|(app.categoryMode==i+1?MF_CHECKED:0),20+i,c[i]);}AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();else if(action>=20&&action<=25)RequestCategory(int(action-19));break;}
+        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(!app.categoryMode&&i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);if(app.mdbEnabled){AppendMenuW(menu,MF_SEPARATOR,0,nullptr);const wchar_t* c[]{L"タグ別",L"人物別",L"ワールド別",L"グループ別",L"撮影者別"};const int modes[]{1,2,4,5,6};for(int i=0;i<5;++i)AppendMenuW(menu,MF_STRING|(app.categoryMode==modes[i]?MF_CHECKED:0),19+modes[i],c[i]);}AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();else if(action>=20&&action<=25)RequestCategory(int(action-19));break;}
         case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"更新確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");AppendMenuW(menu,MF_STRING,4,L"ライセンス情報…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();if(action==4)ShowLicenseInfo();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
@@ -962,6 +974,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
 void UpdateEditorControls(const MetadataEdit* snapshot,const std::wstring* validation) {
     RefreshMdbApplyUi();
+    EnableWindow(GetDlgItem(app.window,3050),!app.saving&&!app.backupBusy&&!app.sorting&&!app.searching&&!app.folderPending);
     MetadataEdit local;if(!snapshot&&app.editing)local=app.editorUi.Read();const auto& edit=snapshot?*snapshot:local;
     auto error=validation?*validation:edit.Validate();
     EnableWindow(app.editButton,(SelectedImageCount()>1||(app.metadataReady&&!IsFolderItem(app.selected)&&!app.previewPixels.data.empty())) && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && !app.sorting && !app.folderPending && app.selected>=0);

@@ -27,7 +27,7 @@ void OpenFolder(const std::wstring& path, bool reload, const std::wstring& prese
         auto normalized = Normalize(path);
         ++app.generation; app.currentGeneration = app.generation;
         if (reload) app.cache.Clear();
-        app.folderPending = true;app.mdb.SetDisplayBusy(true);app.mdb.QueueCached({});
+        ResetCategoryView();app.folderPending = true;app.mdb.SetDisplayBusy(true);app.mdb.QueueCached({});
         { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind != 3; }), app.jobs.end()); }
         // The visible list is committed only after enumeration succeeds.
         auto preserve = !preserveOverride.empty()?preserveOverride:reload && app.selected >= 0 ? app.files[app.selected] : L"";
@@ -83,7 +83,7 @@ void ResetViewer() {
     CancelMdbApply(L"リセットにより中止しました。");CancelSearch();StopActivity();
     ++app.generation;app.currentGeneration=app.generation;
     {std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind!=3;}),app.jobs.end());}
-    app.wake.notify_all();app.mdb.QueueCached({});app.folderPending=false;app.folder.clear();app.last.clear();app.allFiles.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;UpdateNavigationControls();app.restoreSelection.clear();app.appliedQuery.clear();
+    app.wake.notify_all();ResetCategoryView();app.mdb.QueueCached({});app.folderPending=false;app.folder.clear();app.last.clear();app.allFiles.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;UpdateNavigationControls();app.restoreSelection.clear();app.appliedQuery.clear();
     SetWindowTextW(app.path,L"");SetWindowTextW(app.searchEdit,L"");SendMessageW(app.history,CB_SETCURSEL,-1,0);
     CommitDisplay({},L"");app.selectionPending=false;app.cache.Clear();
     Layout();SaveSettings();Counts(L"フォルダーを選択してください。");

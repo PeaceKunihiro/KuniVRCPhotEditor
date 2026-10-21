@@ -36,7 +36,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     };
     settings.idLinks=object.HasKey(L"pageButtons")?object.GetNamedBoolean(L"pageButtons"):object.GetNamedBoolean(L"idLinks",true);
     settings.sortMode=number(L"sortMode",0,0,3,1);
-    settings.mdbEnabled=object.GetNamedBoolean(L"mdbEnabled",false);settings.mdbMode=number(L"mdbMode",0,0,2,1);settings.mdbCapacityMB=number(L"mdbCapacityMB",100,100,4000,1);settings.categoryMode=number(L"categoryMode",0,0,6,1);if(!settings.mdbEnabled)settings.categoryMode=0;
+    settings.mdbEnabled=object.GetNamedBoolean(L"mdbEnabled",false);settings.mdbMode=number(L"mdbMode",0,0,2,1);settings.mdbCapacityMB=number(L"mdbCapacityMB",100,100,4000,1);settings.categoryMode=number(L"categoryMode",0,0,6,1);if(settings.categoryMode==3)settings.categoryMode=2;if(!settings.mdbEnabled)settings.categoryMode=0;
     settings.hideFileNames=object.GetNamedBoolean(L"hideFileNames",false);
     auto timestamp=[&](const wchar_t* key){auto value=object.GetNamedValue(key,JsonValue::CreateNumberValue(0));if(value.ValueType()!=JsonValueType::Number)return uint64_t(0);double n=value.GetNumber();return std::isfinite(n)&&n>=0&&n<=253402300799.0&&std::floor(n)==n?uint64_t(n):uint64_t(0);};
     settings.updateAttemptUtc=timestamp(L"updateAttemptUtc");settings.updateSuccessUtc=timestamp(L"updateSuccessUtc");
@@ -88,7 +88,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
 }
 std::string SerializeViewerSettings(const ViewerSettings& settings) {
     JsonObject object;
-    object.Insert(L"mdbEnabled",JsonValue::CreateBooleanValue(settings.mdbEnabled));object.Insert(L"mdbMode",JsonValue::CreateNumberValue(settings.mdbMode));object.Insert(L"mdbCapacityMB",JsonValue::CreateNumberValue(settings.mdbCapacityMB));object.Insert(L"categoryMode",JsonValue::CreateNumberValue(settings.mdbEnabled?settings.categoryMode:0));
+    object.Insert(L"mdbEnabled",JsonValue::CreateBooleanValue(settings.mdbEnabled));object.Insert(L"mdbMode",JsonValue::CreateNumberValue(settings.mdbMode));object.Insert(L"mdbCapacityMB",JsonValue::CreateNumberValue(settings.mdbCapacityMB));object.Insert(L"categoryMode",JsonValue::CreateNumberValue(settings.mdbEnabled?(settings.categoryMode==3?2:settings.categoryMode):0));
     object.Insert(L"hideFileNames",JsonValue::CreateBooleanValue(settings.hideFileNames));
     object.Insert(L"updateAttemptUtc",JsonValue::CreateNumberValue(double(settings.updateAttemptUtc)));
     object.Insert(L"updateSuccessUtc",JsonValue::CreateNumberValue(double(settings.updateSuccessUtc)));
