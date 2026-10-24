@@ -398,6 +398,16 @@ void Results() {
     for (auto& result : results) {
         auto& job = result.job;
         if(HandleMdbApplyResult(result))continue;
+        if(job.kind==5){
+            if(!CurrentJob(job)||job.index!=app.selected||job.sourceKey!=app.previewSourceKey)continue;
+            try{if(job.sourceKey!=ThumbnailCache::Key(job.path))result.error=L"ファイルが変更されました。ロードで再読込みしてください。";}catch(...){result.error=L"ファイルを確認できません。ロードで再読込みしてください。";}
+            if(result.error.empty()&&!result.pixels.data.empty()){
+                app.previewPixels=std::move(result.pixels);app.previewOriginal=true;app.previewDedicated=true;
+                ++app.previewRevision;InvalidateRect(app.preview,nullptr,FALSE);
+                Counts(L"元画像の読込み完了");
+            }else Counts(L"元画像を読み込めません。プレビュー表示を継続します: "+result.error);
+            continue;
+        }
         if(job.kind==13){if(!CurrentJob(job)||job.searchGeneration!=app.currentSearchGeneration)continue;if(result.progress){Counts(result.text);continue;}
             app.sorting=false;EnableWindow(app.list,TRUE);StopActivity();SetWindowTextW(app.searchButton,L"検索");UpdateEditorControls();
             if(!result.error.empty()){Counts(L"カテゴリ表示に失敗: "+result.error);continue;}
@@ -512,7 +522,7 @@ void Results() {
             if(app.categoryMode&&ListView_IsGroupViewEnabled(app.list)){for(int i:app.wantedItems)ready=ready&&app.thumbnailDone[i];}else for (int i = app.wantedFirst; i <= app.wantedLast; ++i) ready = ready && app.thumbnailDone[i];
             if (ready) Counts(app.thumbnailBudgetLimited ? L"キャッシュ上限により表示範囲の一部を保持しています。" : L"表示範囲のサムネイル読込み完了");
         } else if (job.selection == app.selection && job.index == app.selected) {
-            if(result.error.empty()&&!result.pixels.data.empty()){app.previewPixels=std::move(result.pixels);app.previewDedicated=true;app.previewFailed=false;++app.previewRevision;}
+            if(result.error.empty()&&!result.pixels.data.empty()){app.previewPixels=std::move(result.pixels);app.previewDedicated=true;app.previewFailed=false;app.previewSourceKey=job.sourceKey;++app.previewRevision;ScheduleOriginalPreview();}
             app.editable=std::move(result.editable); app.editError=result.editError;
             app.metadataReady=result.error.empty() && result.editError.empty() && !app.previewFailed; UpdateEditorControls();
             auto text = result.error.empty() ? result.text : job.path + L"\r\n\r\n読込みエラー: " + result.error;
@@ -880,7 +890,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){RefreshMdbApplyUi();MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();return 0;}
+        if(wparam==RecordTimer){RefreshMdbApplyUi();MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();if(!app.previewOriginalRequested)ScheduleOriginalPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;

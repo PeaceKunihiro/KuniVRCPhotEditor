@@ -3,6 +3,24 @@ namespace {
 struct CompositeCache {std::shared_ptr<const Pixels> frame;uint64_t revision=UINT64_MAX;COLORREF background=0;bool live=false;std::vector<BYTE> bytes;};
 CompositeCache composite;
 }
+namespace {
+bool NeedsOriginalPreview(){
+    if(!app.preview||app.closing||app.layout==L"none"||OcrTestSource()||stage3::RecordingOcr()||app.selectionPending||app.folderPending||app.selected<0||app.selected>=int(app.files.size())||IsFolderItem(app.selected))return false;
+    RECT r{};GetClientRect(app.preview,&r);
+    return r.right>1024||r.bottom>1024;
+}
+}
+void ScheduleOriginalPreview(){
+    if(!app.preview)return;
+    KillTimer(app.preview,1);
+    if(NeedsOriginalPreview()&&app.previewDedicated&&!app.previewOriginalRequested&&!app.previewSourceKey.empty())SetTimer(app.preview,1,180,nullptr);
+}
+void LoadOriginalPreview(){
+    if(!NeedsOriginalPreview()||!app.previewDedicated||app.previewOriginalRequested||app.previewSourceKey.empty())return;
+    app.previewOriginalRequested=true;
+    Job job{5,app.generation,app.selection,app.selected,app.files[app.selected],L""};job.sourceKey=app.previewSourceKey;
+    Queue(std::move(job),true);Counts(L"元画像を読込み中…（プレビュー表示）");
+}
 void RefreshPreview(){
     if(!app.preview)return;
     bool test=OcrTestSource(),record=stage3::RecordingOcr();auto frame=test?OcrTestPreview():record?person_ocr::Preview():std::shared_ptr<const Pixels>{};
@@ -22,6 +40,8 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         if (index != app.selected) { ListView_SetItemState(app.list, -1, 0, LVIS_SELECTED); ListView_SetItemState(app.list, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED); ListView_EnsureVisible(app.list, index, FALSE); }
         return 0;
     }
+    if(message==WM_SIZE){ScheduleOriginalPreview();InvalidateRect(window,nullptr,FALSE);return 0;}
+    if(message==WM_TIMER&&wparam==1){KillTimer(window,1);LoadOriginalPreview();return 0;}
     if (message == WM_ERASEBKGND) return 1;
     if (message == WM_PAINT) {
         PAINTSTRUCT paint{}; HDC screen = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r);

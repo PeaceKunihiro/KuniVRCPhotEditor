@@ -3,7 +3,7 @@ bool CurrentJob(const Job& job) {
     if (job.kind == 3 || job.kind == 4) return true; // A click requests this exact file even if selection changes.
     return (!job.diskPrefetch||(job.diskGeneration==app.diskGeneration&&app.disk.PriorityFolder(fs::path(job.path).parent_path().wstring()))) && job.generation == app.currentGeneration &&
         (job.kind != 1 || job.thumbnailGeneration == app.currentThumbnailGeneration) &&
-        (job.kind != 2 || job.selection == app.currentSelection);
+        ((job.kind != 2 && job.kind != 5) || job.selection == app.currentSelection);
 }
 void Worker(bool thumbnails) {
     WorkerLifetime lifetime;
@@ -21,12 +21,25 @@ void Worker(bool thumbnails) {
         Result result; result.job = job;
         try {
             struct Busy {bool thumbnail;Busy(bool active):thumbnail(active){if(thumbnail){auto n=++app.thumbnailActive;auto peak=app.thumbnailPeak.load();while(peak<n&&!app.thumbnailPeak.compare_exchange_weak(peak,n)){}}}~Busy(){if(thumbnail)--app.thumbnailActive;}} busy(thumbnails);
-            if(job.kind==1||job.kind==2){result.job.sourceKey=ThumbnailCache::Key(job.path);if(!job.sourceKey.empty()&&job.sourceKey!=result.job.sourceKey)throw std::runtime_error("Source changed; reload before viewing");}
+            if(job.kind==1||job.kind==2||job.kind==5){result.job.sourceKey=ThumbnailCache::Key(job.path);if(!job.sourceKey.empty()&&job.sourceKey!=result.job.sourceKey)throw std::runtime_error("Source changed; reload before viewing");}
             if (job.kind == 4) {
                 BatchProgress(job,L"保存中：コピー検証・バックアップ・原本置換…");
                 if(job.overwrite)result.text=SaveMetadataOverwrite(job.path,job.fingerprint,job.edit,job.autoBackup,job.backupLimit,job.preserve);
                 else SaveMetadataCopy(job.path, job.destination, job.fingerprint, job.edit);
                 result.summary = ReadPhotoSummary(job.destination);
+            } else if (job.kind == 5) {
+                // Original-resolution preview only; metadata/edit state is left untouched.
+                if(Same(fs::path(job.path).extension().wstring(),L".webp")) {
+                    auto image=ReadWebP(job.path,UINT_MAX,UINT_MAX);
+                    result.pixels={image.width,image.height,std::move(image.pixels)};
+                } else {
+                    winrt::check_hresult(factoryHr);
+                    ComPtr<IWICBitmapDecoder> decoder;
+                    winrt::check_hresult(factory->CreateDecoderFromFilename(job.path.c_str(),nullptr,GENERIC_READ,WICDecodeMetadataCacheOnDemand,&decoder));
+                    ComPtr<IWICBitmapFrameDecode> frame;winrt::check_hresult(decoder->GetFrame(0,&frame));
+                    result.pixels=Decode(factory.Get(),frame.Get(),UINT_MAX,UINT_MAX);
+                }
+                if(result.job.sourceKey!=ThumbnailCache::Key(job.path))throw std::runtime_error("Source changed; reload before viewing");
             } else if (job.kind == 3) {
                 std::wstring detail;
                 auto hr = ActivatePhotos(job.path, detail);
