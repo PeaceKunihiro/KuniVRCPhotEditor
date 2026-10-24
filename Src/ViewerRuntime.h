@@ -1,6 +1,8 @@
-#pragma once
+﻿#pragma once
 #define NOMINMAX
 #include "MetadataModel.h"
+#include "UiFont.h"
+#include "UiRepaint.h"
 #include "Stage3.h"
 #include "OcrRuntime.h"
 #include "MetadataTests.h"
@@ -83,6 +85,8 @@ struct State {
     std::atomic<unsigned> thumbnailActive{0},thumbnailPeak{0};
     std::function<std::wstring()> chooseBatchFolder;
     std::function<bool(const Job&)> confirmBatch;
+    HWND side{};bool sideBuilding=false,sideLayout=false,sideMeasuring=false,simpleLayoutDirty=true;int sideScroll=0,sideContent=0,sideWheel=0;std::array<HWND,4> verticalTabs{};
+    std::wstring fontName;int fontPt=12;
     HWND window{}, path{}, history{}, list{}, preview{}, details{}, status{}, placement{};
     HWND searchEdit{}, searchButton{},recordTooltip{};
     std::vector<std::wstring> allFiles;
@@ -162,6 +166,12 @@ void RequestPhotos(int index);
 Pixels DisplayedThumbnail(int index);
 INT_PTR ShowCacheLimitDialog(int& mb);
 void RefreshSummaryLinks();
+HWND AppControl(int);HWND SideHit(POINT);
+void CreateSideView();void LayoutSideView();bool SideWheel(HWND,WPARAM,LPARAM);void ResetSideScroll();void EnsureSideVisible(HWND);
+void ShowFontDialog(const std::function<void(HWND)>& inspect={});void SetAppFont(const std::wstring&,int,bool persist=true);
+void RunV0515UiTests(const fs::path&,std::ostream&);int RepaintTest();
+bool ThemeIsDark();
+void RunV0514UiTests(const fs::path&,std::ostream&);int SideViewTest();
 void ScheduleOriginalPreview();
 void LoadOriginalPreview();
 void RunV0513UiTests(const fs::path&,std::ostream&);
@@ -317,3 +327,5 @@ void RunMdbTests(const fs::path&,std::ostream&);void RunMdbUiTests(const fs::pat
 void DrawMdbGroupHeader(HDC,int);
 
 void PaintMdbHeaders(HWND,HDC);
+
+void RunV0516UiTests(const fs::path&,std::ostream&);int FontLayoutTest();

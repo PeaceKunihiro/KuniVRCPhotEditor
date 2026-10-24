@@ -1,11 +1,11 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 namespace {
 constexpr int Enable=2100,Capacity=2101,Minutes=2102,Visits=2103,Usage=2104,Delete=2105,Priority=2106;
 struct DialogState {std::function<void(HWND)> inspect;};
 void RefreshUsage(HWND h){auto s=app.disk.GetStatus();auto text=L"使用量: "+std::to_wstring(s.bytes/1024)+L" KiB / "+std::to_wstring(s.entries)+L"枚"+(s.pending?L"（確認・整理中）":L"");if(!s.error.empty())text+=L"\r\n"+s.error;SetDlgItemTextW(h,Usage,text.c_str());}
 INT_PTR CALLBACK DiskDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
-    if(m==WM_INITDIALOG){SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"ディスクキャッシュ");
-        auto add=[&](const wchar_t* type,const std::wstring& text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,type,text.c_str(),WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return c;};
+    if(m==WM_INITDIALOG){ApplyUiFont(h);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"ディスクキャッシュ");
+        auto add=[&](const wchar_t* type,const std::wstring& text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,type,text.c_str(),WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);return c;};
         add(L"BUTTON",L"ディスクキャッシュを有効にする",BS_AUTOCHECKBOX|WS_TABSTOP,12,12,400,26,Enable);CheckDlgButton(h,Enable,app.diskCache?BST_CHECKED:BST_UNCHECKED);
         add(L"BUTTON",L"ブックマーク優先",BS_AUTOCHECKBOX|WS_TABSTOP,12,44,400,26,Priority);CheckDlgButton(h,Priority,app.bookmarkCache?BST_CHECKED:BST_UNCHECKED);
         add(L"STATIC",L"容量上限",0,12,50,110,24,0);auto combo=add(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,130,47,180,180,Capacity);
@@ -24,7 +24,7 @@ INT_PTR CALLBACK DiskDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
         for(HWND c=GetWindow(h,GW_CHILD);c;c=GetWindow(c,GW_HWNDNEXT)){auto id=GetDlgCtrlID(c);if(id==Enable||id==Priority||id==2108)continue;RECT r{};GetWindowRect(c,&r);MapWindowPoints(nullptr,h,reinterpret_cast<POINT*>(&r),2);SetWindowPos(c,nullptr,r.left,r.top+28,0,0,SWP_NOSIZE|SWP_NOZORDER);}
         add(L"STATIC",L"キャッシュするのは画像のサムネイルのみです。\r\n元の写真データ全体を保存するものではありません。",0,12,494,585,40,2109);
         for(int id:{Delete,IDOK,IDCANCEL}){auto c=GetDlgItem(h,id);SetWindowPos(c,nullptr,id==Delete?12:id==IDOK?378:488,546,0,0,SWP_NOSIZE|SWP_NOZORDER);}
-        RECT size{0,0,610,586};AdjustWindowRectEx(&size,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,size.right-size.left,size.bottom-size.top,SWP_NOMOVE|SWP_NOZORDER);RefreshUsage(h);SetTimer(h,1,500,nullptr);auto state=reinterpret_cast<DialogState*>(lp);if(state&&state->inspect)SetTimer(h,2,500,nullptr);return TRUE;
+        RECT size{0,0,610,586};AdjustWindowRectEx(&size,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,size.right-size.left,size.bottom-size.top,SWP_NOMOVE|SWP_NOZORDER);ScaleUiDialog(h);RefreshUsage(h);SetTimer(h,1,500,nullptr);auto state=reinterpret_cast<DialogState*>(lp);if(state&&state->inspect)SetTimer(h,2,500,nullptr);return TRUE;
     }
     if(m==WM_TIMER){if(wp==2){KillTimer(h,2);auto state=reinterpret_cast<DialogState*>(GetWindowLongPtrW(h,DWLP_USER));if(state&&state->inspect){RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);state->inspect(h);}EndDialog(h,IDCANCEL);}else RefreshUsage(h);return TRUE;}
     if(m==WM_COMMAND){auto id=LOWORD(wp);

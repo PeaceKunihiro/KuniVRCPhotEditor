@@ -17,11 +17,12 @@ void RunV050UiTests(const fs::path& root,std::ostream& report,const std::functio
     POINT first{},second{};ListView_GetItemPosition(app.list,selected,&first);ListView_GetItemPosition(app.list,selected+1,&second);require(first.x!=second.x||first.y!=second.y,"v0.5.0 hidden labels do not overlap icon positions");
     auto settings=ParseViewerSettings([&]{std::ifstream in(app.settings,std::ios::binary);return std::string((std::istreambuf_iterator<char>(in)),{});}());require(settings.hideFileNames,"v0.5.0 filename option persists");
     for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();Layout();wait([&]{return ThumbnailsReady();});require(app.previewDedicated&&app.previewPixels.data==pixels,"v0.5.0 theme changes preserve dedicated preview");capture(dark?L"v050-night.png":L"v050-light.png");}
-    require(FindResourceW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(2004),RT_RCDATA)!=nullptr,"v0.5.0 load icon is embedded");auto button=GetDlgItem(app.window,OpenPath);RECT rect{};GetWindowRect(button,&rect);require((GetWindowLongPtrW(button,GWL_STYLE)&BS_TYPEMASK)==BS_OWNERDRAW&&rect.right-rect.left==28,"v0.5.0 load button uses compact icon layout");
+    require(FindResourceW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(2004),RT_RCDATA)!=nullptr,"v0.5.0 load icon is embedded");auto button=AppControl(OpenPath);RECT rect{};GetWindowRect(button,&rect);require((GetWindowLongPtrW(button,GWL_STYLE)&BS_TYPEMASK)==BS_OWNERDRAW&&rect.right-rect.left==28,"v0.5.0 load button uses compact icon layout");
     ToggleFileNames();require(!(ListView_GetExtendedListViewStyle(app.list)&LVS_EX_HIDELABELS),"v0.5.0 filename display restored");app.darkTheme=false;ApplyTheme();ResetViewer();require(app.previewPixels.data.empty(),"v0.5.0 reset releases preview");
 }
 
 void RunV0513UiTests(const fs::path& root,std::ostream& report){
+    KillTimer(app.window,RecordTimer);struct RestoreTimer{~RestoreTimer(){SetTimer(app.window,RecordTimer,500,nullptr);}}restoreTimer;
     auto check=[&](bool ok,const char* text){if(!ok)throw std::runtime_error(text);report<<"PASS: "<<text<<std::endl;};
     auto pump=[](){MSG m{};while(PeekMessageW(&m,nullptr,0,0,PM_REMOVE)){TranslateMessage(&m);DispatchMessageW(&m);}};
     auto wait=[&](auto ready){auto until=GetTickCount64()+15000;while(!ready()){pump();if(GetTickCount64()>until)throw std::runtime_error("v0.5.13 async timeout");Sleep(10);}};

@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "LicenseUi.h"
 
 namespace {
@@ -39,12 +39,13 @@ struct LicenseState {
     std::exception_ptr failure;
 };
 void LayoutLicense(HWND h){
-    RECT r{};GetClientRect(h,&r);
-    auto tabs=GetDlgItem(h,Tabs);if(!tabs)return;
-    MoveWindow(tabs,12,12,std::max(1L,r.right-24),32,TRUE);
-    int top=12+std::max(1,TabCtrl_GetRowCount(tabs))*30+8;
-    MoveWindow(GetDlgItem(h,Body),12,top,std::max(1L,r.right-24),std::max(1L,r.bottom-top-52),TRUE);
-    MoveWindow(GetDlgItem(h,IDCANCEL),std::max(12L,r.right-112),r.bottom-40,100,28,TRUE);
+    RECT r{};GetClientRect(h,&r);auto tabs=GetDlgItem(h,Tabs);if(!tabs)return;
+    int margin=12,bh=UiControlHeight(),tabH=std::max(30,UiLineHeight()+10);
+    MoveWindow(tabs,margin,margin,std::max(1L,r.right-2*margin),tabH,TRUE);
+    int top=margin+std::max(1,TabCtrl_GetRowCount(tabs))*tabH+8;
+    MoveWindow(tabs,margin,margin,std::max(1L,r.right-2*margin),top-margin-4,TRUE);
+    MoveWindow(GetDlgItem(h,Body),margin,top,std::max(1L,r.right-2*margin),std::max(1L,r.bottom-top-bh-24),TRUE);
+    int bw=std::max(100,UiTextWidth(L"閉じる")+20);MoveWindow(GetDlgItem(h,IDCANCEL),std::max(12L,r.right-bw-12),r.bottom-bh-12,bw,bh,TRUE);
 }
 void SelectLicense(HWND h,LicenseState& state){
     int selected=TabCtrl_GetCurSel(GetDlgItem(h,Tabs));
@@ -61,7 +62,7 @@ LRESULT CALLBACK LicenseTabPaint(HWND h,UINT m,WPARAM wp,LPARAM lp,UINT_PTR id,D
     if(m==WM_ERASEBKGND)return 1;
     if(m==WM_PAINT){
         PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT area{};GetClientRect(h,&area);FillRect(dc,&area,ThemeBrush());
-        auto font=reinterpret_cast<HFONT>(SendMessageW(h,WM_GETFONT,0,0));auto old=SelectObject(dc,font?font:GetStockObject(DEFAULT_GUI_FONT));
+        auto font=reinterpret_cast<HFONT>(SendMessageW(h,WM_GETFONT,0,0));auto old=SelectObject(dc,font?font:UiFont());
         for(int i=0;i<TabCtrl_GetItemCount(h);++i){DRAWITEMSTRUCT draw{};draw.CtlType=ODT_TAB;draw.CtlID=Tabs;draw.itemID=i;draw.itemAction=ODA_DRAWENTIRE;draw.itemState=TabCtrl_GetCurSel(h)==i?ODS_SELECTED:0;if(GetFocus()==h&&TabCtrl_GetCurFocus(h)==i)draw.itemState|=ODS_FOCUS;draw.hwndItem=h;draw.hDC=dc;TabCtrl_GetItemRect(h,i,&draw.rcItem);SendMessageW(GetParent(h),WM_DRAWITEM,Tabs,reinterpret_cast<LPARAM>(&draw));}
         SelectObject(dc,old);EndPaint(h,&paint);return 0;
     }
@@ -70,9 +71,9 @@ LRESULT CALLBACK LicenseTabPaint(HWND h,UINT m,WPARAM wp,LPARAM lp,UINT_PTR id,D
 }
 INT_PTR CALLBACK LicenseDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     auto state=reinterpret_cast<LicenseState*>(GetWindowLongPtrW(h,DWLP_USER));
-    if(m==WM_INITDIALOG){
+    if(m==WM_INITDIALOG){ApplyUiFont(h);
         state=reinterpret_cast<LicenseState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"ライセンス情報");
-        auto create=[&](const wchar_t* type,const wchar_t* text,int id,DWORD style){auto c=CreateWindowExW(id==Body?WS_EX_CLIENTEDGE:0,type,text,WS_CHILD|WS_VISIBLE|WS_TABSTOP|style,0,0,1,1,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),FALSE);return c;};
+        auto create=[&](const wchar_t* type,const wchar_t* text,int id,DWORD style){auto c=CreateWindowExW(id==Body?WS_EX_CLIENTEDGE:0,type,text,WS_CHILD|WS_VISIBLE|WS_TABSTOP|style,0,0,1,1,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),FALSE);return c;};
         auto tabs=create(WC_TABCONTROLW,L"",Tabs,TCS_BUTTONS|TCS_OWNERDRAWFIXED|TCS_MULTILINE);
         SetWindowSubclass(tabs,LicenseTabPaint,1,0);
         for(auto label:TabNames){TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=const_cast<wchar_t*>(label);TabCtrl_InsertItem(tabs,TabCtrl_GetItemCount(tabs),&item);}

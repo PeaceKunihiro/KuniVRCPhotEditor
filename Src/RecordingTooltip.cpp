@@ -1,7 +1,7 @@
 #include "ViewerRuntime.h"
 namespace {
 struct TipState {bool initialized=false,recording=false,enabled=true;} tipState;
-TOOLINFOW RecordingTool(){TOOLINFOW tool{sizeof(tool)};tool.hwnd=app.window;tool.uId=reinterpret_cast<UINT_PTR>(GetDlgItem(app.window,RecordToggle));tool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;tool.lpszText=LPSTR_TEXTCALLBACKW;return tool;}
+TOOLINFOW RecordingTool(){TOOLINFOW tool{sizeof(tool)};tool.hwnd=app.window;tool.uId=reinterpret_cast<UINT_PTR>(AppControl(RecordToggle));tool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;tool.lpszText=LPSTR_TEXTCALLBACKW;return tool;}
 }
 void CreateRecordingTooltip(){
     app.recordTooltip=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP,0,0,0,0,app.window,nullptr,GetModuleHandleW(nullptr),nullptr);
@@ -22,7 +22,7 @@ void UpdateRecordingTooltip(bool recording,bool enabled){
 bool RecordingTooltipNotify(NMHDR* header){
     if(header->hwndFrom!=app.recordTooltip||header->code!=TTN_GETDISPINFOW)return false;
     auto info=reinterpret_cast<NMTTDISPINFOW*>(header);
-    bool enabled=tipState.enabled&&IsWindowEnabled(app.window)&&IsWindowEnabled(GetDlgItem(app.window,RecordToggle));
+    bool enabled=tipState.enabled&&IsWindowEnabled(app.window)&&IsWindowEnabled(AppControl(RecordToggle));
     info->lpszText=const_cast<wchar_t*>(!enabled?L"":tipState.recording?L"写真へ追加情報の記録を停止します":L"写真へ追加情報の記録を開始します");
     return true;
 }

@@ -1,4 +1,5 @@
-﻿#define NOMINMAX
+﻿#include "UiFont.h"
+#define NOMINMAX
 #include "MetadataEditorUi.h"
 #include <algorithm>
 #include <commctrl.h>
@@ -29,7 +30,7 @@ LRESULT CALLBACK MetadataEditorUi::Proc(HWND window,UINT message,WPARAM wp,LPARA
 void MetadataEditorUi::Create(HWND parent){WNDCLASSW wc{};wc.hInstance=GetModuleHandleW(nullptr);wc.lpfnWndProc=Proc;wc.lpszClassName=L"KuniMetadataEditor";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hbrBackground=GetSysColorBrush(COLOR_BTNFACE);RegisterClassW(&wc);
     panel=CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,L"",WS_CHILD|WS_VSCROLL|WS_CLIPCHILDREN,0,0,1,1,parent,nullptr,wc.hInstance,this);
     const wchar_t* names[]{L"撮影日時（XMP）",L"撮影者",L"ワールド名",L"ワールドID",L"モデル（1行1名）",L"タグ（1行1タグ）"};
-    auto control=[&](const wchar_t* type,const wchar_t* text,DWORD style){auto h=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,panel,nullptr,wc.hInstance,nullptr);SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return h;};
+    auto control=[&](const wchar_t* type,const wchar_t* text,DWORD style){auto h=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,panel,nullptr,wc.hInstance,nullptr);SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);return h;};
     for(size_t i=0;i<6;++i){labels[i]=control(L"STATIC",names[i],0);inputs[i]=control(L"EDIT",L"",WS_BORDER|WS_TABSTOP|(i>=4?ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL:ES_AUTOHSCROLL));SetWindowLongPtrW(inputs[i],GWLP_ID,1000+i);SendMessageW(inputs[i],EM_SETLIMITTEXT,65536,0);choices[i]=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS|WS_TABSTOP);SetWindowLongPtrW(choices[i],GWLP_ID,1100+i);
         for(auto s:{L"変更しない",L"値を設定",L"値を削除する"})SendMessageW(choices[i],CB_ADDSTRING,0,reinterpret_cast<LPARAM>(s));if(i==5)SendMessageW(choices[i],CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"追加"));SendMessageW(choices[i],CB_SETCURSEL,0,0);}
     referenceLabel=control(L"STATIC",L"人物記録の参考情報（読取り専用）",0);reference=control(L"EDIT",L"",WS_BORDER|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL|WS_TABSTOP);SetWindowLongPtrW(reference,GWLP_ID,1010);
@@ -57,13 +58,15 @@ void MetadataEditorUi::Place(int x,int y,int w,int h,bool visible){MoveWindow(pa
 void MetadataEditorUi::Layout(){
     if(!panel)return;RECT r{};GetClientRect(panel,&r);int w=std::max(140L,r.right);
     scroll=std::clamp(scroll,0,std::max(0,ContentHeight()-int(r.bottom)));
-    for(int i=0;i<6;++i){int y=i*64+(i==5?32:0)-scroll;MoveWindow(labels[i],6,y+3,std::max(1,w-146),20,TRUE);MoveWindow(choices[i],w-134,y,128,160,TRUE);MoveWindow(inputs[i],6,y+26,w-12,i>=4?60:26,TRUE);}
+    int extra=UiStackEditorFields()?26:0;auto below=[&](int y){return UiScale(y+6*extra);};
+    int inset=6,choiceW=std::min(w-12,UiScale(128));
+    for(int i=0;i<6;++i){int y=UiScale(i*(64+extra)+(i==5?32:0))-scroll;MoveWindow(labels[i],inset,y+UiScale(3),std::max(1,extra?w-12:w-choiceW-18),UiScale(20),TRUE);MoveWindow(choices[i],extra?6:w-choiceW-6,y+UiScale(extra?22:0),choiceW,UiScale(160),TRUE);MoveWindow(inputs[i],inset,y+UiScale(26+extra),w-12,UiScale(i>=4?60:26),TRUE);}
     for(auto h:{candidateLabel,candidateList,manualLabel,manualCandidates})ShowWindow(h,batch?SW_HIDE:SW_SHOW);
-    MoveWindow(candidateLabel,6,450-scroll,w-12,38,TRUE);MoveWindow(candidateList,6,490-scroll,w-12,180,TRUE);ListView_SetColumnWidth(candidateList,0,std::max(100,w-36));
-    MoveWindow(manualLabel,6,680-scroll,w-12,28,TRUE);MoveWindow(manualCandidates,6,710-scroll,w-12,68,TRUE);
+    MoveWindow(candidateLabel,6,below(450)-scroll,w-12,UiScale(38),TRUE);MoveWindow(candidateList,6,below(490)-scroll,w-12,UiScale(180),TRUE);ListView_SetColumnWidth(candidateList,0,std::max(100,w-36));
+    MoveWindow(manualLabel,6,below(680)-scroll,w-12,UiScale(28),TRUE);MoveWindow(manualCandidates,6,below(710)-scroll,w-12,UiScale(68),TRUE);
     int referenceY=batch?450:790;
-    MoveWindow(referenceLabel,6,referenceY-scroll,w-12,30,TRUE);MoveWindow(reference,6,referenceY+34-scroll,w-12,130,TRUE);
-    MoveWindow(message,6,referenceY+180-scroll,w-12,38,TRUE);
+    MoveWindow(referenceLabel,6,below(referenceY)-scroll,w-12,UiScale(30),TRUE);MoveWindow(reference,6,below(referenceY+34)-scroll,w-12,UiScale(130),TRUE);
+    MoveWindow(message,6,below(referenceY+180)-scroll,w-12,UiScale(38),TRUE);
     SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS,0,ContentHeight()-1,static_cast<UINT>(r.bottom),scroll};SetScrollInfo(panel,SB_VERT,&info,TRUE);
 }
 MetadataEdit MetadataEditorUi::Read() const {

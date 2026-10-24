@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "UpdateChecker.h"
 #include "AppVersion.h"
 #include "resource.h"
@@ -79,20 +79,20 @@ void Begin(DialogState& s,bool download){if(s.worker.joinable())s.worker.join();
     }catch(const std::exception& e){std::lock_guard<std::mutex> lock(s.mutex);s.message=s.cancel?L"キャンセルしました。":L"確認／ダウンロードに失敗しました。\r\n"+std::wstring(winrt::to_hstring(e.what()));}catch(...){std::lock_guard<std::mutex> lock(s.mutex);s.message=L"確認／ダウンロードに失敗しました。";}s.done=true;});
 }
 void FitUpdateDialog(HWND h,bool progress){
-    constexpr int contentWidth=530,margin=12;
-    auto label=GetDlgItem(h,100);auto text=Text(label);HDC dc=GetDC(label);auto font=reinterpret_cast<HFONT>(SendMessageW(label,WM_GETFONT,0,0));auto old=SelectObject(dc,font?font:GetStockObject(DEFAULT_GUI_FONT));RECT measured{0,0,contentWidth,0};DrawTextW(dc,text.c_str(),-1,&measured,DT_CALCRECT|DT_WORDBREAK|DT_NOPREFIX);SelectObject(dc,old);ReleaseDC(label,dc);
-    int textHeight=std::max(20L,measured.bottom),y=62+textHeight+10;
-    MoveWindow(label,margin,62,contentWidth,textHeight,TRUE);
+    int contentWidth=UiScale(530),margin=UiScale(12);
+    auto label=GetDlgItem(h,100);auto text=Text(label);HDC dc=GetDC(label);auto font=reinterpret_cast<HFONT>(SendMessageW(label,WM_GETFONT,0,0));auto old=SelectObject(dc,font?font:UiFont());RECT measured{0,0,contentWidth,0};DrawTextW(dc,text.c_str(),-1,&measured,DT_CALCRECT|DT_WORDBREAK|DT_NOPREFIX);SelectObject(dc,old);ReleaseDC(label,dc);
+    int textHeight=std::max(LONG(UiLineHeight()),measured.bottom),y=UiScale(62)+textHeight+UiScale(10);
+    MoveWindow(label,margin,UiScale(62),contentWidth,textHeight,TRUE);
     ShowWindow(GetDlgItem(h,101),progress?SW_SHOWNA:SW_HIDE);
-    if(progress){MoveWindow(GetDlgItem(h,101),margin,y,contentWidth,16,TRUE);y+=26;}
+    if(progress){MoveWindow(GetDlgItem(h,101),margin,y,contentWidth,UiScale(16),TRUE);y+=UiScale(26);}
     const int ids[]{102,103,104,IDCANCEL},xs[]{12,155,283,411},widths[]{135,120,120,130};
-    for(int i=0;i<4;++i)MoveWindow(GetDlgItem(h,ids[i]),xs[i],y,widths[i],28,TRUE);
-    RECT client{};GetClientRect(h,&client);int height=y+28+margin;
+    for(int i=0;i<4;++i)MoveWindow(GetDlgItem(h,ids[i]),UiScale(xs[i]),y,UiScale(widths[i]),UiControlHeight(),TRUE);
+    RECT client{};GetClientRect(h,&client);int height=y+UiControlHeight()+margin;
     if(client.right!=contentWidth+2*margin||client.bottom!=height){RECT bounds{0,0,contentWidth+2*margin,height};AdjustWindowRectEx(&bounds,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);}
 }
 INT_PTR CALLBACK Dialog(HWND h,UINT m,WPARAM wp,LPARAM lp){auto s=reinterpret_cast<DialogState*>(GetWindowLongPtrW(h,DWLP_USER));
-    if(m==WM_INITDIALOG){s=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"更新確認 — v" KUNI_VERSION_TEXT);
-        auto control=[&](const wchar_t* type,const wchar_t* text,int x,int y,int w,int height,int id,DWORD style=0){auto c=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return c;};
+    if(m==WM_INITDIALOG){ApplyUiFont(h);s=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"更新確認 — v" KUNI_VERSION_TEXT);
+        auto control=[&](const wchar_t* type,const wchar_t* text,int x,int y,int w,int height,int id,DWORD style=0){auto c=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,UiScale(x),UiScale(y),UiScale(w),UiScale(height),h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);return c;};
         auto icon=control(L"STATIC",L"",12,8,48,48,105,SS_ICON);SendMessageW(icon,STM_SETICON,reinterpret_cast<WPARAM>(LoadImageW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(IDI_APP_ICON),IMAGE_ICON,48,48,LR_SHARED)),0);
         control(L"STATIC",L"KuniVRCPhotEditor v" KUNI_VERSION_TEXT,72,12,470,24,106);
         control(L"STATIC",(L"確認日時: "+LocalTimeText(app.updateAttemptUtc)).c_str(),72,36,470,22,107);

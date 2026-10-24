@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "MetadataEditor.h"
+#include "UiFont.h"
 #include <windows.h>
 #include <vector>
 class MetadataEditorUi {
@@ -7,7 +8,7 @@ class MetadataEditorUi {
     std::vector<CandidateChoice> candidateOptions;
     std::vector<bool> candidateChecked;
     bool candidatesEditable=true;
-    int ContentHeight() const { return batch?680:1040; }
+    int ContentHeight() const { return UiScale((batch?680:1040)+(UiStackEditorFields()?156:0)); }
     std::array<HWND,6> labels{}, inputs{}, choices{};
     int scroll=0;
     bool loading=false;
@@ -16,6 +17,7 @@ class MetadataEditorUi {
     bool batch=false;
     static LRESULT CALLBACK Proc(HWND,UINT,WPARAM,LPARAM);
 public:
+    int DesiredHeight() const {return ContentHeight();}
     HWND Window() const { return panel; }
     void Create(HWND parent);
     void Load(const EditableMetadata& metadata,bool batchMode=false);

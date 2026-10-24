@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include <map>
 #include <set>
 #include <future>
@@ -12,8 +12,8 @@ void UpdateDialog(HWND h){auto state=reinterpret_cast<DialogState*>(GetWindowLon
 void Usage(HWND h){auto s=app.mdb.Status();auto text=L"使用量: "+std::to_wstring(s.bytes/1000)+L" KB / "+std::to_wstring(s.entries)+L"画像";if(s.working||s.pending)text+=L"　収集中・処理待ち "+std::to_wstring(s.pending)+L"件";if(!s.error.empty())text+=L"\r\n"+s.error;SetDlgItemTextW(h,Info,text.c_str());}
 INT_PTR CALLBACK Dialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     auto state=reinterpret_cast<DialogState*>(GetWindowLongPtrW(h,DWLP_USER));
-    if(m==WM_INITDIALOG){state=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"MDB設定");
-        auto add=[&](const wchar_t* type,const wchar_t* text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return c;};
+    if(m==WM_INITDIALOG){ApplyUiFont(h);state=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"MDB設定");
+        auto add=[&](const wchar_t* type,const wchar_t* text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);return c;};
         add(L"BUTTON",L"",WS_TABSTOP,12,12,140,28,Toggle);add(L"BUTTON",L"ID・表示名の編集…",WS_TABSTOP,164,12,230,28,Names);
         add(L"STATIC",L"MDB（Metadata DataBase）は、写真のメタデータをこのPC内に収集し、\r\nメタデータ検索とカテゴリ別表示に利用します。\r\n画像の読込みに応じて順次登録し、EXEと同じ場所のMetadataDBへ保存します。\r\nMDB機能が画像・メタデータを外部サーバーへ送信することはありません。\r\nサムネイルや元の写真データ全体を保存する機能ではありません。",0,12,54,606,92,0);
         add(L"STATIC",L"MDB容量",0,12,160,100,24,0);auto modes=add(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,120,156,300,150,Mode);for(auto label:{L"設定値",L"自動値（ディスクサムネイル優先）",L"無制限"})SendMessageW(modes,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label));SendMessageW(modes,CB_SETCURSEL,app.mdbMode,0);
@@ -21,7 +21,7 @@ INT_PTR CALLBACK Dialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
         add(L"STATIC",L"自動値：再読み込み時にディスクサムネイル保持画像を優先登録。\r\n暫定安全上限4GB。無制限はMDB独自の上限を設けません。\r\nバックアップ画像はMDBから除外します。\r\nONからOFFにするとMDBを削除します。元の写真は削除しません。",0,12,234,606,76,0);
         auto location=L"保存先: "+(app.settings.parent_path()/L"MetadataDB").wstring();add(L"EDIT",location.c_str(),WS_BORDER|ES_READONLY|ES_AUTOHSCROLL,12,322,606,26,0);
         add(L"STATIC",L"",0,12,358,606,62,Info);add(L"BUTTON",L"適用",BS_DEFPUSHBUTTON|WS_TABSTOP,398,438,100,28,IDOK);add(L"BUTTON",L"キャンセル",WS_TABSTOP,508,438,110,28,IDCANCEL);
-        RECT r{0,0,630,480};AdjustWindowRectEx(&r,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,r.right-r.left,r.bottom-r.top,SWP_NOMOVE|SWP_NOZORDER);UpdateDialog(h);Usage(h);SetTimer(h,1,500,nullptr);if(state->inspect)SetTimer(h,2,100,nullptr);return TRUE;
+        RECT r{0,0,630,480};AdjustWindowRectEx(&r,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,r.right-r.left,r.bottom-r.top,SWP_NOMOVE|SWP_NOZORDER);ScaleUiDialog(h);UpdateDialog(h);Usage(h);SetTimer(h,1,500,nullptr);if(state->inspect)SetTimer(h,2,100,nullptr);return TRUE;
     }
     if(m==WM_TIMER){if(wp==2){KillTimer(h,2);RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);if(state->inspect)state->inspect(h);if(IsWindow(h))EndDialog(h,IDCANCEL);}else Usage(h);return TRUE;}
     if(m==WM_COMMAND){int id=LOWORD(wp);if(id==Names){ShowIdNamesDialog(h);return TRUE;}if(id==Toggle){state->enabled=!state->enabled;UpdateDialog(h);return TRUE;}if(id==Mode){UpdateDialog(h);return TRUE;}
@@ -167,25 +167,26 @@ bool MdbHeaderTooltip(HWND list,UINT message,LPARAM lp,LRESULT& result){
 
 
 namespace {
+int CategoryHeaderHeight(int width,bool place){bool people=app.categoryMode==2&&app.mdbEnabled;int x=2,y=2,bh=UiControlHeight();
+    for(int id:{3100,3101,3102}){auto button=GetDlgItem(categoryBar,id);bool show=id!=3100||people;if(place)ShowWindow(button,show?SW_SHOW:SW_HIDE);if(!show)continue;int bw=std::min(std::max(1,width-4),std::max(UiScale(id==3100?70:id==3101?86:102),UiTextWidth(Text(button))+16));if(x>2&&x+bw>width-2){x=2;y+=bh+6;}if(place)MoveWindow(button,x,y,bw,bh,TRUE);x+=bw+4;}
+    return y+bh+4;
+}
 void PositionPersonButtons(){
     static bool arranging=false;if(!categoryBar||arranging)return;struct Guard{bool& flag;Guard(bool& f):flag(f){flag=true;}~Guard(){flag=false;}} guard(arranging);
     RECT rc{};GetClientRect(categoryBar,&rc);int width=rc.right;
-    bool people=app.categoryMode==2&&app.mdbEnabled;int top=people?(width<300?64:32):(width<210?64:32);
-    MoveWindow(GetDlgItem(categoryBar,3100),2,2,70,26,TRUE);ShowWindow(GetDlgItem(categoryBar,3100),people?SW_SHOW:SW_HIDE);
-    int x=people?76:2;MoveWindow(GetDlgItem(categoryBar,3101),x,2,86,26,TRUE);
-    bool wrap=x+192>width;MoveWindow(GetDlgItem(categoryBar,3102),wrap?2:x+90,wrap?32:2,102,26,TRUE);
-    int cell=std::min(180,std::max(80,width-20)),columns=std::max(1,(width-16)/cell),rows=std::max(1,(int(rc.bottom)-top)/28);
+    bool people=app.categoryMode==2&&app.mdbEnabled;int top=CategoryHeaderHeight(width,true),step=UiControlHeight()+2;
+    int cell=std::min(UiScale(180),std::max(40,width-20)),columns=std::max(1,(width-16)/cell),rows=std::max(1,(int(rc.bottom)-top)/step);
     int total=people?int(app.personChoices.size()):0,totalRows=(total+columns-1)/columns;
     personScroll=std::clamp(personScroll,0,std::max(0,totalRows-rows));SCROLLINFO scroll{sizeof(scroll),SIF_RANGE|SIF_PAGE|SIF_POS,0,std::max(0,totalRows-1),UINT(rows),personScroll,0};SetScrollInfo(categoryBar,SB_VERT,&scroll,TRUE);
     size_t slots=people?size_t(columns*rows):0;
     while(personPool.size()<slots){int id=3200+int(personPool.size());auto button=CreateWindowExW(0,L"BUTTON",L"",WS_CHILD|WS_TABSTOP|BS_AUTOCHECKBOX|BS_PUSHLIKE,0,0,1,1,categoryBar,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);
-        SendMessageW(button,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);personPool.push_back(button);
+        SendMessageW(button,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);personPool.push_back(button);
         TOOLINFOW tool{sizeof(tool)};tool.hwnd=categoryBar;tool.uId=reinterpret_cast<UINT_PTR>(button);tool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;tool.lpszText=LPSTR_TEXTCALLBACKW;SendMessageW(categoryTips,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tool));}
     personPoolIndex.assign(personPool.size(),-1);personTips.resize(personPool.size());
     for(size_t i=0;i<personPool.size();++i){int index=personScroll*columns+int(i);bool show=i<slots&&index<total;if(show){personPoolIndex[i]=index;auto& choice=app.personChoices[index];bool selected=choice.first==app.priorityPerson;
             auto text=(selected?L"● ":L"")+choice.second;SetWindowTextW(personPool[i],text.c_str());SendMessageW(personPool[i],BM_SETCHECK,selected?BST_CHECKED:BST_UNCHECKED,0);
             personTips[i]=choice.second+L"\r\n"+(choice.first.rfind(L"name:",0)==0?L"IDなし":choice.first);
-            MoveWindow(personPool[i],2+int(i)%columns*cell,top+int(i)/columns*28,cell-4,26,TRUE);}
+            MoveWindow(personPool[i],2+int(i)%columns*cell,top+int(i)/columns*step,cell-4,UiControlHeight(),TRUE);}
         ShowWindow(personPool[i],show?SW_SHOW:SW_HIDE);}
 }
 LRESULT CALLBACK CategoryBarProc(HWND h,UINT m,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR){
@@ -207,7 +208,7 @@ LRESULT CALLBACK CategoryBarProc(HWND h,UINT m,WPARAM wp,LPARAM lp,UINT_PTR,DWOR
 void CreateCategoryBar(){
     categoryBar=CreateWindowExW(WS_EX_CONTROLPARENT,L"STATIC",L"",WS_CHILD|WS_CLIPCHILDREN|WS_VSCROLL,0,0,1,1,app.window,reinterpret_cast<HMENU>(3050),GetModuleHandleW(nullptr),nullptr);
     SetWindowSubclass(categoryBar,CategoryBarProc,512,0);categoryTips=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,categoryBar,nullptr,GetModuleHandleW(nullptr),nullptr);
-    const wchar_t* labels[]{L"優先解除",L"すべて展開",L"すべて折り畳む"};for(int i=0;i<3;++i){auto button=CreateWindowExW(0,L"BUTTON",labels[i],WS_CHILD|WS_VISIBLE|WS_TABSTOP,0,0,1,1,categoryBar,reinterpret_cast<HMENU>(INT_PTR(3100+i)),GetModuleHandleW(nullptr),nullptr);SendMessageW(button,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);}
+    const wchar_t* labels[]{L"優先解除",L"すべて展開",L"すべて折り畳む"};for(int i=0;i<3;++i){auto button=CreateWindowExW(0,L"BUTTON",labels[i],WS_CHILD|WS_VISIBLE|WS_TABSTOP,0,0,1,1,categoryBar,reinterpret_cast<HMENU>(INT_PTR(3100+i)),GetModuleHandleW(nullptr),nullptr);SendMessageW(button,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);}
 }
 void RefreshCategoryBar(){
     app.personChoices.clear();if(app.categoryMode==2){auto labels=PersonLabels(app.personRecords,app.idNames.Snapshot());auto order=PersonOrder(labels);std::map<std::wstring,int> counts;for(auto& entry:labels)++counts[entry.second];
@@ -217,7 +218,7 @@ void RefreshCategoryBar(){
 }
 void LayoutCategoryBar(RECT& list){
     if(!categoryBar)return;bool show=app.mdbEnabled&&app.categoryMode;ShowWindow(categoryBar,show?SW_SHOW:SW_HIDE);if(!show)return;
-    int height=app.categoryMode==2?96:(list.right-list.left<230?64:32);MoveWindow(categoryBar,list.left,list.top,std::max(1L,list.right-list.left),height,TRUE);list.top+=height;
+    int height=CategoryHeaderHeight(std::max(1L,list.right-list.left-GetSystemMetrics(SM_CXVSCROLL)),false)+(app.categoryMode==2?2*(UiControlHeight()+2)+8:0);MoveWindow(categoryBar,list.left,list.top,std::max(1L,list.right-list.left),height,TRUE);list.top+=height;
 }
 void SetAllCategories(bool open){
     if(!app.list)return;for(auto& span:spans){ListView_SetGroupState(app.list,span.id,LVGS_COLLAPSED,open?0:LVGS_COLLAPSED);expanded[span.key]=open;}

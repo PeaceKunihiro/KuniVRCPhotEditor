@@ -1,4 +1,4 @@
-#include "V048Features.h"
+﻿#include "V048Features.h"
 #include "UpdateChecker.h"
 #include "LicenseUi.h"
 #include "ViewerRuntime.h"
@@ -12,9 +12,10 @@ std::vector<SummaryLink> activeLinks;
 struct PageButton { HWND window{}; SummaryLink target; bool active=false; };
 std::vector<PageButton> pageButtons;
 void FormatLinks(){
+    app.simpleLayoutDirty=true;
     activeLinks=app.idLinks?SummaryLinks(app.summary):std::vector<SummaryLink>{};
     for(int field:{6,8,9}){auto h=app.simpleValues[field];CHARRANGE selection{};SendMessageW(h,EM_EXGETSEL,0,reinterpret_cast<LPARAM>(&selection));CHARRANGE all{0,-1};SendMessageW(h,EM_EXSETSEL,0,reinterpret_cast<LPARAM>(&all));CHARFORMAT2W format{};format.cbSize=sizeof(format);format.dwMask=CFM_LINK|CFM_COLOR|CFM_UNDERLINE;format.crTextColor=ThemeForeground();SendMessageW(h,EM_SETCHARFORMAT,SCF_SELECTION,reinterpret_cast<LPARAM>(&format));
-        bool buttons=std::any_of(activeLinks.begin(),activeLinks.end(),[&](auto& link){return link.field==field;});PARAFORMAT2 paragraph{};paragraph.cbSize=sizeof(paragraph);paragraph.dwMask=PFM_LINESPACING;paragraph.bLineSpacingRule=buttons?4:0;auto dc=GetDC(h);paragraph.dyLineSpacing=buttons?MulDiv(22,1440,GetDeviceCaps(dc,LOGPIXELSY)):0;ReleaseDC(h,dc);SendMessageW(h,EM_SETPARAFORMAT,0,reinterpret_cast<LPARAM>(&paragraph));SendMessageW(h,EM_EXSETSEL,0,reinterpret_cast<LPARAM>(&selection));SendMessageW(h,EM_SETBKGNDCOLOR,0,ThemeBackground());
+        bool buttons=std::any_of(activeLinks.begin(),activeLinks.end(),[&](auto& link){return link.field==field;});PARAFORMAT2 paragraph{};paragraph.cbSize=sizeof(paragraph);paragraph.dwMask=PFM_LINESPACING;paragraph.bLineSpacingRule=buttons?4:0;auto dc=GetDC(h);paragraph.dyLineSpacing=buttons?MulDiv(std::max(22,UiScale(20)+2),1440,GetDeviceCaps(dc,LOGPIXELSY)):0;ReleaseDC(h,dc);SendMessageW(h,EM_SETPARAFORMAT,0,reinterpret_cast<LPARAM>(&paragraph));SendMessageW(h,EM_EXSETSEL,0,reinterpret_cast<LPARAM>(&selection));SendMessageW(h,EM_SETBKGNDCOLOR,0,ThemeBackground());
     }
 }
 LRESULT CALLBACK PageButtonProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR){
@@ -26,12 +27,12 @@ LRESULT CALLBACK PageButtonProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UIN
     return DefSubclassProc(window,message,wp,lp);
 }
 void PlacePageButtons(){
-    RECT area{};GetClientRect(app.simple,&area);size_t used=0;
+    RECT area{};GetClientRect(app.simple,&area);if(app.side){RECT clip{};GetClientRect(app.side,&clip);MapWindowPoints(app.side,app.simple,reinterpret_cast<POINT*>(&clip),2);IntersectRect(&area,&area,&clip);}size_t used=0;
     for(auto& link:activeLinks){auto value=app.simpleValues[link.field];RECT rect{};GetWindowRect(value,&rect);MapWindowPoints(nullptr,app.simple,reinterpret_cast<POINT*>(&rect),2);POINTL point{};SendMessageW(value,EM_POSFROMCHAR,reinterpret_cast<WPARAM>(&point),link.first);// Rich Edit exact line spacing adds leading above the glyphs.
-        int top=rect.top+point.y+6;if(top+20<=0||top>=area.bottom)continue;
+        int top=rect.top+point.y+2;if(top+UiScale(20)<=area.top||top>=area.bottom)continue;
         if(used==pageButtons.size())pageButtons.push_back({});auto& button=pageButtons[used];
-        if(!IsWindow(button.window)){button.window=CreateWindowExW(0,L"BUTTON",L"↗",WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON,0,0,24,20,app.simple,reinterpret_cast<HMENU>(4000+used),GetModuleHandleW(nullptr),nullptr);SendMessageW(button.window,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);SetWindowSubclass(button.window,PageButtonProc,17,0);}
-        if(GetFocus()==button.window&&button.target.url!=link.url)SetFocus(app.simpleValues[button.target.field]);button.target=link;button.active=true;MoveWindow(button.window,rect.left-28,top,24,20,FALSE);ShowWindow(button.window,SW_SHOWNA);SetWindowPos(button.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);++used;
+        if(!IsWindow(button.window)){button.window=CreateWindowExW(0,L"BUTTON",L"↗",WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON,0,0,24,20,app.simple,reinterpret_cast<HMENU>(4000+used),GetModuleHandleW(nullptr),nullptr);SendMessageW(button.window,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);SetWindowSubclass(button.window,PageButtonProc,17,0);}
+        if(GetFocus()==button.window&&button.target.url!=link.url)SetFocus(app.simpleValues[button.target.field]);button.target=link;button.active=true;MoveWindow(button.window,rect.left-UiScale(28),top,UiScale(24),UiScale(20),FALSE);ShowWindow(button.window,SW_SHOWNA);SetWindowPos(button.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);++used;
     }
     for(size_t i=used;i<pageButtons.size();++i){auto& button=pageButtons[i];if(GetFocus()==button.window)SetFocus(app.simpleValues[button.target.field]);button.active=false;ShowWindow(button.window,SW_HIDE);}
 }
@@ -109,7 +110,7 @@ void LoadSettings() {
         if (!input) throw std::runtime_error("read");
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
-        auto settings = ParseViewerSettings(json);
+        auto settings = ParseViewerSettings(json);app.fontName=settings.fontName;app.fontPt=settings.fontPt;
         app.hideFileNames=settings.hideFileNames;app.updateAttemptUtc=settings.updateAttemptUtc;app.updateSuccessUtc=settings.updateSuccessUtc;app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.mdbEnabled=settings.mdbEnabled;app.mdbMode=settings.mdbMode;app.mdbCapacityMB=settings.mdbCapacityMB;app.categoryMode=settings.categoryMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
@@ -124,7 +125,7 @@ void LoadSettings() {
 void SaveSettings(bool notify) {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
+        ViewerSettings settings;settings.fontName=app.fontName;settings.fontPt=app.fontPt;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.bookmarkCache=app.bookmarkCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
@@ -216,7 +217,7 @@ void Queue(Job job, bool priority) {
 void UpdateThumbnailSpacing() {
     HDC dc = GetDC(app.list);
     auto font = reinterpret_cast<HFONT>(SendMessageW(app.list, WM_GETFONT, 0, 0));
-    auto previous = SelectObject(dc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
+    auto previous = SelectObject(dc, font ? font : UiFont());
     TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics);
     SelectObject(dc, previous); ReleaseDC(app.list, dc);
     int labelHeight = app.hideFileNames?0:std::max(1L, metrics.tmHeight + metrics.tmExternalLeading);
@@ -226,12 +227,12 @@ void UpdateThumbnailSpacing() {
 }
 void ArrangeImages() {
     auto font = reinterpret_cast<HFONT>(SendMessageW(app.list, WM_GETFONT, 0, 0));
-    if (!font) font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    if (!font) font = static_cast<HFONT>(UiFont());
     bool all = app.imageLabelsDirty || app.imageLabelWidth != app.activeThumbnailWidth || app.imageLabelFont != font;
     if (all || !app.dirtyImageLabels.empty()) {
         HDC dc = GetDC(app.list);
         if (!dc) { app.imageLabelsDirty = true; ListView_Arrange(app.list, LVA_DEFAULT); return; }
-        auto previous = SelectObject(dc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
+        auto previous = SelectObject(dc, font ? font : UiFont());
         auto fits = [&](const std::wstring& text) { SIZE size{}; GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &size); return size.cx <= app.activeThumbnailWidth; };
         auto update = [&](int i) {
             if (i < 0 || i >= static_cast<int>(app.files.size())) return;
@@ -535,7 +536,7 @@ void Results() {
 }
 namespace {
 bool recordBlink=false;
-void UpdateRecordingControls(bool tick=false){TrayUpdate();auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=GetDlgItem(app.window,RecordToggle);auto text=stage3::Stopping()?L"停止処理中…":on?L"記録停止":L"記録開始";EnableWindow(button,!stage3::Stopping());UpdateRecordingTooltip(on,!stage3::Stopping());if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(GetDlgItem(app.window,RecordIndicator),nullptr,FALSE);}
+void UpdateRecordingControls(bool tick=false){TrayUpdate();auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=AppControl(RecordToggle);auto text=stage3::Stopping()?L"停止処理中…":on?L"記録停止":L"記録開始";EnableWindow(button,!stage3::Stopping());UpdateRecordingTooltip(on,!stage3::Stopping());if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(AppControl(RecordIndicator),nullptr,FALSE);}
 bool DrawRecording(DRAWITEMSTRUCT* draw){if(draw->CtlID!=RecordToggle&&draw->CtlID!=RecordIndicator)return false;int saved=SaveDC(draw->hDC);bool on=stage3::Recording();auto rect=draw->rcItem;
     if(draw->CtlID==RecordIndicator){FillRect(draw->hDC,&rect,ThemeBrush());auto brush=CreateSolidBrush(on&&recordBlink?RGB(220,35,35):RGB(135,135,135));auto oldBrush=SelectObject(draw->hDC,brush);auto oldPen=SelectObject(draw->hDC,GetStockObject(NULL_PEN));int size=std::min(rect.right-rect.left,rect.bottom-rect.top)-10;int x=(rect.left+rect.right-size)/2,y=(rect.top+rect.bottom-size)/2;Ellipse(draw->hDC,x,y,x+size,y+size);SelectObject(draw->hDC,oldBrush);SelectObject(draw->hDC,oldPen);DeleteObject(brush);}
     else {auto color=on?RGB(185,25,25):RGB(0,90,190);if(draw->itemState&ODS_SELECTED)color=on?RGB(140,15,15):RGB(0,65,140);auto brush=CreateSolidBrush(color);FillRect(draw->hDC,&rect,brush);DeleteObject(brush);FrameRect(draw->hDC,&rect,GetSysColorBrush(COLOR_GRAYTEXT));auto font=SendMessageW(draw->hwndItem,WM_GETFONT,0,0);if(font)SelectObject(draw->hDC,reinterpret_cast<HGDIOBJ>(font));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,RGB(255,255,255));auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(draw->hDC,&rect);}}
@@ -543,31 +544,38 @@ bool DrawRecording(DRAWITEMSTRUCT* draw){if(draw->CtlID!=RecordToggle&&draw->Ctl
 }
 }
 void Layout() {
+    UiRepaintBatch paintBatch(app.window);
 
     RECT r{}; GetClientRect(app.window, &r); int width = r.right, height = r.bottom;
     // Move the toolbar as one batch and discard copied pixels from old positions.
     // Sequential MoveWindow(..., TRUE) can repaint while siblings still overlap.
     struct ToolbarPosition { HWND window; int x, y, width, height; };
-    bool wrap=width<804;int recordingY=wrap?110:76,placementX=wrap?8:width-332;int listTop=wrap?144:110;
-    const ToolbarPosition toolbar[]{
-        { app.path, 8, 8, std::max(80, width - 212), 26 },
-        { GetDlgItem(app.window, OpenPath), width - 196, 8, 28, 26 },
-        { GetDlgItem(app.window, Browse), width - 160, 8, 80, 26 },
-        { GetDlgItem(app.window, ResetView), width-72,8,64,26 },
-        {GetDlgItem(app.window,HistoryBack),8,42,28,26},
-        {GetDlgItem(app.window,HistoryForward),40,42,28,26},
-        { app.history, 76, 42, std::max(52,width/3-68), 280 },
-        { app.searchEdit, 16+std::max(120,width/3),42,std::max(100,width-96-std::max(120,width/3)),26 },
-        { app.searchButton,width-72,42,64,26 },
-        { GetDlgItem(app.window, Bookmarks),8,76,120,26 },
-        { GetDlgItem(app.window, Options),136,76,116,26 },
-        { GetDlgItem(app.window, Help),260,76,88,26 },
-        { GetDlgItem(app.window, SortMenu),356,76,108,26 },
-        { app.placement,placementX,recordingY,172,180 },
-        { GetDlgItem(app.window,RecordToggle),placementX+180,recordingY,104,26 },
-        { GetDlgItem(app.window,RecordIndicator),placementX+292,recordingY,24,26 }
-    };
-    auto positions = BeginDeferWindowPos(ARRAYSIZE(toolbar));
+    const int gap=8,margin=8,buttonH=UiControlHeight(),row=buttonH+gap;
+    bool icons=app.fontPt>=18;
+    auto buttonWidth=[&](int id,int minimum){return icons&&(id==Browse||id==Bookmarks||id==Options||id==Help||id==SortMenu)?buttonH:std::max(minimum,UiTextWidth(Text(AppControl(id)))+20);};
+    std::vector<ToolbarPosition> toolbar;
+    auto put=[&](HWND h,int x,int y,int w,int height){toolbar.push_back({h,x,y,std::max(1,w),height});};
+    int folderW=buttonWidth(Browse,80),resetW=buttonWidth(ResetView,64),reloadW=std::max(28,buttonH);
+    int pathW=std::max(40,width-2*margin-folderW-resetW-reloadW-3*gap);
+    put(app.path,margin,margin,pathW,buttonH);int x=margin+pathW+gap;
+    put(AppControl(OpenPath),x,margin,reloadW,buttonH);x+=reloadW+gap;put(AppControl(Browse),x,margin,folderW,buttonH);x+=folderW+gap;put(AppControl(ResetView),x,margin,resetW,buttonH);
+    int y=margin+row,arrow=std::max(28,buttonH),historyX=margin+2*(arrow+gap),searchW=std::max(64,UiTextWidth(Text(app.searchButton))+20);
+    int historyW=std::max(52,width/3-historyX),searchX=historyX+historyW+gap;
+    put(AppControl(HistoryBack),margin,y,arrow,buttonH);put(AppControl(HistoryForward),margin+arrow+gap,y,arrow,buttonH);
+    put(app.history,historyX,y,historyW,UiScale(280));put(app.searchEdit,searchX,y,std::max(40,width-margin-searchW-gap-searchX),buttonH);put(app.searchButton,width-margin-searchW,y,searchW,buttonH);
+    y+=row;x=margin;
+    for(int id:{Bookmarks,Options,Help,SortMenu}){
+        auto h=AppControl(id);SendMessageW(h,BM_SETSTYLE,icons?BS_OWNERDRAW:BS_PUSHBUTTON,FALSE);
+        int w=buttonWidth(id,id==Bookmarks?120:id==Options?116:id==Help?88:108);
+        if(x+w>width-margin&&x>margin){x=margin;y+=row;}put(h,x,y,w,buttonH);x+=w+gap;
+    }
+    SendMessageW(AppControl(Browse),BM_SETSTYLE,icons?BS_OWNERDRAW:BS_PUSHBUTTON,FALSE);
+    int placementW=std::max(172,UiTextWidth(L"サイドビュー：なし")+32),recordW=std::max(104,UiTextWidth(L"記録開始")+20),indicatorW=24;
+    int recordingW=placementW+recordW+indicatorW+2*gap;
+    if(x+recordingW>width-margin){x=margin;y+=row;}else x=width-margin-recordingW;
+    put(app.placement,x,y,placementW,UiScale(180));put(AppControl(RecordToggle),x+placementW+gap,y,recordW,buttonH);put(AppControl(RecordIndicator),x+placementW+recordW+2*gap,y,indicatorW,buttonH);
+    int listTop=y+row, statusH=std::max(24,UiLineHeight()+4);
+    auto positions = BeginDeferWindowPos(int(toolbar.size()));
     for (const auto& control : toolbar) {
         if (!positions) break;
         positions = DeferWindowPos(positions, control.window, nullptr, control.x, control.y, control.width, control.height,
@@ -577,87 +585,69 @@ void Layout() {
         for (const auto& control : toolbar) SetWindowPos(control.window, nullptr, control.x, control.y, control.width, control.height,
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
     }
-    RECT list{ 8, listTop, width - 8, height - 36 }, side = list;
+    RECT list{ 8, listTop, width - 8, height - statusH - 12 }, side = list;
     bool noSide=app.layout==L"none";
-    for(auto h:{app.preview,app.metadataTabs})ShowWindow(h,noSide?SW_HIDE:SW_SHOW);
+    ShowWindow(app.side,noSide?SW_HIDE:SW_SHOW);
     if (noSide) {}
-    else if (app.layout == L"bottom") { int split = std::max(listTop+(app.categoryMode==2?164:app.categoryMode?112:80),height-36-std::clamp(app.sideHeight,120,std::max(120,height-listTop-116))); list.bottom = split - 4; side.top = split + 4; }
+    else if (app.layout == L"bottom") { int split = std::max(listTop+(app.categoryMode==2?164:app.categoryMode?112:80),height-statusH-12-std::clamp(app.sideHeight,120,std::max(120,height-listTop-116))); list.bottom = split - 4; side.top = split + 4; }
     else {
         int sideWidth = std::clamp(app.sideWidth,280,std::max(280,width-176));
         if (app.layout == L"left") { side.right = 8 + sideWidth; list.left = side.right + 8; }
         else { side.left = width - 8 - sideWidth; list.right = side.left - 8; }
     }
-    app.splitter=noSide?RECT{}:app.layout==L"bottom"?RECT{8,list.bottom,width-8,side.top}:app.layout==L"left"?RECT{side.right,listTop,list.left,height-36}:RECT{list.right,listTop,side.left,height-36};
+    app.splitter=noSide?RECT{}:app.layout==L"bottom"?RECT{8,list.bottom,width-8,side.top}:app.layout==L"left"?RECT{side.right,listTop,list.left,height-statusH-12}:RECT{list.right,listTop,side.left,height-statusH-12};
     LayoutCategoryBar(list);
     MoveWindow(app.list, list.left, list.top, std::max(1L, list.right - list.left), std::max(1L, list.bottom - list.top), TRUE);
-    if (app.layout == L"bottom") {
-        int previewWidth = (side.right - side.left) / 3;
-        MoveWindow(app.preview, side.left, side.top, previewWidth, std::max(1L, side.bottom - side.top), TRUE);
-        MoveWindow(app.metadataTabs, side.left + previewWidth + 8, side.top, std::max(1L, side.right - side.left - previewWidth - 8), std::max(1L, side.bottom - side.top), TRUE);
-    } else {
-        int previewHeight = std::max(60L, (side.bottom - side.top) / 3);
-        MoveWindow(app.preview, side.left, side.top, side.right - side.left, previewHeight, TRUE);
-        MoveWindow(app.metadataTabs, side.left, side.top + previewHeight + 8, side.right - side.left, std::max(1L, side.bottom - side.top - previewHeight - 8), TRUE);
-    }
-    RECT page{}; GetClientRect(app.metadataTabs, &page); TabCtrl_AdjustRect(app.metadataTabs, FALSE, &page);
-    MapWindowPoints(app.metadataTabs, app.window, reinterpret_cast<POINT*>(&page), 2);
-    MoveWindow(app.simple,page.left,page.top,std::max(1L,page.right-page.left),std::max(1L,page.bottom-page.top),FALSE);
-    bool detailed = TabCtrl_GetCurSel(app.metadataTabs) == 1;
-    MoveWindow(app.editButton,page.left,page.top,64,26,TRUE);MoveWindow(app.saveButton,page.left+68,page.top,64,26,TRUE);MoveWindow(app.cancelButton,page.left+136,page.top,80,26,TRUE);
-    MoveWindow(app.editStatus,page.left,page.top+29,std::max(1L,page.right-page.left),38,TRUE);
-    MoveWindow(app.details,page.left,page.top+68,std::max(1L,page.right-page.left),std::max(1L,page.bottom-page.top-68),TRUE);
-    for(auto h:{app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(h,detailed?SW_SHOW:SW_HIDE);
-    app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,detailed&&app.editing);
-    ShowWindow(app.details, detailed && !app.editing ? SW_SHOW : SW_HIDE); ShowWindow(app.simple, TabCtrl_GetCurSel(app.metadataTabs)==0 ? SW_SHOW : SW_HIDE);
-    LayoutOcrUi(page,!noSide&&TabCtrl_GetCurSel(app.metadataTabs)==2);
-    LayoutMdbApplyUi(page,!noSide&&TabCtrl_GetCurSel(app.metadataTabs)==3);
-    LayoutSimple();
-    for(auto h:{app.simple,app.details,app.editorUi.Window()})SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-    for(auto h:{app.editButton,app.saveButton,app.cancelButton,app.editStatus})SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-    if(noSide){for(auto h:{app.simple,app.details,app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(h,SW_HIDE);app.editorUi.Place(page.left,page.top+68,page.right-page.left,page.bottom-page.top-68,false);}
-    MoveWindow(app.status, 8, height - 28, width - 16, 24, TRUE);
+    MoveWindow(app.side,side.left,side.top,std::max(1L,side.right-side.left),std::max(1L,side.bottom-side.top),FALSE);
+    ShowWindow(app.side,noSide?SW_HIDE:SW_SHOW);LayoutSideView();
+    MoveWindow(app.status, 8, height - statusH - 4, width - 16, statusH, TRUE);
     if(app.autoThumbnails){int available=std::max(64L,list.right-list.left-GetSystemMetrics(SM_CXVSCROLL)-4);int gap=app.hideFileNames?2:8;int span=256+gap;int columns=std::max(1,(available+span-1)/span);int desired=std::clamp(available/columns-gap,64,256);if(desired!=app.thumbnailWidth){app.thumbnailWidth=desired;SetTimer(app.window,ZoomTimer,150,nullptr);}}
     ArrangeImages();
-    // Erase the vacated button locations as well as repainting the controls.
-    RECT toolbarArea{ 0, 0, width, height-30 };
-    RedrawWindow(app.window, &toolbarArea, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+    // UiRepaintBatch submits one final repaint after every child is in place.
 }
 void LayoutSimple() {
     if (!app.simple) return;
+    if(app.side&&!app.sideLayout){LayoutSideView();return;}
+    if(app.side&&!app.sideMeasuring&&!app.simpleLayoutDirty){PlacePageButtons();return;}
     RECT area{}; GetClientRect(app.simple, &area);
-    int labelWidth = 104, valueWidth = std::max(40L, area.right - labelWidth - 24);
-    HDC dc = GetDC(app.simple); auto previous = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT)); TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics); SelectObject(dc, previous); ReleaseDC(app.simple, dc);
-    int y = 8;
+    int labelWidth = 72;
+    HDC measure=GetDC(app.simple);auto measuredFont=SelectObject(measure,UiFont());for(auto label:app.simpleLabels){auto text=Text(label);SIZE extent{};GetTextExtentPoint32W(measure,text.c_str(),int(text.size()),&extent);labelWidth=std::max(labelWidth,int(extent.cx)+4);}SelectObject(measure,measuredFont);ReleaseDC(app.simple,measure);
+    labelWidth=std::min(labelWidth,std::min(UiScale(160),std::max(48,int(area.right)/2)));
+    HDC dc = GetDC(app.simple); auto previous = SelectObject(dc, UiFont()); TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics); SelectObject(dc, previous); ReleaseDC(app.simple, dc);
+    int y = 2;
     for (size_t i = 0; i < app.simpleValues.size(); ++i) {
         auto value=Text(app.simpleValues[i]);bool visible=value.find_first_not_of(L" \t\r\n")!=std::wstring::npos;
         ShowWindow(app.simpleLabels[i],visible?SW_SHOWNA:SW_HIDE);ShowWindow(app.simpleValues[i],visible?SW_SHOWNA:SW_HIDE);
         if(!visible)continue;
-        bool buttons=std::any_of(activeLinks.begin(),activeLinks.end(),[&](auto& link){return link.field==i;});int gutter=buttons?28:0;
-        MoveWindow(app.simpleValues[i], labelWidth + 12+gutter, y - app.simpleScroll, valueWidth-gutter, 24, FALSE);
-        int lines = static_cast<int>(SendMessageW(app.simpleValues[i], EM_GETLINECOUNT, 0, 0));
-        int height = std::max(26, lines * (buttons?22:static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading)) + 8);
-        MoveWindow(app.simpleLabels[i], 8, y + (buttons?12:3) - app.simpleScroll, labelWidth, 24, FALSE);
-        MoveWindow(app.simpleValues[i], labelWidth + 12+gutter, y - app.simpleScroll, valueWidth-gutter, height, FALSE);
-        y += height + 8;
+        bool buttons=std::any_of(activeLinks.begin(),activeLinks.end(),[&](auto& link){return link.field==i;});int gutter=buttons?UiScale(28):0;
+        bool stacked=app.fontPt>=18&&area.right<labelWidth+gutter+140;int valueY=y+(stacked?UiLineHeight()+6:0),valueX=stacked?12+gutter:labelWidth+12+gutter,valueW=std::max(1,int(area.right)-valueX-12);
+        MoveWindow(app.simpleValues[i],valueX,valueY-app.simpleScroll,valueW,UiLineHeight()+4,FALSE);
+        int lines=static_cast<int>(SendMessageW(app.simpleValues[i],EM_GETLINECOUNT,0,0));
+        int height=std::max(UiLineHeight()+4,lines*(buttons?std::max(22,UiScale(20)+2):static_cast<int>(metrics.tmHeight+metrics.tmExternalLeading))+4);
+        MoveWindow(app.simpleLabels[i],8,y+(buttons&&!stacked?6:2)-app.simpleScroll,stacked?int(area.right)-16:labelWidth,UiLineHeight()+4,FALSE);
+        MoveWindow(app.simpleValues[i],valueX,valueY-app.simpleScroll,valueW,height,FALSE);
+        y=valueY;
+        y += height + 2;
     }
 
     auto note = Text(app.simpleNote);ShowWindow(app.simpleNote,note.empty()?SW_HIDE:SW_SHOWNA);
     MoveWindow(app.simpleNote, 8, y - app.simpleScroll, std::max(40L, area.right - 16), 24, FALSE);
     int lines = static_cast<int>(SendMessageW(app.simpleNote, EM_GETLINECOUNT, 0, 0));
-    int noteHeight = note.empty() ? 0 : std::max(26, lines * static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading) + 8);
+    int noteHeight = note.empty() ? 0 : std::max(UiLineHeight()+4, lines * static_cast<int>(metrics.tmHeight + metrics.tmExternalLeading) + 4);
     MoveWindow(app.simpleNote, 8, y - app.simpleScroll, std::max(40L, area.right - 16), std::max(1, noteHeight), FALSE);
-    app.simpleContentHeight = y + noteHeight + 8;
-    int position = std::clamp(app.simpleScroll, 0, std::max(0, app.simpleContentHeight - static_cast<int>(area.bottom)));
-    SCROLLINFO scroll{ sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS }; scroll.nMax = app.simpleContentHeight - 1; scroll.nPage = area.bottom; scroll.nPos = position; SetScrollInfo(app.simple, SB_VERT, &scroll, TRUE);
+    app.simpleContentHeight = y + noteHeight + 2;
+    int position = app.side ? 0 : std::clamp(app.simpleScroll, 0, std::max(0, app.simpleContentHeight - static_cast<int>(area.bottom)));
+    SCROLLINFO scroll{ sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS }; scroll.nMax = app.simpleContentHeight - 1; scroll.nPage = area.bottom; scroll.nPos = position; if(!app.side)SetScrollInfo(app.simple, SB_VERT, &scroll, TRUE);else ShowScrollBar(app.simple,SB_VERT,FALSE);
     if (position != app.simpleScroll) { app.simpleScroll = position; LayoutSimple(); return; }
-    PlacePageButtons();
+    app.simpleLayoutDirty=false;if(!app.sideMeasuring)PlacePageButtons();
     // Repaint unchanged labels as well as values, after all positions are final.
     // The pane clips children, so invalidating only its background is insufficient.
-    RedrawWindow(app.simple, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    if(!UiRepaintActive())RedrawWindow(app.simple, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 LRESULT CALLBACK SimpleProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if(message==WM_COMMAND&&HIWORD(wparam)==BN_CLICKED){OpenPageButton(reinterpret_cast<HWND>(lparam));return 0;}
     if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) {
+        if(app.side)return SendMessageW(app.side,message,wparam,lparam);
         RECT area{}; GetClientRect(window, &area); int position = app.simpleScroll;
         if (message == WM_MOUSEWHEEL) {
             app.simpleWheel += GET_WHEEL_DELTA_WPARAM(wparam);
@@ -712,18 +702,18 @@ void RemoveBookmark(size_t index) {
     app.bookmarks.erase(app.bookmarks.begin() + index); ConfigureDiskCache(); SaveSettings(); Counts(L"ブックマークを削除しました。");
 }
 INT_PTR CALLBACK CacheDialog(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam) {
-    if (message == WM_INITDIALOG) {
+    if (message == WM_INITDIALOG) {ApplyUiFont(dialog);
         SetWindowLongPtrW(dialog, DWLP_USER, lparam); SetWindowTextW(dialog, L"画像サムネイルキャッシュ上限");
         auto child = [&](const wchar_t* type, const wchar_t* text, DWORD style, int x, int y, int width, int height, int id) {
             auto control = CreateWindowExW(0, type, text, WS_CHILD | WS_VISIBLE | style, x, y, width, height, dialog, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
-            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE); return control;
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(UiFont()), TRUE); return control;
         };
         child(L"STATIC", L"上限（MB、16〜2048の整数）", 0, 12, 12, 350, 24, 0);
         child(L"EDIT", std::to_wstring(*reinterpret_cast<int*>(lparam)).c_str(), WS_BORDER | WS_TABSTOP | ES_NUMBER, 12, 40, 140, 26, 100);
         child(L"STATIC", L"一覧とメモリキャッシュのサムネイル保持分が対象です。", 0, 12, 74, 420, 24, 0);
         child(L"BUTTON", L"OK", WS_TABSTOP | BS_DEFPUSHBUTTON, 200, 112, 80, 26, IDOK);
         child(L"BUTTON", L"キャンセル", WS_TABSTOP, 290, 112, 100, 26, IDCANCEL);
-        SendDlgItemMessageW(dialog, 100, EM_SETLIMITTEXT, 4, 0); SetFocus(GetDlgItem(dialog, 100)); SendDlgItemMessageW(dialog, 100, EM_SETSEL, 0, -1); return FALSE;
+        ScaleUiDialog(dialog);SendDlgItemMessageW(dialog, 100, EM_SETLIMITTEXT, 4, 0); SetFocus(GetDlgItem(dialog, 100)); SendDlgItemMessageW(dialog, 100, EM_SETSEL, 0, -1); return FALSE;
     }
     if (message == WM_COMMAND && LOWORD(wparam) == IDOK) {
         auto text = Text(GetDlgItem(dialog, 100));
@@ -756,7 +746,7 @@ INT_PTR ShowCacheLimitDialog(int& mb) {
 }
 HMENU BuildOptionsMenu() {
     auto menu = CreatePopupMenu();
-    AppendMenuW(menu,MF_STRING,17,L"MDB設定…");
+    AppendMenuW(menu,MF_STRING,17,L"MDB設定…");AppendMenuW(menu,MF_STRING,18,L"フォント…");
     AppendMenuW(menu,MF_STRING|(app.hideFileNames?MF_CHECKED:0),16,app.hideFileNames?L"ファイル名省略: ON":L"ファイル名省略: OFF");
     AppendMenuW(menu,MF_STRING|(app.idLinks?MF_CHECKED:0),15,app.idLinks?L"ページを開くボタン: ON":L"ページを開くボタン: OFF");
     AppendMenuW(menu,MF_STRING|(app.residentMode?MF_CHECKED:0),13,app.residentMode?L"常駐モード: ON":L"常駐モード: OFF");
@@ -778,9 +768,10 @@ HMENU BuildOptionsMenu() {
 }
 void OptionsMenu() {
     auto menu = BuildOptionsMenu();
-    RECT rect{}; GetWindowRect(GetDlgItem(app.window, Options), &rect);
-    auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if(action==17){ShowMdbDialog();}
+    RECT rect{}; GetWindowRect(AppControl( Options), &rect);
+    auto action = TrackUiMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
+    if(action==18){ShowFontDialog();}
+    else if(action==17){ShowMdbDialog();}
     else if(action==16){ToggleFileNames();}
     else if(action==15){app.idLinks=!app.idLinks;FormatLinks();LayoutSimple();SaveSettings();}
     else if(action==12){ShowDiskCacheDialog();}
@@ -807,16 +798,16 @@ HMENU BuildBookmarkMenu() {
 }
 void BookmarkMenu() {
     auto menu = BuildBookmarkMenu();
-    RECT rect{}; GetWindowRect(GetDlgItem(app.window, Bookmarks), &rect);
-    auto action = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
+    RECT rect{}; GetWindowRect(AppControl( Bookmarks), &rect);
+    auto action = TrackUiMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
     if (action == 1) AddBookmark(Text(app.path));
     else if(action==2)SetBookmarkCache(!app.bookmarkCache);
     else if (action >= 1000 && action < 1000 + app.bookmarks.size()) LoadAddress(app.bookmarks[action - 1000]);
     else if (action >= 3000 && action < 3000 + app.bookmarks.size()) RemoveBookmark(action - 3000);
 }
 HWND Control(LPCWSTR type, LPCWSTR text, DWORD style, int id) {
-    HWND control = CreateWindowExW(0, type, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, app.window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
-    SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE); return control;
+    HWND control = CreateWindowExW(0, type, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, app.sideBuilding?app.side:app.window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
+    SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(UiFont()), TRUE); return control;
 }
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if(app.closing&&(message==WM_COMMAND||message==WM_TIMER))return 0;
@@ -828,8 +819,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.path = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, PathEdit);
         Control(L"BUTTON", L"ロード", WS_TABSTOP|BS_OWNERDRAW, OpenPath); Control(L"BUTTON", L"フォルダー", WS_TABSTOP, Browse);
         Control(L"BUTTON", L"オプション ▼", WS_TABSTOP, Options); Control(L"BUTTON", L"ブックマーク ▼", WS_TABSTOP, Bookmarks);
-        Control(L"BUTTON",L"戻る",WS_TABSTOP|BS_OWNERDRAW,HistoryBack);Control(L"BUTTON",L"進む",WS_TABSTOP|BS_OWNERDRAW,HistoryForward);CreateBrowserTooltips();
+        Control(L"BUTTON",L"戻る",WS_TABSTOP|BS_OWNERDRAW,HistoryBack);Control(L"BUTTON",L"進む",WS_TABSTOP|BS_OWNERDRAW,HistoryForward);
         Control(L"BUTTON",L"リセット",WS_TABSTOP,ResetView);Control(L"BUTTON",L"ヘルプ ▼",WS_TABSTOP,Help);Control(L"BUTTON",L"並べ替え ▼",WS_TABSTOP,SortMenu);
+        CreateBrowserTooltips();
         Control(L"BUTTON",L"記録開始",WS_TABSTOP|BS_OWNERDRAW,RecordToggle);Control(L"STATIC",L"記録状態",SS_OWNERDRAW,RecordIndicator);CreateRecordingTooltip();SetTimer(window,RecordTimer,500,nullptr);
         app.searchEdit=Control(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,SearchEdit);
         SendMessageW(app.searchEdit,EM_SETCUEBANNER,TRUE,reinterpret_cast<LPARAM>(L"検索文字列（Enter／ボタンで実行）"));
@@ -846,7 +838,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if (!app.thumbs) return -1;
         app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - app.imageBytes); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
         CreateCategoryBar();
-        app.preview = Control(L"KuniPreview", L"", WS_BORDER, 0);
+        CreateSideView();app.sideBuilding=true;
+        app.preview = Control(L"KuniPreview", L"", 0, 0);
         app.metadataTabs = Control(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, MetadataTabs);
         for (auto label : { L"シンプル", L"詳細", L"OCR" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
         CreateMdbApplyUi();
@@ -868,9 +861,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.saveButton=Control(L"BUTTON",L"保存",WS_TABSTOP,SaveMetadata);
         app.cancelButton=Control(L"BUTTON",L"キャンセル",WS_TABSTOP,CancelMetadata);
         app.editStatus=Control(L"STATIC",L"PNG/JPEG/WebPの上書き・別名コピー保存に対応。",SS_LEFT,0);
-        app.editorUi.Create(window);CreateOcrUi();UpdateEditorControls();
+        app.editorUi.Create(app.side);CreateOcrUi();app.sideBuilding=false;UpdateEditorControls();
         app.status = Control(L"STATIC", L"フォルダーを選択してください。", SS_LEFT, 0);
-        RefreshHistory(); ApplyTheme(); Layout(); auto cpus=std::thread::hardware_concurrency();app.thumbnailWorkers.resize(cpus?std::clamp(cpus,1u,4u):2u);app.activeWorkers=static_cast<unsigned>(2+app.thumbnailWorkers.size());app.searchWorker=std::thread(SearchWorker); app.worker = std::thread(Worker, false);
+        SetAppFont(app.fontName,app.fontPt,false);RefreshHistory(); ApplyTheme(); Layout(); auto cpus=std::thread::hardware_concurrency();app.thumbnailWorkers.resize(cpus?std::clamp(cpus,1u,4u):2u);app.activeWorkers=static_cast<unsigned>(2+app.thumbnailWorkers.size());app.searchWorker=std::thread(SearchWorker); app.worker = std::thread(Worker, false);
         for (auto& worker : app.thumbnailWorkers) worker = std::thread(Worker, true);
         if (!app.settingsError.empty()) MessageBoxW(window, app.settingsError.c_str(), L"設定読込みエラー", MB_OK | MB_ICONWARNING);
         if (!app.last.empty()) { SetWindowTextW(app.path, app.last.c_str()); OpenFolder(app.last,false,L"",false); }
@@ -879,22 +872,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: app.imageLabelsDirty = true; ApplyTheme();return 0;
     case WM_SYSCOLORCHANGE: app.imageLabelsDirty = true; ApplyTheme();EnumChildWindows(window,[](HWND child,LPARAM){SendMessageW(child,WM_SYSCOLORCHANGE,0,0);return TRUE;},0);return 0;
-    case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=22;return TRUE;}break;}
+    case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=UiControlHeight()-6;return TRUE;}break;}
     case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
     case WM_APPCOMMAND: {int command=GET_APPCOMMAND_LPARAM(lparam);if(command==APPCOMMAND_BROWSER_BACKWARD||command==APPCOMMAND_BROWSER_FORWARD){NavigateHistory(command==APPCOMMAND_BROWSER_BACKWARD?-1:1);return TRUE;}break;}
     case WM_DRAWITEM: if(DrawBrowserButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawOcrButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
     case WM_SETCURSOR: {POINT p{};GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&app.splitter,p)){SetCursor(LoadCursorW(nullptr,app.layout==L"bottom"?IDC_SIZENS:IDC_SIZEWE));return TRUE;}break;}
     case WM_LBUTTONDOWN: {POINT p{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)};if(PtInRect(&app.splitter,p)){app.draggingSplitter=true;SetCapture(window);return 0;}break;}
-    case WM_MOUSEMOVE: if(app.draggingSplitter){RECT r{};GetClientRect(window,&r);if(app.layout==L"bottom")app.sideHeight=std::clamp(int(r.bottom-36-GET_Y_LPARAM(lparam)),120,10000);else app.sideWidth=std::clamp(app.layout==L"left"?GET_X_LPARAM(lparam)-8:int(r.right-8-GET_X_LPARAM(lparam)),280,std::max(280,int(r.right)-176));Layout();return 0;}break;
+    case WM_MOUSEMOVE: if(app.draggingSplitter){RECT r{};GetClientRect(window,&r);if(app.layout==L"bottom")app.sideHeight=std::clamp(int(r.bottom-std::max(24,UiLineHeight()+4)-12-GET_Y_LPARAM(lparam)),120,10000);else app.sideWidth=std::clamp(app.layout==L"left"?GET_X_LPARAM(lparam)-8:int(r.right-8-GET_X_LPARAM(lparam)),280,std::max(280,int(r.right)-176));Layout();return 0;}break;
     case WM_LBUTTONUP: if(app.draggingSplitter){app.draggingSplitter=false;ReleaseCapture();SaveSettings();return 0;}break;
     case WM_CAPTURECHANGED: if(app.draggingSplitter){app.draggingSplitter=false;SaveSettings();}break;
+    case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize={760,std::max(520,4*(UiControlHeight()+8)+180)};return 0;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
         if(wparam==RecordTimer){RefreshMdbApplyUi();MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();if(!app.previewOriginalRequested)ScheduleOriginalPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
-    case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize = { 760, 520 }; return 0;
     case WM_APP+4: RefreshPreview();return 0;
     case WM_COMMAND:
         if(OcrCommand(LOWORD(wparam),HIWORD(wparam)))return 0;
@@ -916,8 +909,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
         case HistoryBack: NavigateHistory(-1);break;
         case HistoryForward: NavigateHistory(1);break;
-        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(!app.categoryMode&&i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);if(app.mdbEnabled){AppendMenuW(menu,MF_SEPARATOR,0,nullptr);const wchar_t* c[]{L"タグ別",L"人物別",L"ワールド別",L"グループ別",L"撮影者別"};const int modes[]{1,2,4,5,6};for(int i=0;i<5;++i)AppendMenuW(menu,MF_STRING|(app.categoryMode==modes[i]?MF_CHECKED:0),19+modes[i],c[i]);}AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();else if(action>=20&&action<=25)RequestCategory(int(action-19));break;}
-        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"更新確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");AppendMenuW(menu,MF_STRING,4,L"ライセンス情報…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackPopupMenuEx(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();if(action==4)ShowLicenseInfo();break;}
+        case SortMenu: {auto menu=CreatePopupMenu();const wchar_t* labels[]{L"ファイル名順",L"ファイル名降順",L"作成日順",L"作成日降順"};for(int i=0;i<4;++i)AppendMenuW(menu,MF_STRING|(!app.categoryMode&&i==app.sortMode?MF_CHECKED:0),i+1,labels[i]);if(app.mdbEnabled){AppendMenuW(menu,MF_SEPARATOR,0,nullptr);const wchar_t* c[]{L"タグ別",L"人物別",L"ワールド別",L"グループ別",L"撮影者別"};const int modes[]{1,2,4,5,6};for(int i=0;i<5;++i)AppendMenuW(menu,MF_STRING|(app.categoryMode==modes[i]?MF_CHECKED:0),19+modes[i],c[i]);}AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING|(app.showBackupImages?MF_CHECKED:0),5,L"AB_を含む画像を表示");RECT r{};GetWindowRect(GetDlgItem(window,SortMenu),&r);auto action=TrackUiMenu(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action>=1&&action<=4)RequestSort(action-1);else if(action==5)ToggleBackupImages();else if(action>=20&&action<=25)RequestCategory(int(action-19));break;}
+        case Help: {auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,1,L"更新確認…");AppendMenuW(menu,MF_STRING,3,L"簡単な使い方…");AppendMenuW(menu,MF_STRING,4,L"ライセンス情報…");RECT r{};GetWindowRect(GetDlgItem(window,Help),&r);auto action=TrackUiMenu(menu,TPM_RETURNCMD,r.left,r.bottom,window,nullptr);DestroyMenu(menu);if(action==1)ShowUpdateChecker(window);if(action==3)ShowQuickHelp();if(action==4)ShowLicenseInfo();break;}
         case OpenPath: LoadAddress(Text(app.path)); break;
         case Browse: BrowseFolder(); break;
         case Options: OptionsMenu(); break;
@@ -984,13 +977,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
 
 void UpdateEditorControls(const MetadataEdit* snapshot,const std::wstring* validation) {
     RefreshMdbApplyUi();
-    EnableWindow(GetDlgItem(app.window,3050),!app.saving&&!app.backupBusy&&!app.sorting&&!app.searching&&!app.folderPending);
+    EnableWindow(AppControl(3050),!app.saving&&!app.backupBusy&&!app.sorting&&!app.searching&&!app.folderPending);
     MetadataEdit local;if(!snapshot&&app.editing)local=app.editorUi.Read();const auto& edit=snapshot?*snapshot:local;
     auto error=validation?*validation:edit.Validate();
     EnableWindow(app.editButton,(SelectedImageCount()>1||(app.metadataReady&&!IsFolderItem(app.selected)&&!app.previewPixels.data.empty())) && !app.editing && !app.saving && !app.backupBusy && !app.batchLoading && !app.sorting && !app.folderPending && app.selected>=0);
     EnableWindow(app.saveButton,app.editing && !app.saving && !app.backupBusy && !app.sorting && edit.Changed() && error.empty());
     EnableWindow(app.cancelButton,app.editing && (!app.saving||!app.batchFiles.empty()) && !app.backupBusy && !app.sorting);SetWindowTextW(app.cancelButton,app.saving&&!app.batchFiles.empty()?L"一括保存中止":L"キャンセル");
-    for(int id:{OpenPath,Browse,ResetView,History,Bookmarks,SearchButton,Options,SortMenu})EnableWindow(GetDlgItem(app.window,id),!app.saving&&!app.backupBusy&&!app.sorting);
+    for(int id:{OpenPath,Browse,ResetView,History,Bookmarks,SearchButton,Options,SortMenu})EnableWindow(AppControl(id),!app.saving&&!app.backupBusy&&!app.sorting);
     UpdateNavigationControls();
     SetWindowPos(app.cancelButton,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     RedrawWindow(app.cancelButton,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_UPDATENOW);
@@ -1008,7 +1001,7 @@ std::wstring QuickHelpText(){
 }
 namespace {
 INT_PTR CALLBACK QuickHelpDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
-    if(m==WM_INITDIALOG){SetWindowLongPtrW(h,DWLP_USER,lp);if(lp)SetTimer(h,49,100,nullptr);SetWindowTextW(h,L"簡単な使い方");RECT area{};GetClientRect(h,&area);auto text=QuickHelpText();auto c=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",text.c_str(),WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,8,8,std::max(1L,area.right-16),std::max(1L,area.bottom-16),h,reinterpret_cast<HMENU>(1901),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);SetFocus(c);SendMessageW(c,EM_SETSEL,0,0);return FALSE;}
+    if(m==WM_INITDIALOG){ApplyUiFont(h);SetWindowLongPtrW(h,DWLP_USER,lp);if(lp)SetTimer(h,49,100,nullptr);SetWindowTextW(h,L"簡単な使い方");RECT area{};GetClientRect(h,&area);auto text=QuickHelpText();auto c=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",text.c_str(),WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,8,8,std::max(1L,area.right-16),std::max(1L,area.bottom-16),h,reinterpret_cast<HMENU>(1901),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);SetFocus(c);SendMessageW(c,EM_SETSEL,0,0);return FALSE;}
     if(m==WM_TIMER&&wp==49){KillTimer(h,49);auto inspect=reinterpret_cast<const std::function<void(HWND)>*>(GetWindowLongPtrW(h,DWLP_USER));RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);(*inspect)(h);EndDialog(h,IDOK);return TRUE;}
     if(m==WM_SIZE){RECT r{};GetClientRect(h,&r);MoveWindow(GetDlgItem(h,1901),8,8,std::max(1L,r.right-16),std::max(1L,r.bottom-16),TRUE);return TRUE;}
     if(m==WM_CLOSE||(m==WM_COMMAND&&(LOWORD(wp)==IDCANCEL||LOWORD(wp)==IDOK))){EndDialog(h,IDCANCEL);return TRUE;}return FALSE;

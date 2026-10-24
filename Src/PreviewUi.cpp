@@ -27,11 +27,13 @@ void RefreshPreview(){
     auto text=(frame&&!frame->data.empty())||(!test&&!record&&!app.previewPixels.data.empty())?L"":test?OcrTestStatus():record?person_ocr::Status():app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…";
     static std::shared_ptr<const Pixels> last;static uint64_t revision=UINT64_MAX;static int source=-1;static std::wstring status;static COLORREF color=0;
     int next=test?(OcrImageSource()?3:2):record?1:0;auto background=ThemeBackground();
+    static UINT lastW=0,lastH=0;const Pixels* shape=frame?frame.get():&app.previewPixels;if(shape->width!=lastW||shape->height!=lastH){lastW=shape->width;lastH=shape->height;LayoutSideView();}
     if(last!=frame||revision!=app.previewRevision||source!=next||status!=text||color!=background){last=frame;revision=app.previewRevision;source=next;status=text;color=background;composite={};InvalidateRect(app.preview,nullptr,FALSE);}
 }
 LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_LBUTTONDBLCLK) { if(!OcrImageSource()&&(stage3::RecordingOcr()||OcrTestSource()))return 0; if(OcrImageSource()){FlushSelectionUpdate();if(SelectedImageCount()!=1||app.selected<0||app.selected>=int(app.files.size())||!fs::is_regular_file(app.files[app.selected]))return 0;} LaunchSelectedPhotos(); return 0; }
     if (message == WM_MOUSEWHEEL) {
+        if(app.side)return SendMessageW(app.side,message,wparam,lparam);
         if (app.saving || stage3::RecordingOcr() || OcrTestSource()) return 0;
         if (app.selected < 0 || app.files.empty() || IsFolderItem(app.selected)) return 0;
         app.wheel += GET_WHEEL_DELTA_WPARAM(wparam);
@@ -46,16 +48,17 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     if (message == WM_PAINT) {
         PAINTSTRUCT paint{}; HDC screen = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r);
         if(r.right<=0||r.bottom<=0){EndPaint(window,&paint);return 0;}
-        HDC dc=CreateCompatibleDC(screen);HBITMAP buffer=CreateCompatibleBitmap(screen,r.right,r.bottom);
+        RECT clip=paint.rcPaint;if(app.side){RECT view{};GetClientRect(app.side,&view);MapWindowPoints(app.side,window,reinterpret_cast<POINT*>(&view),2);if(!IntersectRect(&clip,&clip,&view)){EndPaint(window,&paint);return 0;}}int cw=std::max(1L,clip.right-clip.left),ch=std::max(1L,clip.bottom-clip.top);
+        HDC dc=CreateCompatibleDC(screen);HBITMAP buffer=CreateCompatibleBitmap(screen,cw,ch);
         if(!dc||!buffer){if(buffer)DeleteObject(buffer);if(dc)DeleteDC(dc);EndPaint(window,&paint);return 0;}
-        auto old=SelectObject(dc,buffer);FillRect(dc,&r,ThemeBrush());
+        auto old=SelectObject(dc,buffer);SelectObject(dc,UiFont());SetViewportOrgEx(dc,-clip.left,-clip.top,nullptr);FillRect(dc,&clip,ThemeBrush());
         auto live=OcrTestSource()?OcrTestPreview():stage3::RecordingOcr()?person_ocr::Preview():std::shared_ptr<const Pixels>{};
         Pixels empty;auto& p=(stage3::RecordingOcr()||OcrTestSource())?(live?*live:empty):app.previewPixels;
         if (!p.data.empty()) {
             double scale = std::min(double(r.right) / p.width, double(r.bottom) / p.height);
             int width = int(p.width * scale), height = int(p.height * scale);
             // Composite PBGRA against the current UI theme without changing source pixels.
-            auto bg=ThemeBackground();bool isLive=bool(live);bool retain=p.data.size()<=4*1024*1024;
+            auto bg=ThemeBackground();bool isLive=bool(live);bool retain=!isLive||p.data.size()<=4*1024*1024;
             bool reusable=retain&&!composite.bytes.empty()&&composite.background==bg&&composite.live==isLive&&(isLive?composite.frame==live:composite.revision==app.previewRevision);
             std::vector<BYTE> scratch;const std::vector<BYTE>* pixels=&composite.bytes;
             if(!reusable){scratch=p.data;int background[]{GetBValue(bg),GetGValue(bg),GetRValue(bg)};
@@ -67,7 +70,7 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
             SetStretchBltMode(dc, HALFTONE); StretchDIBits(dc, (r.right - width) / 2, (r.bottom - height) / 2, width, height, 0, 0, p.width, p.height, pixels->data(), &info, DIB_RGB_COLORS, SRCCOPY);
         } else { SetTextColor(dc,ThemeForeground());SetBkMode(dc, TRANSPARENT); DrawTextW(dc, OcrTestSource()?OcrTestStatus().c_str():stage3::RecordingOcr()?person_ocr::Status().c_str():app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
-        BitBlt(screen,0,0,r.right,r.bottom,dc,0,0,SRCCOPY);SelectObject(dc,old);DeleteObject(buffer);DeleteDC(dc);
+        BitBlt(screen,clip.left,clip.top,cw,ch,dc,clip.left,clip.top,SRCCOPY);SelectObject(dc,old);DeleteObject(buffer);DeleteDC(dc);
         EndPaint(window, &paint); return 0;
     }
     if(message==WM_NCDESTROY)composite={};

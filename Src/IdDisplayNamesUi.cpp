@@ -1,11 +1,15 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "IdDisplayNames.h"
 #include <uxtheme.h>
 namespace {
 constexpr int Table=2400,Import=2401,Export=2402,Notice=2403;
 struct Editor {IdNameTable names;std::vector<std::wstring> rows;IdNameUiHooks hooks;bool invalidEdit=false,saved=false;std::exception_ptr failure;};
 void Status(HWND h,const std::wstring& text){SetDlgItemTextW(h,Notice,text.c_str());}
-void Layout(HWND h){RECT r{};GetClientRect(h,&r);auto list=GetDlgItem(h,Table);if(!list)return;MoveWindow(list,12,12,r.right-24,std::max(60L,r.bottom-132),TRUE);int width=std::max(550L,r.right-46);ListView_SetColumnWidth(list,0,std::max(140,width-400));ListView_SetColumnWidth(list,1,300);ListView_SetColumnWidth(list,2,100);MoveWindow(GetDlgItem(h,Notice),12,r.bottom-108,r.right-24,52,TRUE);for(auto pair:std::array<std::pair<int,int>,4>{{{IDOK,0},{IDCANCEL,1},{Import,2},{Export,3}}})MoveWindow(GetDlgItem(h,pair.first),12+pair.second*112,r.bottom-42,104,28,TRUE);}
+void Layout(HWND h){RECT r{};GetClientRect(h,&r);auto list=GetDlgItem(h,Table);if(!list)return;int margin=12,bh=UiControlHeight(),noteH=std::max(52,UiLineHeight()*3),bottom=bh+noteH+36;
+    MoveWindow(list,margin,margin,std::max(1L,r.right-24),std::max(60L,r.bottom-bottom),TRUE);int width=std::max(300L,r.right-46),idW=std::min(UiScale(300),width/2),linkW=std::min(UiScale(100),width/4);ListView_SetColumnWidth(list,0,std::max(80,width-idW-linkW));ListView_SetColumnWidth(list,1,idW);ListView_SetColumnWidth(list,2,linkW);
+    MoveWindow(GetDlgItem(h,Notice),margin,r.bottom-bh-noteH-24,std::max(1L,r.right-24),noteH,TRUE);int x=margin,y=r.bottom-bh-12;
+    for(int id:{IDOK,IDCANCEL,Import,Export}){int bw=std::max(104,UiTextWidth(Text(GetDlgItem(h,id)))+20);MoveWindow(GetDlgItem(h,id),x,y,bw,bh,TRUE);x+=bw+8;}
+}
 void Fill(HWND h,Editor& state){
     std::set<std::wstring> ids;for(auto& entry:state.names)ids.insert(entry.first);for(int axis:{1,3,4})for(auto& raw:app.mdb.Values(axis)){auto id=CanonicalDisplayId(raw);if(!id.empty())ids.insert(id);}state.rows.assign(ids.begin(),ids.end());auto list=GetDlgItem(h,Table);ListView_DeleteAllItems(list);
     for(int i=0;i<int(state.rows.size());++i){auto& id=state.rows[i];auto found=state.names.find(id);auto name=found==state.names.end()?L"":found->second;LVITEMW item{};item.mask=LVIF_TEXT;item.iItem=i;item.pszText=const_cast<wchar_t*>(name.c_str());ListView_InsertItem(list,&item);ListView_SetItemText(list,i,1,const_cast<wchar_t*>(id.c_str()));ListView_SetItemText(list,i,2,const_cast<wchar_t*>(L"↗"));}
@@ -28,7 +32,7 @@ LRESULT CALLBACK ListKeys(HWND list,UINT m,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD
 }
 INT_PTR CALLBACK Dialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     auto state=reinterpret_cast<Editor*>(GetWindowLongPtrW(h,DWLP_USER));
-    if(m==WM_INITDIALOG){state=reinterpret_cast<Editor*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"ID・表示名の編集");auto add=[&](const wchar_t* type,const wchar_t* text,int id,DWORD style){auto c=CreateWindowExW(id==Table?WS_EX_CLIENTEDGE:0,type,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return c;};
+    if(m==WM_INITDIALOG){ApplyUiFont(h);state=reinterpret_cast<Editor*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"ID・表示名の編集");auto add=[&](const wchar_t* type,const wchar_t* text,int id,DWORD style){auto c=CreateWindowExW(id==Table?WS_EX_CLIENTEDGE:0,type,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);return c;};
         auto list=add(WC_LISTVIEWW,L"",Table,WS_TABSTOP|LVS_REPORT|LVS_EDITLABELS|LVS_SINGLESEL|LVS_SHOWSELALWAYS);ListView_SetExtendedListViewStyle(list,LVS_EX_FULLROWSELECT|LVS_EX_GRIDLINES|LVS_EX_DOUBLEBUFFER);ListView_SetBkColor(list,ThemeBackground());ListView_SetTextBkColor(list,ThemeBackground());ListView_SetTextColor(list,ThemeForeground());SetWindowTheme(list,app.darkTheme?L"DarkMode_Explorer":L"Explorer",nullptr);SetWindowSubclass(list,ListKeys,1,0);
         const wchar_t* columns[]{L"表示名（クリック／F2で入力）",L"ID",L"ショートカット"};for(int i=0;i<3;++i){LVCOLUMNW column{};column.mask=LVCF_TEXT|LVCF_WIDTH;column.pszText=const_cast<wchar_t*>(columns[i]);column.cx=250;ListView_InsertColumn(list,i,&column);}Fill(h,*state);
         add(L"BUTTON",L"保存",IDOK,WS_TABSTOP|BS_OWNERDRAW);add(L"BUTTON",L"キャンセル",IDCANCEL,WS_TABSTOP|BS_OWNERDRAW);add(L"BUTTON",L"Import",Import,WS_TABSTOP|BS_OWNERDRAW);add(L"BUTTON",L"Export",Export,WS_TABSTOP|BS_OWNERDRAW);add(L"STATIC",L"",Notice,0);

@@ -1,4 +1,4 @@
-#include "AppVersion.h"
+﻿#include "AppVersion.h"
 #include "resource.h"
 #include <winres.h>
 IDI_APP_ICON ICON "Assets\\KuniVRCPhotEditor.ico"
@@ -16,11 +16,11 @@ BEGIN
   BLOCK "040904B0"
   BEGIN
    VALUE "FileDescription", "KuniVRCPhotEditor"
-   VALUE "FileVersion", "0.5.13.0"
+   VALUE "FileVersion", "0.5.16.0"
    VALUE "InternalName", "KuniVRCPhotEditor"
-   VALUE "OriginalFilename", "KuniVRCPhotEditor_v0.5.13.exe"
+   VALUE "OriginalFilename", "KuniVRCPhotEditor_v0.5.16.exe"
    VALUE "ProductName", "KuniVRCPhotEditor"
-   VALUE "ProductVersion", "0.5.13"
+   VALUE "ProductVersion", "0.5.16"
   END
  END
  BLOCK "VarFileInfo"
@@ -43,3 +43,9 @@ END
 2103 RCDATA "third_party\\libwebp-1.6.0\\PATENTS"
 
 2005 RCDATA "Images\\TAGs_B.png"
+
+2006 RCDATA "Images\\STAR.png"
+2007 RCDATA "Images\\GEAR.png"
+2008 RCDATA "Images\\QUEST.png"
+2009 RCDATA "Images\\SORT.png"
+2010 RCDATA "Images\\FOLDER.png"

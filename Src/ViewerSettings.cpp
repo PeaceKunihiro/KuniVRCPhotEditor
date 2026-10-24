@@ -34,6 +34,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
         if (!std::isfinite(n) || n < minimum || n > maximum || std::fmod(n - minimum, step) != 0) throw std::runtime_error("setting number");
         return static_cast<int>(n);
     };
+    settings.fontName=object.GetNamedString(L"fontName",L"");if(settings.fontName.size()>=32||std::any_of(settings.fontName.begin(),settings.fontName.end(),[](wchar_t c){return c<32;}))throw std::runtime_error("font name");settings.fontPt=number(L"fontPt",12,10,24,2);
     settings.idLinks=object.HasKey(L"pageButtons")?object.GetNamedBoolean(L"pageButtons"):object.GetNamedBoolean(L"idLinks",true);
     settings.sortMode=number(L"sortMode",0,0,3,1);
     settings.mdbEnabled=object.GetNamedBoolean(L"mdbEnabled",false);settings.mdbMode=number(L"mdbMode",0,0,2,1);settings.mdbCapacityMB=number(L"mdbCapacityMB",100,100,4000,1);settings.categoryMode=number(L"categoryMode",0,0,6,1);if(settings.categoryMode==3)settings.categoryMode=2;if(!settings.mdbEnabled)settings.categoryMode=0;
@@ -100,6 +101,7 @@ std::string SerializeViewerSettings(const ViewerSettings& settings) {
     object.Insert(L"lastFolder", JsonValue::CreateStringValue(settings.saveHistory ? settings.last : L""));
     object.Insert(L"sideView", JsonValue::CreateStringValue(settings.layout));
     object.Insert(L"thumbnailWidth", JsonValue::CreateNumberValue(settings.thumbnailWidth));
+    object.Insert(L"fontName",JsonValue::CreateStringValue(settings.fontName));object.Insert(L"fontPt",JsonValue::CreateNumberValue(settings.fontPt));
     object.Insert(L"autoThumbnails",JsonValue::CreateBooleanValue(settings.autoThumbnails));
     object.Insert(L"sideWidth",JsonValue::CreateNumberValue(settings.sideWidth));object.Insert(L"sideHeight",JsonValue::CreateNumberValue(settings.sideHeight));
     object.Insert(L"residentMode",JsonValue::CreateBooleanValue(settings.residentMode));object.Insert(L"residentOcr",JsonValue::CreateBooleanValue(settings.residentOcr));

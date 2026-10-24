@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "TestOcr.h"
 namespace {
 constexpr int Mode=1801,Apply=1802,Target=1803,Output=1804,TestRun=1805,FpsField=1806,High=1807;
@@ -45,15 +45,21 @@ void CreateOcrUi(){
 }
 void LayoutOcrUi(RECT page,bool visible){
     int x=page.left,y=page.top,w=std::max(1L,page.right-page.left);
-    MoveWindow(mode,x,y,std::min(w,130),26,TRUE);
-    MoveWindow(high,x+std::min(w,130)+8,y,std::max(1,std::min(120,w-138)),26,TRUE);
-    MoveWindow(target,x,y+30,w,250,TRUE);
-    MoveWindow(fpsLabel,x,y+62,w/2,22,TRUE);MoveWindow(secondsLabel,x+w/2,y+62,w-w/2,22,TRUE);
-    MoveWindow(fps,x,y+86,std::max(30,w/2-8),24,TRUE);MoveWindow(seconds,x+w/2,y+86,std::max(30,w/2),24,TRUE);
-    int buttonWidth=std::min(w,145),resultY=w<280?144:114;
-    MoveWindow(apply,x,y+114,std::min(w,120),26,TRUE);MoveWindow(output,w<280?x:x+128,y+resultY,buttonWidth,26,TRUE);
-    MoveWindow(testRun,x,y+resultY+30,std::min(w,180),26,TRUE);MoveWindow(status,x,y+resultY+60,w,60,TRUE);
-    MoveWindow(raw,x,y+resultY+124,w,std::max(1L,page.bottom-y-resultY-124),TRUE);
+    int bh=UiControlHeight(),line=UiLineHeight()+4,gap=4,top=y;
+    auto place=[&](HWND h,int left,int at,int width,int height){MoveWindow(h,left,at,std::max(1,width),height,TRUE);};
+    int modeW=std::max(130,UiTextWidth(L"撮影時OCR")+20),highW=std::max(120,UiTextWidth(L"高精度：OFF")+20);
+    place(mode,x,top,std::min(w,modeW),bh);
+    bool showHigh=person_ocr::GetSettings().showHighPrecision;
+    if(showHigh){if(modeW+gap+highW>w){top+=bh+gap;place(high,x,top,std::min(w,highW),bh);}else place(high,x+modeW+gap,top,highW,bh);}
+    top+=bh+gap;place(target,x,top,w,UiScale(250));top+=bh+gap;
+    place(fpsLabel,x,top,w/2,line);place(secondsLabel,x+w/2,top,w-w/2,line);top+=line+gap;
+    place(fps,x,top,w/2-gap,bh);place(seconds,x+w/2,top,w-w/2,bh);top+=bh+gap;
+    int applyW=std::max(120,UiTextWidth(L"設定を適用")+20),outputW=std::max(145,UiTextWidth(L"OCR結果：認識")+20);
+    place(apply,x,top,std::min(w,applyW),bh);
+    if(applyW+gap+outputW>w){top+=bh+gap;place(output,x,top,std::min(w,outputW),bh);}else place(output,x+applyW+gap,top,outputW,bh);
+    top+=bh+gap;place(testRun,x,top,std::min(w,std::max(180,UiTextWidth(L"テスト開始／再実行")+20)),bh);top+=bh+gap;
+    place(status,x,top,w,UiScale(60));top+=UiScale(60)+gap;
+    place(raw,x,top,w,std::max(1L,page.bottom-top));
     for(auto h:{mode,high,target,fpsLabel,secondsLabel,fps,seconds,apply,output,testRun,status,raw}){bool show=visible&&(h!=high||person_ocr::GetSettings().showHighPrecision);ShowWindow(h,show?SW_SHOW:SW_HIDE);EnableWindow(high,person_ocr::GetSettings().showHighPrecision);if(show)SetWindowPos(h,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);}
     EnableWindow(testRun,source!=0);RefreshOcrUi();
 }

@@ -80,7 +80,7 @@ void RunV0412UiTests(const fs::path& directory,std::ostream& report){
     TabCtrl_SetCurSel(app.metadataTabs,0);app.layout=L"right";app.darkTheme=false;Layout();PhotoSummary summary;summary.values[0]=L"test.png";summary.values[2]=L"0";summary.values[4]=L" \t\r\n";ShowSummary(summary);
     auto visible=[](HWND h){return (GetWindowLongPtrW(h,GWL_STYLE)&WS_VISIBLE)!=0;};
     check(visible(app.simpleValues[0])&&visible(app.simpleValues[2])&&!visible(app.simpleValues[1])&&!visible(app.simpleLabels[4])&&!visible(GetDlgItem(app.simple,1810)),"empty and whitespace rows plus group button collapse while zero remains");
-    RECT first{},second{};GetWindowRect(app.simpleValues[0],&first);GetWindowRect(app.simpleValues[2],&second);check(second.top-first.bottom==8,"collapsed rows leave only normal spacing");
+    RECT first{},second{};GetWindowRect(app.simpleValues[0],&first);GetWindowRect(app.simpleValues[2],&second);check(second.top-first.bottom==2,"collapsed rows leave only normal spacing");
     CaptureV0412Ui(directory/L"v0412-simple-collapsed.png",app.window);
     auto sparseHeight=app.simpleContentHeight;summary.values[1]=L"12 MB";summary.values[10]=L"候補";ShowSummary(summary);check(visible(app.simpleLabels[1])&&visible(app.simpleValues[10])&&app.simpleContentHeight>sparseHeight,"rows reappear after selected metadata changes");
     for(auto placement:{L"left",L"right",L"bottom",L"none"}){app.layout=placement;Layout();check(!visible(app.simpleValues[4]),"empty row stays hidden across side placements");}

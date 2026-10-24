@@ -1,4 +1,4 @@
-#include "V048Features.h"
+﻿#include "V048Features.h"
 #include "ViewerRuntime.h"
 #include "Stage3.h"
 #include "OcrRuntime.h"
@@ -107,7 +107,7 @@ void Start(const Config& c){Shutdown();if(c.logFolder.empty()||!fs::is_directory
 struct DialogState {bool fixture=false,fixtureOk=false;std::function<void(HWND)> capture;Config config;HWND automatic{},steam{},users{},groups{},highDisplay{};HWND edits[5]{},record{},status{},list{},toggle{};};
 std::wstring Choose(HWND owner,bool file){ComPtr<IFileOpenDialog> dialog;winrt::check_hresult(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&dialog)));DWORD options{};dialog->GetOptions(&options);dialog->SetOptions(options|FOS_FORCEFILESYSTEM|FOS_PATHMUSTEXIST|(file?FOS_FILEMUSTEXIST:FOS_PICKFOLDERS));if(FAILED(dialog->Show(owner)))return {};ComPtr<IShellItem> item;dialog->GetResult(&item);PWSTR p{};winrt::check_hresult(item->GetDisplayName(SIGDN_FILESYSPATH,&p));std::wstring path(p);CoTaskMemFree(p);return path;}
 INT_PTR CALLBACK Dialog(HWND h,UINT message,WPARAM wp,LPARAM lp){auto d=reinterpret_cast<DialogState*>(GetWindowLongPtrW(h,DWLP_USER));
-    if(message==WM_INITDIALOG){d=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"記録設定");auto control=[&](const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return c;};
+    if(message==WM_INITDIALOG){ApplyUiFont(h);d=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"記録設定");auto control=[&](const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);return c;};
         const wchar_t* labels[]{L"ログフォルダー",L"対象セッションのログ",L"写真フォルダー（再帰）",L"出力フォルダー"};std::wstring values[]{d->config.logFolder,d->config.selectedLog,d->config.photoFolder,d->config.outputFolder};
         for(int i=0;i<3;++i){control(L"STATIC",labels[i],0,10,10+34*i,158,24,0);d->edits[i]=control(L"EDIT",values[i].c_str(),WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL|(i==1?ES_READONLY:0),170,8+34*i,430,26,100+i);if(i!=1)control(L"BUTTON",L"選択…",WS_TABSTOP,610,8+34*i,76,26,110+i);}
         control(L"STATIC",L"F12／日時なし画像フォルダー",0,10,112,158,24,0);d->steam=control(L"EDIT",d->config.steamFolder.c_str(),WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL,170,110,430,26,105);control(L"BUTTON",L"選択…",WS_TABSTOP,610,110,76,26,115);
@@ -117,7 +117,7 @@ INT_PTR CALLBACK Dialog(HWND h,UINT message,WPARAM wp,LPARAM lp){auto d=reinterp
         d->groups=control(L"BUTTON",L"グループIDも保存する",BS_AUTOCHECKBOX|WS_TABSTOP,350,206,330,28,108);SendMessageW(d->groups,BM_SETCHECK,d->config.saveGroupIds?BST_CHECKED:BST_UNCHECKED,0);
         d->highDisplay=control(L"BUTTON",L"高精度モード表示:ON/OFF",BS_AUTOCHECKBOX|WS_TABSTOP,10,236,330,28,109);SendMessageW(d->highDisplay,BM_SETCHECK,person_ocr::GetSettings().showHighPrecision?BST_CHECKED:BST_UNCHECKED,0);
         control(L"BUTTON",L"設定を保存",WS_TABSTOP,10,270,130,28,124);control(L"BUTTON",L"閉じる",WS_TABSTOP,580,270,105,28,IDCANCEL);
-        d->status=control(L"STATIC",L"停止",0,10,307,675,42,0);d->list=control(L"EDIT",L"",WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY,10,357,675,225,0);SetTimer(h,1,500,nullptr);if(d->fixture)SetTimer(h,2,100,nullptr);return TRUE;
+        d->status=control(L"STATIC",L"停止",0,10,307,675,42,0);d->list=control(L"EDIT",L"",WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_READONLY,10,357,675,225,0);SetTimer(h,1,500,nullptr);ScaleUiDialog(h);if(d->fixture)SetTimer(h,2,100,nullptr);return TRUE;
     }
     if(!d)return FALSE;
     if(message==WM_TIMER&&wp==2){KillTimer(h,2);d->fixtureOk=SendMessageW(d->highDisplay,BM_GETCHECK,0,0)==BST_UNCHECKED&&SendMessageW(d->users,BM_GETCHECK,0,0)==BST_UNCHECKED&&SendMessageW(d->groups,BM_GETCHECK,0,0)==BST_CHECKED&&!GetDlgItem(h,121)&&!GetDlgItem(h,122)&&IsWindowVisible(GetDlgItem(h,124))&&IsWindowVisible(GetDlgItem(h,IDCANCEL));RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);d->capture(h);SendMessageW(d->users,BM_SETCHECK,BST_CHECKED,0);SendMessageW(d->groups,BM_SETCHECK,BST_UNCHECKED,0);SendMessageW(h,WM_COMMAND,124,0);auto saved=LoadConfig();d->fixtureOk=d->fixtureOk&&saved.saveUserIds&&!saved.saveGroupIds;EndDialog(h,IDOK);return TRUE;}
