@@ -6,8 +6,8 @@ void ScrollSide(int next){app.sideScroll=std::clamp(next,0,std::max(0,app.sideCo
 void PaintVerticalTab(DRAWITEMSTRUCT* draw){
     int selected=TabCtrl_GetCurSel(app.metadataTabs),index=int(draw->CtlID)-TabBase;
     auto r=draw->rcItem;auto brush=CreateSolidBrush(index==selected?GetSysColor(COLOR_BTNFACE):ThemeBackground());
-    FillRect(draw->hDC,&r,brush);DeleteObject(brush);auto border=CreateSolidBrush(ThemeForeground());FrameRect(draw->hDC,&r,border);DeleteObject(border);
-    int saved=SaveDC(draw->hDC);SelectObject(draw->hDC,UiFont());SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,index==selected?GetSysColor(COLOR_BTNTEXT):ThemeForeground());
+    if(UsesBackdrop(draw->hwndItem))PaintBackdrop(draw->hwndItem,draw->hDC,r);else FillRect(draw->hDC,&r,brush);DeleteObject(brush);auto border=CreateSolidBrush(ThemeForeground());FrameRect(draw->hDC,&r,border);if(UsesBackdrop(draw->hwndItem)&&index==selected){auto inner=r;InflateRect(&inner,-2,-2);FrameRect(draw->hDC,&inner,border);}DeleteObject(border);
+    int saved=SaveDC(draw->hDC);SelectObject(draw->hDC,UiFont());SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,UsesBackdrop(draw->hwndItem)?ThemeForeground():index==selected?GetSysColor(COLOR_BTNTEXT):ThemeForeground());
     auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&r,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);if(draw->itemState&ODS_FOCUS){InflateRect(&r,-3,-3);DrawFocusRect(draw->hDC,&r);}RestoreDC(draw->hDC,saved);
 }
 LRESULT CALLBACK SideProc(HWND h,UINT m,WPARAM wp,LPARAM lp){
@@ -18,8 +18,8 @@ LRESULT CALLBACK SideProc(HWND h,UINT m,WPARAM wp,LPARAM lp){
     if(m==WM_COMMAND&&LOWORD(wp)>=TabBase&&LOWORD(wp)<TabBase+4&&HIWORD(wp)==BN_CLICKED){int index=LOWORD(wp)-TabBase;if(index<TabCtrl_GetItemCount(app.metadataTabs)){TabCtrl_SetCurSel(app.metadataTabs,index);LayoutSideView();}return 0;}
     if(m==WM_DRAWITEM){auto d=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(d->CtlID>=TabBase&&d->CtlID<TabBase+4){PaintVerticalTab(d);return TRUE;}}
     if(m==WM_COMMAND||m==WM_NOTIFY||m==WM_DRAWITEM||m==WM_MEASUREITEM)return SendMessageW(app.window,m,wp,lp);
-    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX||m==WM_CTLCOLORBTN)return ThemeControlColor(reinterpret_cast<HDC>(wp));
-    if(m==WM_ERASEBKGND){RECT r{};GetClientRect(h,&r);FillRect(reinterpret_cast<HDC>(wp),&r,ThemeBrush());return 1;}
+    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX||m==WM_CTLCOLORBTN)return ThemeControlColor(reinterpret_cast<HDC>(wp),reinterpret_cast<HWND>(lp));
+    if(m==WM_ERASEBKGND){RECT r{};GetClientRect(h,&r);PaintBackdrop(h,reinterpret_cast<HDC>(wp),r);return 1;}
     return DefWindowProcW(h,m,wp,lp);
 }
 int ImageHeight(int width){

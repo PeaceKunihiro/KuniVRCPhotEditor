@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "ViewerSettings.h"
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -34,6 +34,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
         if (!std::isfinite(n) || n < minimum || n > maximum || std::fmod(n - minimum, step) != 0) throw std::runtime_error("setting number");
         return static_cast<int>(n);
     };
+    settings.backgroundPath=object.GetNamedString(L"backgroundPath",L"");if(settings.backgroundPath.size()>32767||std::any_of(settings.backgroundPath.begin(),settings.backgroundPath.end(),[](wchar_t c){return c<32;}))throw std::runtime_error("background path");
     settings.fontName=object.GetNamedString(L"fontName",L"");if(settings.fontName.size()>=32||std::any_of(settings.fontName.begin(),settings.fontName.end(),[](wchar_t c){return c<32;}))throw std::runtime_error("font name");settings.fontPt=number(L"fontPt",12,10,24,2);
     settings.idLinks=object.HasKey(L"pageButtons")?object.GetNamedBoolean(L"pageButtons"):object.GetNamedBoolean(L"idLinks",true);
     settings.sortMode=number(L"sortMode",0,0,3,1);
@@ -89,6 +90,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
 }
 std::string SerializeViewerSettings(const ViewerSettings& settings) {
     JsonObject object;
+    object.Insert(L"backgroundPath",JsonValue::CreateStringValue(settings.backgroundPath));
     object.Insert(L"mdbEnabled",JsonValue::CreateBooleanValue(settings.mdbEnabled));object.Insert(L"mdbMode",JsonValue::CreateNumberValue(settings.mdbMode));object.Insert(L"mdbCapacityMB",JsonValue::CreateNumberValue(settings.mdbCapacityMB));object.Insert(L"categoryMode",JsonValue::CreateNumberValue(settings.mdbEnabled?(settings.categoryMode==3?2:settings.categoryMode):0));
     object.Insert(L"hideFileNames",JsonValue::CreateBooleanValue(settings.hideFileNames));
     object.Insert(L"updateAttemptUtc",JsonValue::CreateNumberValue(double(settings.updateAttemptUtc)));

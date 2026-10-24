@@ -24,7 +24,7 @@ INT_PTR CALLBACK FontDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     if(m==WM_TIMER&&wp==51){KillTimer(h,51);try{state->inspect(h);}catch(...){state->error=std::current_exception();EndDialog(h,IDCANCEL);}return TRUE;}
     if(m==WM_ERASEBKGND){RECT r{};GetClientRect(h,&r);FillRect(reinterpret_cast<HDC>(wp),&r,ThemeBrush());return TRUE;}
     if(m==WM_NOTIFY&&reinterpret_cast<NMHDR*>(lp)->code==NM_CUSTOMDRAW){SetWindowLongPtrW(h,DWLP_MSGRESULT,ThemeNotify(reinterpret_cast<NMHDR*>(lp)));return TRUE;}
-    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX||m==WM_CTLCOLORBTN)return ThemeControlColor(reinterpret_cast<HDC>(wp));
+    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX||m==WM_CTLCOLORBTN)return ThemeControlColor(reinterpret_cast<HDC>(wp),reinterpret_cast<HWND>(lp));
     if(m==WM_COMMAND){if(LOWORD(wp)==Defaults){SendDlgItemMessageW(h,Family,CB_SETCURSEL,0,0);SendDlgItemMessageW(h,Size,CB_SETCURSEL,1,0);return TRUE;}
         if(LOWORD(wp)==IDCANCEL){EndDialog(h,IDCANCEL);return TRUE;}
         if(LOWORD(wp)==IDOK){int family=int(SendDlgItemMessageW(h,Family,CB_GETCURSEL,0,0)),size=int(SendDlgItemMessageW(h,Size,CB_GETCURSEL,0,0));if(family<0||size<0)return TRUE;

@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 void ScheduleSelectionUpdate(){CancelMdbApply(L"画像の選択が変わったため中止しました。");app.selectionCountsDirty=true;if(app.selectionPending)return;app.selectionPending=true;app.metadataReady=false;if(app.batchLoading)StopActivity();app.batchLoading=false;++app.selection;app.currentSelection=app.selection;PostMessageW(app.window,WM_SELECTION,0,0);}
 void FlushSelectionUpdate(){if(!app.selectionPending||MdbSelectionBusy())return;app.selectionPending=false;SyncMdbSelection();int index=ListView_GetNextItem(app.list,-1,LVNI_FOCUSED);if(index<0||!(ListView_GetItemState(app.list,index,LVIS_SELECTED)&LVIS_SELECTED))index=ListView_GetNextItem(app.list,-1,LVNI_SELECTED);Select(index,false);}
 void Select(int index,bool reveal) {
@@ -28,7 +28,7 @@ void OpenFolder(const std::wstring& path, bool reload, const std::wstring& prese
         ++app.generation; app.currentGeneration = app.generation;
         if (reload) app.cache.Clear();
         ResetCategoryView();app.folderPending = true;app.mdb.SetDisplayBusy(true);app.mdb.QueueCached({});
-        { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind != 3; }), app.jobs.end()); }
+        { std::lock_guard<std::mutex> lock(app.mutex); app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& j) { return j.kind != 3 && j.kind != -1; }), app.jobs.end()); }
         // The visible list is committed only after enumeration succeeds.
         auto preserve = !preserveOverride.empty()?preserveOverride:reload && app.selected >= 0 ? app.files[app.selected] : L"";
         Job folderJob{0,app.generation,0,-1,normalized,preserve};folderJob.clearSearch=!reload;folderJob.navigationIndex=navigationIndex;folderJob.userLoad=userLoad&&preserveOverride.empty();UpdateNavigationControls();Queue(std::move(folderJob), true); Counts(L"フォルダーを読み込んでいます…");
@@ -82,7 +82,7 @@ void ResetViewer() {
     if(!GuardTransition([]{ResetViewer();}))return;
     CancelMdbApply(L"リセットにより中止しました。");CancelSearch();StopActivity();
     ++app.generation;app.currentGeneration=app.generation;
-    {std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind!=3;}),app.jobs.end());}
+    {std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind!=3&&j.kind!=-1;}),app.jobs.end());}
     app.wake.notify_all();ResetCategoryView();app.mdb.QueueCached({});app.folderPending=false;app.folder.clear();app.last.clear();app.allFiles.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;UpdateNavigationControls();app.restoreSelection.clear();app.appliedQuery.clear();
     SetWindowTextW(app.path,L"");SetWindowTextW(app.searchEdit,L"");SendMessageW(app.history,CB_SETCURSEL,-1,0);
     CommitDisplay({},L"");app.selectionPending=false;app.cache.Clear();

@@ -110,7 +110,7 @@ void LoadSettings() {
         if (!input) throw std::runtime_error("read");
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
-        auto settings = ParseViewerSettings(json);app.fontName=settings.fontName;app.fontPt=settings.fontPt;
+        auto settings = ParseViewerSettings(json);app.fontName=settings.fontName;app.fontPt=settings.fontPt;app.backgroundPath=settings.backgroundPath;
         app.hideFileNames=settings.hideFileNames;app.updateAttemptUtc=settings.updateAttemptUtc;app.updateSuccessUtc=settings.updateSuccessUtc;app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.mdbEnabled=settings.mdbEnabled;app.mdbMode=settings.mdbMode;app.mdbCapacityMB=settings.mdbCapacityMB;app.categoryMode=settings.categoryMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
@@ -125,7 +125,7 @@ void LoadSettings() {
 void SaveSettings(bool notify) {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;settings.fontName=app.fontName;settings.fontPt=app.fontPt;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
+        ViewerSettings settings;settings.fontName=app.fontName;settings.fontPt=app.fontPt;settings.backgroundPath=app.backgroundPath;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
         settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.bookmarkCache=app.bookmarkCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
@@ -323,9 +323,11 @@ size_t ImageListBytes(HIMAGELIST images) {
 HIMAGELIST CreateThumbnails(int width, int& slots, size_t& retained) {
     size_t budget = size_t(app.cacheMB) * 1000000, canvas = size_t(width) * ThumbnailHeight(width) * 4;
     slots = static_cast<int>(std::min(size_t(ThumbnailSlots), budget / 3 / canvas - 5));
-    auto images = ImageList_Create(width, ThumbnailHeight(width), ILC_COLOR32, slots + 1, 1);
+    auto images = ImageList_Create(width, ThumbnailHeight(width), ILC_COLOR32|(HasBackdrop()?ILC_MASK:0), slots + 1, 1);
     auto placeholder = Thumbnail({}, width);
-    bool ok = images && placeholder && ImageList_Add(images, placeholder, nullptr) == 0 && ImageList_SetImageCount(images, slots + 1);
+    auto emptyMask=EmptyThumbnailMask(placeholder);
+    bool ok = images && placeholder && ImageList_Add(images, placeholder, emptyMask) == 0 && ImageList_SetImageCount(images, slots + 1);
+    if(emptyMask)DeleteObject(emptyMask);
     if (placeholder) DeleteObject(placeholder);
     try { if (ok) { retained = ImageListBytes(images); ok = retained < budget; } } catch (...) { ok = false; }
     if (!ok) { if (images) ImageList_Destroy(images); return nullptr; }
@@ -399,6 +401,7 @@ void Results() {
     for (auto& result : results) {
         auto& job = result.job;
         if(HandleMdbApplyResult(result))continue;
+        if(job.kind==-1){AcceptBackdrop(result);continue;}
         if(job.kind==5){
             if(!CurrentJob(job)||job.index!=app.selected||job.sourceKey!=app.previewSourceKey)continue;
             try{if(job.sourceKey!=ThumbnailCache::Key(job.path))result.error=L"ファイルが変更されました。ロードで再読込みしてください。";}catch(...){result.error=L"ファイルを確認できません。ロードで再読込みしてください。";}
@@ -498,9 +501,11 @@ void Results() {
                 if (slot < 0) { app.thumbnailDone[job.index] = false; continue; }
                 auto bitmap = Thumbnail(result.pixels, app.activeThumbnailWidth);
                 if (!bitmap) { Counts(L"サムネイル用メモリを確保できません。"); continue; }
+                auto mask=EmptyThumbnailMask(bitmap);
                 int image = slot + 1;
-                if (image >= ImageList_GetImageCount(app.thumbs)) image = ImageList_Add(app.thumbs, bitmap, nullptr);
-                else if (!ImageList_Replace(app.thumbs, image, bitmap, nullptr)) image = -1;
+                if (image >= ImageList_GetImageCount(app.thumbs)) image = ImageList_Add(app.thumbs, bitmap, mask);
+                else if (!ImageList_Replace(app.thumbs, image, bitmap, mask)) image = -1;
+                if(mask)DeleteObject(mask);
                 if (bitmap) DeleteObject(bitmap);
                 if (image < 0) { Counts(L"サムネイルを画像一覧に登録できません。"); continue; }
                 if (slot == static_cast<int>(app.slotOwners.size())) app.slotOwners.push_back(job.index);
@@ -538,8 +543,8 @@ namespace {
 bool recordBlink=false;
 void UpdateRecordingControls(bool tick=false){TrayUpdate();auto on=stage3::Recording();recordBlink=on?(tick?!recordBlink:recordBlink):false;auto button=AppControl(RecordToggle);auto text=stage3::Stopping()?L"停止処理中…":on?L"記録停止":L"記録開始";EnableWindow(button,!stage3::Stopping());UpdateRecordingTooltip(on,!stage3::Stopping());if(Text(button)!=text)SetWindowTextW(button,text);InvalidateRect(button,nullptr,FALSE);InvalidateRect(AppControl(RecordIndicator),nullptr,FALSE);}
 bool DrawRecording(DRAWITEMSTRUCT* draw){if(draw->CtlID!=RecordToggle&&draw->CtlID!=RecordIndicator)return false;int saved=SaveDC(draw->hDC);bool on=stage3::Recording();auto rect=draw->rcItem;
-    if(draw->CtlID==RecordIndicator){FillRect(draw->hDC,&rect,ThemeBrush());auto brush=CreateSolidBrush(on&&recordBlink?RGB(220,35,35):RGB(135,135,135));auto oldBrush=SelectObject(draw->hDC,brush);auto oldPen=SelectObject(draw->hDC,GetStockObject(NULL_PEN));int size=std::min(rect.right-rect.left,rect.bottom-rect.top)-10;int x=(rect.left+rect.right-size)/2,y=(rect.top+rect.bottom-size)/2;Ellipse(draw->hDC,x,y,x+size,y+size);SelectObject(draw->hDC,oldBrush);SelectObject(draw->hDC,oldPen);DeleteObject(brush);}
-    else {auto color=on?RGB(185,25,25):RGB(0,90,190);if(draw->itemState&ODS_SELECTED)color=on?RGB(140,15,15):RGB(0,65,140);auto brush=CreateSolidBrush(color);FillRect(draw->hDC,&rect,brush);DeleteObject(brush);FrameRect(draw->hDC,&rect,GetSysColorBrush(COLOR_GRAYTEXT));auto font=SendMessageW(draw->hwndItem,WM_GETFONT,0,0);if(font)SelectObject(draw->hDC,reinterpret_cast<HGDIOBJ>(font));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,RGB(255,255,255));auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(draw->hDC,&rect);}}
+    if(draw->CtlID==RecordIndicator){PaintBackdrop(draw->hwndItem,draw->hDC,rect);auto brush=CreateSolidBrush(on&&recordBlink?RGB(220,35,35):RGB(135,135,135));auto oldBrush=SelectObject(draw->hDC,brush);auto oldPen=SelectObject(draw->hDC,GetStockObject(NULL_PEN));int size=std::min(rect.right-rect.left,rect.bottom-rect.top)-10;int x=(rect.left+rect.right-size)/2,y=(rect.top+rect.bottom-size)/2;Ellipse(draw->hDC,x,y,x+size,y+size);SelectObject(draw->hDC,oldBrush);SelectObject(draw->hDC,oldPen);DeleteObject(brush);}
+    else {auto color=on?RGB(185,25,25):RGB(0,90,190);if(draw->itemState&ODS_SELECTED)color=on?RGB(140,15,15):RGB(0,65,140);auto brush=CreateSolidBrush(color);if(UsesBackdrop(draw->hwndItem)){PaintBackdrop(draw->hwndItem,draw->hDC,rect);FrameRect(draw->hDC,&rect,brush);auto inner=rect;InflateRect(&inner,-1,-1);FrameRect(draw->hDC,&inner,brush);}else FillRect(draw->hDC,&rect,brush);DeleteObject(brush);FrameRect(draw->hDC,&rect,GetSysColorBrush(COLOR_GRAYTEXT));auto font=SendMessageW(draw->hwndItem,WM_GETFONT,0,0);if(font)SelectObject(draw->hDC,reinterpret_cast<HGDIOBJ>(font));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,UsesBackdrop(draw->hwndItem)?ThemeForeground():RGB(255,255,255));auto text=Text(draw->hwndItem);DrawTextW(draw->hDC,text.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(draw->hDC,&rect);}}
     RestoreDC(draw->hDC,saved);return true;
 }
 }
@@ -603,6 +608,7 @@ void Layout() {
     MoveWindow(app.status, 8, height - statusH - 4, width - 16, statusH, TRUE);
     if(app.autoThumbnails){int available=std::max(64L,list.right-list.left-GetSystemMetrics(SM_CXVSCROLL)-4);int gap=app.hideFileNames?2:8;int span=256+gap;int columns=std::max(1,(available+span-1)/span);int desired=std::clamp(available/columns-gap,64,256);if(desired!=app.thumbnailWidth){app.thumbnailWidth=desired;SetTimer(app.window,ZoomTimer,150,nullptr);}}
     ArrangeImages();
+    SyncBackdrop();
     // UiRepaintBatch submits one final repaint after every child is in place.
 }
 void LayoutSimple() {
@@ -746,6 +752,7 @@ INT_PTR ShowCacheLimitDialog(int& mb) {
 }
 HMENU BuildOptionsMenu() {
     auto menu = CreatePopupMenu();
+    AppendMenuW(menu,MF_STRING,19,L"背景画像…");AppendMenuW(menu,MF_STRING|((HasBackdrop()||!app.backgroundPath.empty())?0:MF_GRAYED),20,L"背景画像を解除");
     AppendMenuW(menu,MF_STRING,17,L"MDB設定…");AppendMenuW(menu,MF_STRING,18,L"フォント…");
     AppendMenuW(menu,MF_STRING|(app.hideFileNames?MF_CHECKED:0),16,app.hideFileNames?L"ファイル名省略: ON":L"ファイル名省略: OFF");
     AppendMenuW(menu,MF_STRING|(app.idLinks?MF_CHECKED:0),15,app.idLinks?L"ページを開くボタン: ON":L"ページを開くボタン: OFF");
@@ -770,7 +777,9 @@ void OptionsMenu() {
     auto menu = BuildOptionsMenu();
     RECT rect{}; GetWindowRect(AppControl( Options), &rect);
     auto action = TrackUiMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
-    if(action==18){ShowFontDialog();}
+    if(action==19){ChooseBackdrop();}
+    else if(action==20){ClearBackdrop();}
+    else if(action==18){ShowFontDialog();}
     else if(action==17){ShowMdbDialog();}
     else if(action==16){ToggleFileNames();}
     else if(action==15){app.idLinks=!app.idLinks;FormatLinks();LayoutSimple();SaveSettings();}
@@ -806,7 +815,7 @@ void BookmarkMenu() {
     else if (action >= 3000 && action < 3000 + app.bookmarks.size()) RemoveBookmark(action - 3000);
 }
 HWND Control(LPCWSTR type, LPCWSTR text, DWORD style, int id) {
-    HWND control = CreateWindowExW(0, type, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, app.sideBuilding?app.side:app.window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
+    HWND control = CreateWindowExW(_wcsicmp(type,MSFTEDIT_CLASS)==0?WS_EX_TRANSPARENT:0, type, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, app.sideBuilding?app.side:app.window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
     SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(UiFont()), TRUE); return control;
 }
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -863,17 +872,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.editStatus=Control(L"STATIC",L"PNG/JPEG/WebPの上書き・別名コピー保存に対応。",SS_LEFT,0);
         app.editorUi.Create(app.side);CreateOcrUi();app.sideBuilding=false;UpdateEditorControls();
         app.status = Control(L"STATIC", L"フォルダーを選択してください。", SS_LEFT, 0);
-        SetAppFont(app.fontName,app.fontPt,false);RefreshHistory(); ApplyTheme(); Layout(); auto cpus=std::thread::hardware_concurrency();app.thumbnailWorkers.resize(cpus?std::clamp(cpus,1u,4u):2u);app.activeWorkers=static_cast<unsigned>(2+app.thumbnailWorkers.size());app.searchWorker=std::thread(SearchWorker); app.worker = std::thread(Worker, false);
+        InstallBackdropControls();SetAppFont(app.fontName,app.fontPt,false);RefreshHistory(); ApplyTheme(); Layout(); auto cpus=std::thread::hardware_concurrency();app.thumbnailWorkers.resize(cpus?std::clamp(cpus,1u,4u):2u);app.activeWorkers=static_cast<unsigned>(2+app.thumbnailWorkers.size());app.searchWorker=std::thread(SearchWorker); app.worker = std::thread(Worker, false);
         for (auto& worker : app.thumbnailWorkers) worker = std::thread(Worker, true);
+        if(!app.backgroundPath.empty())RequestBackdrop(app.backgroundPath);
         if (!app.settingsError.empty()) MessageBoxW(window, app.settingsError.c_str(), L"設定読込みエラー", MB_OK | MB_ICONWARNING);
         if (!app.last.empty()) { SetWindowTextW(app.path, app.last.c_str()); OpenFolder(app.last,false,L"",false); }
         return 0;
     }
-    case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);FillRect(reinterpret_cast<HDC>(wparam),&r,ThemeBrush());if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
+    case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);PaintBackdrop(window,reinterpret_cast<HDC>(wparam),r);if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: app.imageLabelsDirty = true; ApplyTheme();return 0;
     case WM_SYSCOLORCHANGE: app.imageLabelsDirty = true; ApplyTheme();EnumChildWindows(window,[](HWND child,LPARAM){SendMessageW(child,WM_SYSCOLORCHANGE,0,0);return TRUE;},0);return 0;
     case WM_MEASUREITEM: {auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);if(measure->CtlType==ODT_COMBOBOX){measure->itemHeight=UiControlHeight()-6;return TRUE;}break;}
-    case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam));
+    case WM_CTLCOLORSTATIC: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: case WM_CTLCOLORBTN: return ThemeControlColor(reinterpret_cast<HDC>(wparam),reinterpret_cast<HWND>(lparam));
     case WM_APPCOMMAND: {int command=GET_APPCOMMAND_LPARAM(lparam);if(command==APPCOMMAND_BROWSER_BACKWARD||command==APPCOMMAND_BROWSER_FORWARD){NavigateHistory(command==APPCOMMAND_BROWSER_BACKWARD?-1:1);return TRUE;}break;}
     case WM_DRAWITEM: if(DrawBrowserButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawOcrButton(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(DrawRecording(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;if(ThemeDrawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lparam)))return TRUE;break;
     case WM_SETCURSOR: {POINT p{};GetCursorPos(&p);ScreenToClient(window,&p);if(PtInRect(&app.splitter,p)){SetCursor(LoadCursorW(nullptr,app.layout==L"bottom"?IDC_SIZENS:IDC_SIZEWE));return TRUE;}break;}

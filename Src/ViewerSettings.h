@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <string>
 #include <cstdint>
 #include <vector>
@@ -16,6 +16,7 @@ struct ViewerSettings {
     bool bookmarkCache=false,diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
     bool mdbEnabled=false;int mdbMode=0,mdbCapacityMB=100,categoryMode=0;
     std::wstring fontName;int fontPt=12;
+    std::wstring backgroundPath;
 };
 std::wstring NormalizeFolderAddress(const std::wstring& path);
 bool SameFolderAddress(const std::wstring& a, const std::wstring& b);

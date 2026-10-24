@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include "MetadataModel.h"
 #include "UiFont.h"
+#include "Backdrop.h"
 #include "UiRepaint.h"
 #include "Stage3.h"
 #include "OcrRuntime.h"
@@ -87,6 +88,7 @@ struct State {
     std::function<bool(const Job&)> confirmBatch;
     HWND side{};bool sideBuilding=false,sideLayout=false,sideMeasuring=false,simpleLayoutDirty=true;int sideScroll=0,sideContent=0,sideWheel=0;std::array<HWND,4> verticalTabs{};
     std::wstring fontName;int fontPt=12;
+    std::wstring backgroundPath;bool backgroundLoading=false;std::atomic<unsigned> backgroundGeneration{0};
     HWND window{}, path{}, history{}, list{}, preview{}, details{}, status{}, placement{};
     HWND searchEdit{}, searchButton{},recordTooltip{};
     std::vector<std::wstring> allFiles;
@@ -274,7 +276,7 @@ void RunV0421ThemeTests(std::ostream&,const std::function<void(const wchar_t*)>&
 COLORREF ThemeBackground();
 COLORREF ThemeForeground();
 HBRUSH ThemeBrush();
-LRESULT ThemeControlColor(HDC dc);
+LRESULT ThemeControlColor(HDC dc,HWND=nullptr);
 LRESULT ThemeNotify(NMHDR* header);
 bool ThemeDrawItem(DRAWITEMSTRUCT* draw);
 
@@ -329,3 +331,7 @@ void DrawMdbGroupHeader(HDC,int);
 void PaintMdbHeaders(HWND,HDC);
 
 void RunV0516UiTests(const fs::path&,std::ostream&);int FontLayoutTest();
+
+void RunV060UiTests(const fs::path&,std::ostream&);int BackdropTest();
+
+HBITMAP EmptyThumbnailMask(HBITMAP);

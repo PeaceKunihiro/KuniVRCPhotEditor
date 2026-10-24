@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 namespace {
 struct CompositeCache {std::shared_ptr<const Pixels> frame;uint64_t revision=UINT64_MAX;COLORREF background=0;bool live=false;std::vector<BYTE> bytes;};
 CompositeCache composite;
@@ -28,6 +28,7 @@ void RefreshPreview(){
     static std::shared_ptr<const Pixels> last;static uint64_t revision=UINT64_MAX;static int source=-1;static std::wstring status;static COLORREF color=0;
     int next=test?(OcrImageSource()?3:2):record?1:0;auto background=ThemeBackground();
     static UINT lastW=0,lastH=0;const Pixels* shape=frame?frame.get():&app.previewPixels;if(shape->width!=lastW||shape->height!=lastH){lastW=shape->width;lastH=shape->height;LayoutSideView();}
+    if(!frame&&app.previewPixels.data.empty())DrawBackdropPixels(nullptr,{},{});
     if(last!=frame||revision!=app.previewRevision||source!=next||status!=text||color!=background){last=frame;revision=app.previewRevision;source=next;status=text;color=background;composite={};InvalidateRect(app.preview,nullptr,FALSE);}
 }
 LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -45,18 +46,20 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     if(message==WM_SIZE){ScheduleOriginalPreview();InvalidateRect(window,nullptr,FALSE);return 0;}
     if(message==WM_TIMER&&wparam==1){KillTimer(window,1);LoadOriginalPreview();return 0;}
     if (message == WM_ERASEBKGND) return 1;
-    if (message == WM_PAINT) {
-        PAINTSTRUCT paint{}; HDC screen = BeginPaint(window, &paint); RECT r{}; GetClientRect(window, &r);
-        if(r.right<=0||r.bottom<=0){EndPaint(window,&paint);return 0;}
-        RECT clip=paint.rcPaint;if(app.side){RECT view{};GetClientRect(app.side,&view);MapWindowPoints(app.side,window,reinterpret_cast<POINT*>(&view),2);if(!IntersectRect(&clip,&clip,&view)){EndPaint(window,&paint);return 0;}}int cw=std::max(1L,clip.right-clip.left),ch=std::max(1L,clip.bottom-clip.top);
+    if (message == WM_PAINT||message==WM_PRINTCLIENT) {
+        PAINTSTRUCT paint{}; HDC screen = message==WM_PAINT?BeginPaint(window, &paint):reinterpret_cast<HDC>(wparam); RECT r{}; GetClientRect(window, &r);if(message==WM_PRINTCLIENT)paint.rcPaint=r;
+        if(r.right<=0||r.bottom<=0){if(message==WM_PAINT)EndPaint(window,&paint);return 0;}
+        RECT clip=paint.rcPaint;if(app.side){RECT view{};GetClientRect(app.side,&view);MapWindowPoints(app.side,window,reinterpret_cast<POINT*>(&view),2);if(!IntersectRect(&clip,&clip,&view)){if(message==WM_PAINT)EndPaint(window,&paint);return 0;}}int cw=std::max(1L,clip.right-clip.left),ch=std::max(1L,clip.bottom-clip.top);
         HDC dc=CreateCompatibleDC(screen);HBITMAP buffer=CreateCompatibleBitmap(screen,cw,ch);
-        if(!dc||!buffer){if(buffer)DeleteObject(buffer);if(dc)DeleteDC(dc);EndPaint(window,&paint);return 0;}
-        auto old=SelectObject(dc,buffer);SelectObject(dc,UiFont());SetViewportOrgEx(dc,-clip.left,-clip.top,nullptr);FillRect(dc,&clip,ThemeBrush());
+        if(!dc||!buffer){if(buffer)DeleteObject(buffer);if(dc)DeleteDC(dc);if(message==WM_PAINT)EndPaint(window,&paint);return 0;}
+        auto old=SelectObject(dc,buffer);SelectObject(dc,UiFont());SetViewportOrgEx(dc,-clip.left,-clip.top,nullptr);PaintBackdrop(window,dc,clip);
         auto live=OcrTestSource()?OcrTestPreview():stage3::RecordingOcr()?person_ocr::Preview():std::shared_ptr<const Pixels>{};
         Pixels empty;auto& p=(stage3::RecordingOcr()||OcrTestSource())?(live?*live:empty):app.previewPixels;
         if (!p.data.empty()) {
             double scale = std::min(double(r.right) / p.width, double(r.bottom) / p.height);
             int width = int(p.width * scale), height = int(p.height * scale);
+            if(UsesBackdrop(window)){RECT image{(r.right-width)/2,(r.bottom-height)/2,(r.right+width)/2,(r.bottom+height)/2};DrawBackdropPixels(dc,image,p);composite.frame=live;}
+            else {
             // Composite PBGRA against the current UI theme without changing source pixels.
             auto bg=ThemeBackground();bool isLive=bool(live);bool retain=!isLive||p.data.size()<=4*1024*1024;
             bool reusable=retain&&!composite.bytes.empty()&&composite.background==bg&&composite.live==isLive&&(isLive?composite.frame==live:composite.revision==app.previewRevision);
@@ -69,10 +72,11 @@ LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = p.width; info.bmiHeader.biHeight = -static_cast<LONG>(p.height);
             info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
             SetStretchBltMode(dc, HALFTONE); StretchDIBits(dc, (r.right - width) / 2, (r.bottom - height) / 2, width, height, 0, 0, p.width, p.height, pixels->data(), &info, DIB_RGB_COLORS, SRCCOPY);
+            }
         } else { SetTextColor(dc,ThemeForeground());SetBkMode(dc, TRANSPARENT); DrawTextW(dc, OcrTestSource()?OcrTestStatus().c_str():stage3::RecordingOcr()?person_ocr::Status().c_str():app.selected<0?L"画像プレビュー":app.previewFailed?L"画像読込みエラー":L"サムネイル読込み中…", -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE); }
         BitBlt(screen,clip.left,clip.top,cw,ch,dc,clip.left,clip.top,SRCCOPY);SelectObject(dc,old);DeleteObject(buffer);DeleteDC(dc);
-        EndPaint(window, &paint); return 0;
+        if(message==WM_PAINT)EndPaint(window, &paint); return 0;
     }
-    if(message==WM_NCDESTROY)composite={};
+    if(message==WM_NCDESTROY){composite={};DrawBackdropPixels(nullptr,{},{});}
     return DefWindowProcW(window, message, wparam, lparam);
 }

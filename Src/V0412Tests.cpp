@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "resource.h"
 #include <iostream>
 void CaptureV0412Ui(const fs::path&,HWND);
@@ -87,7 +87,10 @@ void RunV0412UiTests(const fs::path& directory,std::ostream& report){
     app.layout=L"right";Layout();ShowSummary({},L"画像を選択してください。");check(!visible(app.simpleValues[0])&&visible(app.simpleNote)&&Text(app.simpleNote).find(L"画像を選択")!=std::wstring::npos,"empty selection retains guidance");
     bool inspected=false;ShowVersion([&](HWND h){inspected=true;check(Text(h)==L"KuniVRCPhotEditor のバージョン","version dialog opens");check(LoadImageW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(IDI_APP_ICON),IMAGE_ICON,48,48,LR_SHARED)!=nullptr,"version icon resource available");CaptureV0412Ui(directory/L"v0412-version.png",h);});check(inspected,"version callback inspection delivered");
     ShowDiskCacheDialog([&](HWND h){check(IsDlgButtonChecked(h,2100)==BST_UNCHECKED&&SendDlgItemMessageW(h,2101,CB_GETCOUNT,0,0)==5&&Text(GetDlgItem(h,2102))==L"30"&&Text(GetDlgItem(h,2103))==L"5","disk dialog defaults and supported capacity choices");CaptureV0412Ui(directory/L"v0412-disk-settings.png",h);});
-    ShowDiskCacheDialog([&](HWND h){CheckDlgButton(h,2100,BST_CHECKED);SendDlgItemMessageW(h,2101,CB_SETCURSEL,0,0);SetDlgItemTextW(h,2102,L"2");SetDlgItemTextW(h,2103,L"2");SendMessageW(h,WM_COMMAND,IDOK,0);});
+    bool appliedCallback=false;
+    ShowDiskCacheDialog([&](HWND h){appliedCallback=true;CheckDlgButton(h,2100,BST_CHECKED);SendDlgItemMessageW(h,2101,CB_SETCURSEL,0,0);SetDlgItemTextW(h,2102,L"2");SetDlgItemTextW(h,2103,L"2");report<<"INFO: disk apply checked="<<IsDlgButtonChecked(h,2100)<<" selection="<<SendDlgItemMessageW(h,2101,CB_GETCURSEL,0,0)<<" GDI="<<GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)<<std::endl;SendMessageW(h,WM_COMMAND,IDOK,0);});
+    report<<"INFO: disk apply callback="<<appliedCallback<<" state="<<app.diskCache<<","<<app.diskCacheMiB<<","<<app.diskCacheMinutes<<","<<app.diskCacheVisits<<std::endl;
+    check(appliedCallback,"disk apply callback executes before modal dialog closes");
     check(app.diskCache&&app.diskCacheMiB==128&&app.diskCacheMinutes==2&&app.diskCacheVisits==2,"disk dialog applies enabled state and numeric settings");
     app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;ConfigureDiskCache();app.disk.WaitIdle();SaveSettings();
     auto menu=BuildOptionsMenu();wchar_t name[128]{};GetMenuStringW(menu,12,name,128,MF_BYCOMMAND);DestroyMenu(menu);check(std::wstring(name).find(L"ディスクキャッシュ")!=std::wstring::npos,"options exposes disk cache configuration");
@@ -132,3 +135,5 @@ void RunV055UiTests(const fs::path& directory,std::ostream& report){
 }
 
 int BookmarkCacheTest(){auto directory=app.settings.parent_path();std::ofstream report(directory/L"bookmark-cache-result.txt");try{RunV055UiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+
+int DiskOptionsTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"disk-options-result.txt");try{RunV0412UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

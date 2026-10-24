@@ -6,7 +6,7 @@ HWND pane=nullptr,confirmation=nullptr;int scroll=0,contentHeight=0;
 std::wstring message;MdbApplyHooks hooks;
 std::atomic<unsigned> token{0};
 struct Pending {bool active=false;unsigned ticket=0,generation=0,selection=0;std::wstring path,revision;} pending;
-void PaintButton(DRAWITEMSTRUCT* d){int saved=SaveDC(d->hDC);SelectObject(d->hDC,UiFont());FillRect(d->hDC,&d->rcItem,ThemeBrush());auto brush=CreateSolidBrush(ThemeForeground());FrameRect(d->hDC,&d->rcItem,brush);DeleteObject(brush);SetTextColor(d->hDC,IsWindowEnabled(d->hwndItem)?ThemeForeground():GetSysColor(COLOR_GRAYTEXT));SetBkMode(d->hDC,TRANSPARENT);wchar_t text[32]{};GetWindowTextW(d->hwndItem,text,32);DrawTextW(d->hDC,text,-1,&d->rcItem,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(d->itemState&ODS_FOCUS){auto r=d->rcItem;InflateRect(&r,-4,-4);DrawFocusRect(d->hDC,&r);}RestoreDC(d->hDC,saved);}
+void PaintButton(DRAWITEMSTRUCT* d){int saved=SaveDC(d->hDC);SelectObject(d->hDC,UiFont());PaintBackdrop(d->hwndItem,d->hDC,d->rcItem);auto brush=CreateSolidBrush(ThemeForeground());FrameRect(d->hDC,&d->rcItem,brush);DeleteObject(brush);SetTextColor(d->hDC,IsWindowEnabled(d->hwndItem)?ThemeForeground():GetSysColor(COLOR_GRAYTEXT));SetBkMode(d->hDC,TRANSPARENT);wchar_t text[32]{};GetWindowTextW(d->hwndItem,text,32);DrawTextW(d->hDC,text,-1,&d->rcItem,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(d->itemState&ODS_FOCUS){auto r=d->rcItem;InflateRect(&r,-4,-4);DrawFocusRect(d->hDC,&r);}RestoreDC(d->hDC,saved);}
 std::wstring Reason(){
     if(!app.mdbEnabled)return L"MDBがOFFです。";if(app.closing||app.stopping)return L"終了しています。";
     if(app.folderPending||app.searching||app.sorting)return L"一覧の読込み・検索・分類が完了するまでお待ちください。";
@@ -23,7 +23,7 @@ LRESULT CALLBACK PaneProc(HWND h,UINT m,WPARAM wp,LPARAM lp){
     if(m==WM_SIZE){ArrangePane();return 0;}
     if(m==WM_VSCROLL||m==WM_MOUSEWHEEL){SCROLLINFO i{sizeof(i),SIF_ALL};GetScrollInfo(h,SB_VERT,&i);int next=i.nPos;if(m==WM_MOUSEWHEEL)next-=GET_WHEEL_DELTA_WPARAM(wp)/WHEEL_DELTA*60;else switch(LOWORD(wp)){case SB_TOP:next=0;break;case SB_BOTTOM:next=i.nMax;break;case SB_LINEUP:next-=20;break;case SB_LINEDOWN:next+=20;break;case SB_PAGEUP:next-=int(i.nPage);break;case SB_PAGEDOWN:next+=int(i.nPage);break;case SB_THUMBPOSITION:case SB_THUMBTRACK:next=i.nTrackPos;break;default:break;}scroll=std::clamp(next,0,std::max(0,i.nMax-int(i.nPage)+1));ArrangePane();return 0;}
     if(m==WM_COMMAND&&LOWORD(wp)==Run&&HIWORD(wp)==BN_CLICKED){StartMdbApply();return 0;}
-    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT)return ThemeControlColor(reinterpret_cast<HDC>(wp));
+    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT)return ThemeControlColor(reinterpret_cast<HDC>(wp),reinterpret_cast<HWND>(lp));
     if(m==WM_ERASEBKGND){RECT r{};GetClientRect(h,&r);FillRect(reinterpret_cast<HDC>(wp),&r,ThemeBrush());return 1;}
     if(m==WM_DRAWITEM){PaintButton(reinterpret_cast<DRAWITEMSTRUCT*>(lp));return TRUE;}
     return DefWindowProcW(h,m,wp,lp);
@@ -43,7 +43,7 @@ INT_PTR CALLBACK ConfirmDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     if(m==WM_CLOSE){EndDialog(h,IDCANCEL);return TRUE;}
     if(m==WM_SIZE){ArrangeConfirmation(h);return TRUE;}
     if(m==WM_GETMINMAXINFO){RECT size{0,0,650,340};AdjustWindowRectEx(&size,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize={size.right-size.left,size.bottom-size.top};return TRUE;}
-    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT)return ThemeControlColor(reinterpret_cast<HDC>(wp));
+    if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT)return ThemeControlColor(reinterpret_cast<HDC>(wp),reinterpret_cast<HWND>(lp));
     if(m==WM_ERASEBKGND){RECT r{};GetClientRect(h,&r);FillRect(reinterpret_cast<HDC>(wp),&r,ThemeBrush());return TRUE;}
     if(m==WM_DRAWITEM){PaintButton(reinterpret_cast<DRAWITEMSTRUCT*>(lp));return TRUE;}return FALSE;
 }
