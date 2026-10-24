@@ -1,8 +1,8 @@
 ﻿#include "ViewerRuntime.h"
 namespace {
-constexpr int Enable=2100,Capacity=2101,Minutes=2102,Visits=2103,Usage=2104,Delete=2105,Priority=2106;
+constexpr int Enable=2100,Capacity=2101,Minutes=2102,Visits=2103,Usage=2104,Delete=2105,Priority=2106,Folders=2110;
 struct DialogState {std::function<void(HWND)> inspect;};
-void RefreshUsage(HWND h){auto s=app.disk.GetStatus();auto text=L"使用量: "+std::to_wstring(s.bytes/1024)+L" KiB / "+std::to_wstring(s.entries)+L"枚"+(s.pending?L"（確認・整理中）":L"");if(!s.error.empty())text+=L"\r\n"+s.error;SetDlgItemTextW(h,Usage,text.c_str());}
+void RefreshUsage(HWND h){auto s=app.disk.GetStatus();auto text=L"使用量: "+std::to_wstring(s.bytes/1024)+L" KiB / "+std::to_wstring(s.entries)+L"枚"+(s.pending?L"（確認・整理中）":L"");if(!s.error.empty())text+=L"\r\n"+s.error;SetDlgItemTextW(h,Usage,text.c_str());std::vector<DiskThumbnailCache::FolderStatus> folders;if(app.disk.GetFolders(folders)){std::wstring listing;for(auto& folder:folders){listing+=(folder.folder.empty()?L"元フォルダー不明":folder.folder)+L"\r\n  "+std::to_wstring(folder.entries)+L"枚 / "+std::to_wstring((folder.bytes+1023)/1024)+L" KiB\r\n";}if(listing.empty())listing=L"保持中のサムネイルはありません。";if(Text(GetDlgItem(h,Folders))!=listing)SetDlgItemTextW(h,Folders,listing.c_str());}}
 INT_PTR CALLBACK DiskDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     if(m==WM_INITDIALOG){ApplyUiFont(h);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"ディスクキャッシュ");
         auto add=[&](const wchar_t* type,const std::wstring& text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,type,text.c_str(),WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),TRUE);return c;};
@@ -23,8 +23,9 @@ INT_PTR CALLBACK DiskDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
         // Reserve another row for the explanation above the capacity controls.
         for(HWND c=GetWindow(h,GW_CHILD);c;c=GetWindow(c,GW_HWNDNEXT)){auto id=GetDlgCtrlID(c);if(id==Enable||id==Priority||id==2108)continue;RECT r{};GetWindowRect(c,&r);MapWindowPoints(nullptr,h,reinterpret_cast<POINT*>(&r),2);SetWindowPos(c,nullptr,r.left,r.top+28,0,0,SWP_NOSIZE|SWP_NOZORDER);}
         add(L"STATIC",L"キャッシュするのは画像のサムネイルのみです。\r\n元の写真データ全体を保存するものではありません。",0,12,494,585,40,2109);
-        for(int id:{Delete,IDOK,IDCANCEL}){auto c=GetDlgItem(h,id);SetWindowPos(c,nullptr,id==Delete?12:id==IDOK?378:488,546,0,0,SWP_NOSIZE|SWP_NOZORDER);}
-        RECT size{0,0,610,586};AdjustWindowRectEx(&size,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,size.right-size.left,size.bottom-size.top,SWP_NOMOVE|SWP_NOZORDER);ScaleUiDialog(h);RefreshUsage(h);SetTimer(h,1,500,nullptr);auto state=reinterpret_cast<DialogState*>(lp);if(state&&state->inspect)SetTimer(h,2,500,nullptr);return TRUE;
+        for(int id:{Delete,IDOK,IDCANCEL}){auto c=GetDlgItem(h,id);SetWindowPos(c,nullptr,id==Delete?12:id==IDOK?378:488,698,0,0,SWP_NOSIZE|SWP_NOZORDER);}
+        add(L"STATIC",L"保持中の画像フォルダー（保存済みの枚数・容量）",0,12,546,585,24,2111);add(L"EDIT",L"確認中…",ES_MULTILINE|ES_READONLY|ES_AUTOHSCROLL|WS_HSCROLL|WS_VSCROLL|WS_BORDER|WS_TABSTOP,12,574,585,112,Folders);
+        RECT size{0,0,610,738};AdjustWindowRectEx(&size,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,static_cast<DWORD>(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,size.right-size.left,size.bottom-size.top,SWP_NOMOVE|SWP_NOZORDER);ScaleUiDialog(h);RefreshUsage(h);SetTimer(h,1,500,nullptr);auto state=reinterpret_cast<DialogState*>(lp);if(state&&state->inspect)SetTimer(h,2,500,nullptr);return TRUE;
     }
     if(m==WM_TIMER){if(wp==2){KillTimer(h,2);auto state=reinterpret_cast<DialogState*>(GetWindowLongPtrW(h,DWLP_USER));if(state&&state->inspect){RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);state->inspect(h);}EndDialog(h,IDCANCEL);}else RefreshUsage(h);return TRUE;}
     if(m==WM_COMMAND){auto id=LOWORD(wp);

@@ -22,7 +22,7 @@ INT_PTR CALLBACK BackupDialog(HWND window,UINT message,WPARAM wp,LPARAM lp){
     if(message==WM_CLOSE){EndDialog(window,IDCANCEL);return TRUE;}return FALSE;
 }
 }
-void ShowBackupDeletion(){if(app.saving||app.backupBusy||app.folder.empty())return;CancelSearch();app.backupBusy=true;UpdateEditorControls();Job job{7,app.generation};job.path=app.folder;job.destination=(app.settings.parent_path()/L"backups.json").wstring();Queue(std::move(job));Counts(L"バックアップ一覧を確認しています…");}
+void ShowBackupDeletion(){if(app.saving||app.backupBusy||app.folder.empty())return;CancelSearch();app.backupBusy=true;UpdateEditorControls();Job job{7,app.generation};job.path=app.folder;job.destination=AppDataFile(app.settings.parent_path(),L"backups.json").wstring();Queue(std::move(job));Counts(L"バックアップ一覧を確認しています…");}
 void ChooseBackupDeletion(const std::vector<BackupCandidate>& candidates){if(app.saving||candidates.empty()){Counts(L"削除候補のバックアップはありません。");return;}BackupDialogState state;state.candidates=candidates;
     struct DialogTemplate {DLGTEMPLATE dialog;WORD menu,windowClass,title;} dialog{{WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME,0,0,0,0,470,252},0,0,0};
     if(DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&dialog.dialog,app.window,BackupDialog,reinterpret_cast<LPARAM>(&state))!=IDOK)return;
@@ -42,7 +42,7 @@ void SubmitBackupDeletion(const std::vector<BackupCandidate>& candidates, const 
         app.jobs.erase(std::remove_if(app.jobs.begin(), app.jobs.end(), [](auto& job) { return job.kind == 2; }), app.jobs.end());
     }
     Job job{8,app.generation}; job.path=app.folder; job.files=selected; job.preserve=preserve; job.backups=candidates;
-    job.destination=(app.settings.parent_path()/L"backups.json").wstring(); app.backupBusy=true; UpdateEditorControls();
+    job.destination=AppDataFile(app.settings.parent_path(),L"backups.json").wstring(); app.backupBusy=true; UpdateEditorControls();
     Queue(std::move(job)); Counts(L"バックアップを削除しています…");
 }
 

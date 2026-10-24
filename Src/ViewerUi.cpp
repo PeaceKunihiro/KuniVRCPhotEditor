@@ -110,7 +110,7 @@ void LoadSettings() {
         if (!input) throw std::runtime_error("read");
         std::string json((std::istreambuf_iterator<char>(input)), {});
         if (json.size() > 1024 * 1024) throw std::runtime_error("size");
-        auto settings = ParseViewerSettings(json);app.fontName=settings.fontName;app.fontPt=settings.fontPt;app.backgroundPath=settings.backgroundPath;
+        auto settings = ParseViewerSettings(json);app.fontName=settings.fontName;app.fontPt=settings.fontPt;app.backgroundPath=settings.backgroundPath;app.backgroundCopies=settings.backgroundCopies;
         app.hideFileNames=settings.hideFileNames;app.updateAttemptUtc=settings.updateAttemptUtc;app.updateSuccessUtc=settings.updateSuccessUtc;app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.mdbEnabled=settings.mdbEnabled;app.mdbMode=settings.mdbMode;app.mdbCapacityMB=settings.mdbCapacityMB;app.categoryMode=settings.categoryMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
@@ -125,16 +125,14 @@ void LoadSettings() {
 void SaveSettings(bool notify) {
     if (app.settingsProtected) return;
     try {
-        ViewerSettings settings;settings.fontName=app.fontName;settings.fontPt=app.fontPt;settings.backgroundPath=app.backgroundPath;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
+        ViewerSettings settings;settings.fontName=app.fontName;settings.fontPt=app.fontPt;settings.backgroundPath=app.backgroundPath;settings.backgroundCopies=app.backgroundCopies;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
-        settings.thumbnailWidth = app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
+        settings.thumbnailWidth = std::clamp((( (app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth)+16)/32)*32,ThumbnailMin,ThumbnailMax); settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.bookmarkCache=app.bookmarkCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
         settings.autoBackup=app.autoBackup;settings.backupLimit=app.backupLimit;settings.darkTheme=app.darkTheme;settings.metadataSearch=app.metadataSearch;
         settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
         auto bytes = SerializeViewerSettings(settings);
-        auto temp = app.settings; temp += L".tmp";
-        { std::ofstream output(temp, std::ios::binary | std::ios::trunc); output.write(bytes.data(), bytes.size()); output.flush(); if (!output) throw std::runtime_error("write"); }
-        if (!MoveFileExW(temp.c_str(), app.settings.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) throw std::runtime_error("replace");
+        WriteViewerSettingsFile(app.settings,bytes);
     } catch (...) {
         if(notify)MessageBoxW(app.window, L"アプリのフォルダーへsettings.jsonを保存できませんでした。", L"設定保存エラー", MB_OK | MB_ICONWARNING);
     }
@@ -387,7 +385,6 @@ LRESULT CALLBACK ImagesProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     BeginMdbInput(window,message,wparam,lparam);
     auto result = DefSubclassProc(window, message, wparam, lparam);
     EndMdbInput(window,message);
-    if(app.categoryMode&&(message==WM_PAINT||message==WM_PRINTCLIENT||message==WM_PRINT)){auto dc=message!=WM_PAINT?reinterpret_cast<HDC>(wparam):GetDC(window);PaintMdbHeaders(window,dc);if(message==WM_PAINT)ReleaseDC(window,dc);}
     if (message == WM_MOUSEWHEEL || message == WM_VSCROLL || message == WM_HSCROLL || message == WM_KEYDOWN || message == WM_SIZE)
         SetTimer(app.window, ThumbnailTimer, 30, nullptr);
     return result;
@@ -879,6 +876,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if (!app.last.empty()) { SetWindowTextW(app.path, app.last.c_str()); OpenFolder(app.last,false,L"",false); }
         return 0;
     }
+    case WM_PRINTCLIENT: {RECT r{};GetClientRect(window,&r);PaintBackdrop(window,reinterpret_cast<HDC>(wparam),r);return 0;}
     case WM_ERASEBKGND: {RECT r{};GetClientRect(window,&r);PaintBackdrop(window,reinterpret_cast<HDC>(wparam),r);if(app.layout!=L"none"){auto brush=CreateSolidBrush(app.darkTheme?RGB(70,70,70):RGB(210,210,210));FillRect(reinterpret_cast<HDC>(wparam),&app.splitter,brush);DeleteObject(brush);}return 1;}
     case WM_SETTINGCHANGE: case WM_THEMECHANGED: app.imageLabelsDirty = true; ApplyTheme();return 0;
     case WM_SYSCOLORCHANGE: app.imageLabelsDirty = true; ApplyTheme();EnumChildWindows(window,[](HWND child,LPARAM){SendMessageW(child,WM_SYSCOLORCHANGE,0,0);return TRUE;},0);return 0;

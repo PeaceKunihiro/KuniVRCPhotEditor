@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 namespace {
 void WriteTileFixture(const fs::path& path,UINT width,UINT height){
     ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));
@@ -11,6 +11,7 @@ void WriteTileFixture(const fs::path& path,UINT width,UINT height){
 }
 }
 void RunV053UiTests(const fs::path& root,std::ostream& report,const std::function<void(const wchar_t*)>& capture){
+    report<<std::unitbuf;
     auto require=[&](bool ok,const char* text){if(!ok)throw std::runtime_error(text);report<<"PASS: "<<text<<'\n';};
     auto wait=[&](auto ready){auto until=GetTickCount64()+15000;while(!ready()){if(GetTickCount64()>until)throw std::runtime_error("v0.5.3 async timeout");MsgWaitForMultipleObjectsEx(0,nullptr,10,QS_ALLINPUT,MWMO_INPUTAVAILABLE);MSG m{};while(PeekMessageW(&m,nullptr,0,0,PM_REMOVE)){TranslateMessage(&m);DispatchMessageW(&m);}}};
     app.sortMode=0;app.autoThumbnails=false;app.hideFileNames=true;app.darkTheme=false;app.layout=L"right";app.thumbnailWidth=128;ApplyThumbnailSize(true);

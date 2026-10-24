@@ -1,6 +1,6 @@
-﻿# KuniVRCPhotEditor
+# KuniVRCPhotEditor
 
-VRChat写真のメタデータを閲覧・編集し、新しい写真へ同室者情報やOCRによるモデル候補を記録するWindows用アプリです。本体は **v0.6.0**。Stableの配布版はファイル名の版番号を確認してください。
+VRChat写真のメタデータを閲覧・編集し、新しい写真へ同室者情報やOCRによるモデル候補を記録するWindows用アプリです。本体は **v0.6.2**。Stableの配布版はファイル名の版番号を確認してください。
 
 [簡単な使い方](Stable/readme.md) ｜ [詳しい使い方](Documents/USER_GUIDE.md) ｜ [更新履歴](Documents/UPDATELOG.md)
 

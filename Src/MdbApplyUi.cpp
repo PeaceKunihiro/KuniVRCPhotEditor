@@ -76,7 +76,7 @@ void ReadMdbApply(const Job& job,Result& result){
 bool HandleMdbApplyResult(Result& result){
     if(result.job.kind!=14)return false;auto& job=result.job;if(!pending.active||job.applyGeneration!=pending.ticket)return true;
     if(!MdbApplyCurrent(job)||!SameContext()){CancelMdbApply(L"選択が変更されたため中止しました。");RefreshMdbApplyUi();return true;}
-    try{if(!result.error.empty())throw std::runtime_error(winrt::to_string(result.error));if(job.sourceKey!=MdbRevision(job.path))throw std::runtime_error("image changed; reload and retry");app.idNames.Load(app.settings.parent_path()/L"IdDisplayNames.json");if(!app.idNames.Error().empty())throw std::runtime_error("name table is protected after a read failure");auto plan=BuildPhotoNamePlan(result.mdbRecord,app.idNames.Snapshot());
+    try{if(!result.error.empty())throw std::runtime_error(winrt::to_string(result.error));if(job.sourceKey!=MdbRevision(job.path))throw std::runtime_error("image changed; reload and retry");app.idNames.Load(AppDataFile(app.settings.parent_path(),L"IdDisplayNames.json"));if(!app.idNames.Error().empty())throw std::runtime_error("name table is protected after a read failure");auto plan=BuildPhotoNamePlan(result.mdbRecord,app.idNames.Snapshot());
         if(plan.changes.empty()){message=L"対応表の変更は不要です。\r\n"+PhotoNamePlanSummary(plan);pending.active=false;RefreshMdbApplyUi();return true;}
         bool accepted=hooks.confirm?hooks.confirm(plan):ShowMdbApplyConfirmation(plan,hooks.inspectConfirmation);
         if(!accepted){if(pending.active)message=L"キャンセルしました。対応表は変更していません。\r\n"+PhotoNamePlanSummary(plan);pending.active=false;RefreshMdbApplyUi();return true;}

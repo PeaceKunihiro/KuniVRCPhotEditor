@@ -2,6 +2,7 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <utility>
 struct ViewerSettings {
     int thumbnailWidth = 128, cacheMB = 100;
     bool saveHistory = true, autoBackup=true, darkTheme=false, metadataSearch=false;
@@ -17,6 +18,7 @@ struct ViewerSettings {
     bool mdbEnabled=false;int mdbMode=0,mdbCapacityMB=100,categoryMode=0;
     std::wstring fontName;int fontPt=12;
     std::wstring backgroundPath;
+    std::vector<std::pair<std::wstring,std::wstring>> backgroundCopies;
 };
 std::wstring NormalizeFolderAddress(const std::wstring& path);
 bool SameFolderAddress(const std::wstring& a, const std::wstring& b);

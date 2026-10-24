@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include <imm.h>
 #include <future>
 #include <set>
@@ -136,7 +136,7 @@ void StartBatchSave() {
         if(folder.empty()){app.afterSave={};return;}
     }
     Job job{11,app.generation,app.selection};job.files=app.batchFiles;job.metadata=app.batchMetadata;job.edit=edit;
-    job.overwrite=mode==1;job.autoBackup=app.autoBackup;job.backupLimit=app.backupLimit;job.destination=(app.settings.parent_path()/L"backups.json").wstring();
+    job.overwrite=mode==1;job.autoBackup=app.autoBackup;job.backupLimit=app.backupLimit;job.destination=AppDataFile(app.settings.parent_path(),L"backups.json").wstring();
     std::wstring names;
     for(auto& source:job.files){auto p=fs::path(source);job.destinations.push_back(job.overwrite?source:(fs::path(folder)/(p.stem().wstring()+L"_edited"+p.extension().wstring())).wstring());names+=p.filename().wstring()+L"\r\n";}
     const wchar_t* fields[]{L"日時",L"撮影者",L"ワールド名",L"ワールドID",L"モデル",L"タグ"};std::wstring changes;

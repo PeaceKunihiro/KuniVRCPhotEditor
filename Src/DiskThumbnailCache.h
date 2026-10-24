@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "ThumbnailCache.h"
 #include <map>
 #include <deque>
@@ -28,6 +28,8 @@ public:
     void Put(const std::wstring&,const std::wstring& source,const Pixels&);
     void Clear();
     Status GetStatus();
+    struct FolderStatus {std::wstring folder;size_t entries=0,bytes=0;};
+    bool GetFolders(std::vector<FolderStatus>&);
     void WaitIdle();
     void Stop();
 private:
@@ -45,6 +47,7 @@ private:
     std::map<std::wstring,int64_t> folderUses;
     std::map<std::wstring,Entry> entries;
     size_t usedBytes=0;
+    std::map<std::wstring,FolderStatus> folderStats;
     std::set<std::pair<std::filesystem::file_time_type,std::wstring>> lru;
     void ResetEntries();
     void EraseEntry(std::map<std::wstring,Entry>::iterator);

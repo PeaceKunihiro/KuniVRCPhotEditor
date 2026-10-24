@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include <chrono>
 #include <limits>
 #include <stdexcept>
@@ -36,13 +36,13 @@ void RunV0420Tests(const fs::path& folder,std::ostream& report){
     }
     {
         auto directory=folder/L"v0420-ocr";fs::create_directories(directory);auto path=directory/L"ocr-settings.json";
-        if(fs::is_directory(path))fs::remove(path);
+        if(fs::is_directory(path))fs::remove(path);fs::remove(directory/L"settings.json");
         struct Restore{fs::path folder;~Restore(){person_ocr::LoadSettings(folder);}} restore{folder};
         {std::ofstream out(path);out<<R"({"version":1,"fps":5,"seconds":10,"highPrecision":true})";}
         person_ocr::LoadSettings(directory);check(!person_ocr::GetSettings().showHighPrecision&&!person_ocr::GetSettings().highPrecision,"legacy high precision ON migrates to hidden normal mode");
         person_ocr::SetSettings({false,5,10,false,true});person_ocr::LoadSettings(directory);check(person_ocr::GetSettings().showHighPrecision&&!person_ocr::GetSettings().highPrecision,"display ON persists without enabling OCR mode");
         person_ocr::SetSettings({false,5,10,true,true});person_ocr::LoadSettings(directory);check(person_ocr::GetSettings().highPrecision,"visible high precision ON persists");
-        fs::remove(path);fs::create_directory(path);bool failed=false;try{person_ocr::SetSettings({false,5,10,true,false});}catch(...){failed=true;}
+        path=directory/L"settings.json";fs::remove(path);fs::create_directory(path);bool failed=false;try{person_ocr::SetSettings({false,5,10,true,false});}catch(...){failed=true;}
         check(failed&&person_ocr::GetSettings().showHighPrecision&&person_ocr::GetSettings().highPrecision,"failed setting save keeps previous visibility and mode");fs::remove(path);
         person_ocr::SetSettings({false,5,10,true,false});person_ocr::LoadSettings(directory);check(!person_ocr::GetSettings().showHighPrecision&&!person_ocr::GetSettings().highPrecision,"display OFF persists and forces normal mode");
         {std::ofstream out(path);out<<"broken";}person_ocr::LoadSettings(directory);failed=false;try{person_ocr::SetSettings({false,5,10,false,true});}catch(...){failed=true;}

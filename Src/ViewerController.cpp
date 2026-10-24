@@ -62,7 +62,7 @@ void StartSave() {
     std::error_code destinationError;bool exists=fs::exists(destination,destinationError);
     if(destinationError){app.afterSave={};SetWindowTextW(app.editStatus,L"保存先を確認できません。アクセス権とパスを確認してください。");return;}
     if(exists&&!overwrite){app.afterSave={};SetWindowTextW(app.editStatus,L"既存ファイルには上書きできません。別の名前を指定してください。");return;}
-    Job job{4,app.generation,app.selection,app.selected,source,L""};job.edit=edit;job.fingerprint=app.editable.fingerprint;job.destination=destination;job.overwrite=overwrite;job.autoBackup=app.autoBackup;job.backupLimit=app.backupLimit;job.preserve=(app.settings.parent_path()/L"backups.json").wstring();
+    Job job{4,app.generation,app.selection,app.selected,source,L""};job.edit=edit;job.fingerprint=app.editable.fingerprint;job.destination=destination;job.overwrite=overwrite;job.autoBackup=app.autoBackup;job.backupLimit=app.backupLimit;job.preserve=AppDataFile(app.settings.parent_path(),L"backups.json").wstring();
     CancelSearch();SetActivity(L"保存中：コピー検証・上書き処理を実行しています…");app.saving=true;app.editorUi.Enable(false);SetWindowTextW(app.editStatus,L"保存中…コピーを検証しています。");UpdateEditorControls();Queue(std::move(job),true);
 }
 bool GuardTransition(std::function<void()> action) {

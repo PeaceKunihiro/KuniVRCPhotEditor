@@ -1,5 +1,6 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 #include "WebPFixtures.h"
+void CaptureV0412Ui(const fs::path&,HWND);
 namespace {
 void MakeBackgroundFixture(const fs::path& file,UINT w,UINT h,int mode){
     ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));ComPtr<IWICStream> stream;winrt::check_hresult(factory->CreateStream(&stream));winrt::check_hresult(stream->InitializeFromFilename(file.c_str(),GENERIC_WRITE));ComPtr<IWICBitmapEncoder> encoder;winrt::check_hresult(factory->CreateEncoder(file.extension()==L".jpg"?GUID_ContainerFormatJpeg:GUID_ContainerFormatPng,nullptr,&encoder));winrt::check_hresult(encoder->Initialize(stream.Get(),WICBitmapEncoderNoCache));ComPtr<IWICBitmapFrameEncode> frame;winrt::check_hresult(encoder->CreateNewFrame(&frame,nullptr));winrt::check_hresult(frame->Initialize(nullptr));winrt::check_hresult(frame->SetSize(w,h));bool jpeg=file.extension()==L".jpg";int channels=jpeg?3:4;auto format=jpeg?GUID_WICPixelFormat24bppBGR:GUID_WICPixelFormat32bppBGRA;winrt::check_hresult(frame->SetPixelFormat(&format));std::vector<BYTE> bytes(size_t(w)*h*channels);
@@ -16,7 +17,7 @@ void RunV060UiTests(const fs::path& root,std::ostream& report){
     auto menu=BuildOptionsMenu();check((GetMenuState(menu,20,MF_BYCOMMAND)&MF_GRAYED)!=0,"clear action disabled before a background is configured");DestroyMenu(menu);
     auto folder=root/L"v060-images";fs::create_directories(folder);auto file=root/L"v060-background.png";MakeBackgroundFixture(file,320,180,0);MakeBackgroundFixture(folder/L"transparent.png",64,64,1);MakeBackgroundFixture(folder/L"half.png",64,64,2);auto bad=root/L"v060-bad.png";{std::ofstream out(bad);out<<"broken";}
     auto jpg=root/L"v060-background.jpg",webp=root/L"v060-background.webp";MakeBackgroundFixture(jpg,32,18,0);{std::ofstream out(webp,std::ios::binary);out.write(reinterpret_cast<const char*>(LosslessWebP),sizeof(LosslessWebP));}check(ReadBackdrop(jpg.wstring()).width==32&&ReadBackdrop(webp.wstring()).width==320,"JPEG and WebP backgrounds decode without external codecs");
-    RequestBackdrop(file.wstring());wait([&]{return !app.backgroundLoading;});check(HasBackdrop()&&app.backgroundPath==file.wstring(),"asynchronous image load applies a valid background");check(ParseViewerSettings([&]{std::ifstream in(app.settings);return std::string((std::istreambuf_iterator<char>(in)),{});}()).backgroundPath==file.wstring(),"successful selection persists its path");
+    RequestBackdrop(file.wstring());wait([&]{return !app.backgroundLoading;});check(HasBackdrop()&&app.backgroundPath!=file.wstring()&&fs::path(app.backgroundPath).parent_path()==root&&fs::exists(app.backgroundPath),"asynchronous image load applies an app-local background copy");check(ParseViewerSettings([&]{std::ifstream in(app.settings);return std::string((std::istreambuf_iterator<char>(in)),{});}()).backgroundPath==app.backgroundPath,"successful selection persists its app-local path");
     auto previous=app.backgroundPath;RequestBackdrop(bad.wstring());wait([&]{return !app.backgroundLoading;});check(HasBackdrop()&&app.backgroundPath==previous,"invalid image leaves the previous background active");Result stale;stale.job.applyGeneration=app.backgroundGeneration-1;stale.job.path=L"stale.png";stale.pixels={1,1,{0,255,0,255}};AcceptBackdrop(stale);check(app.backgroundPath==previous,"obsolete decode cannot overwrite newer settings");
     app.layout=L"right";app.sideWidth=400;app.categoryMode=0;app.appliedQuery.clear();TabCtrl_SetCurSel(app.metadataTabs,0);OpenFolder(folder.wstring());wait([&]{return !app.folderPending&&ThumbnailsReady();});
     auto select=[&](const wchar_t* name){auto it=std::find(app.files.begin(),app.files.end(),(folder/name).wstring());check(it!=app.files.end(),"transparent fixture is listed");ListView_SetItemState(app.list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);int i=int(it-app.files.begin());ListView_SetItemState(app.list,i,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);FlushSelectionUpdate();wait([&]{return app.previewDedicated;});Layout();};
@@ -41,4 +42,55 @@ void RunV060UiTests(const fs::path& root,std::ostream& report){
     for(int field:{0,6,9}){auto h=app.simpleValues[field];RECT view{};GetClientRect(h,&view);check(Near(RenderPixel(h,std::max(0L,view.right-2),std::max(0L,view.bottom-2),true),ThemeBackground()),"cleared metadata field restores the solid theme background");}
     app.layout=L"right";app.darkTheme=false;ResetViewer();ApplyTheme();Layout();
 }
-int BackdropTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"v060-result.txt");try{RunV060UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+void RunV061UiTests(const fs::path&,std::ostream&);
+int BackdropTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"v061-result.txt");try{RunV060UiTests(root,report);RunV061UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+
+namespace {
+struct BackgroundProbe {unsigned parent=0,paint=0,memory=0;};
+LRESULT CALLBACK ProbeBackground(HWND h,UINT m,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR data){auto p=reinterpret_cast<BackgroundProbe*>(data);if(m==WM_PRINTCLIENT){++p->parent;if(GetObjectType(reinterpret_cast<HGDIOBJ>(wp))==OBJ_MEMDC)++p->memory;}if(m==WM_PAINT)++p->paint;return DefSubclassProc(h,m,wp,lp);}
+}
+void RunV061UiTests(const fs::path& root,std::ostream& report){
+    auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);report<<"PASS: v061 "<<label<<std::endl;};
+    auto pump=[](){MSG m{};while(PeekMessageW(&m,nullptr,0,0,PM_REMOVE)){TranslateMessage(&m);DispatchMessageW(&m);}};
+    auto wait=[&](auto ready){auto end=GetTickCount64()+20000;while(!ready()){pump();if(GetTickCount64()>end)throw std::runtime_error("v061 timeout");Sleep(10);}};
+    KillTimer(app.window,RecordTimer);struct Restore{~Restore(){ClearBackdrop(false);app.darkTheme=false;app.layout=L"right";app.hideFileNames=false;app.categoryMode=0;ApplyTheme();ResetViewer();SetTimer(app.window,RecordTimer,500,nullptr);}} restore;
+    auto sample=root.parent_path().parent_path().parent_path()/L"Images"/L"back_img.webp";
+    check(fs::is_regular_file(sample),"provided back_img.webp sample is available read-only");auto sampleKey=ThumbnailCache::Key(sample.wstring());
+    auto copy=root/L"v061-selected.webp";fs::copy_file(sample,copy,fs::copy_options::overwrite_existing);
+    RequestBackdrop(copy.wstring());wait([&]{return !app.backgroundLoading;});check(HasBackdrop()&&app.backgroundPath!=copy.wstring(),"sample is imported into a separate managed file");
+    auto saved=app.backgroundPath;auto savedKey=ThumbnailCache::Key(saved);auto bytes=[](const fs::path& file){std::ifstream f(file,std::ios::binary);return std::string((std::istreambuf_iterator<char>(f)),{});};check(bytes(saved)==bytes(copy),"managed copy preserves the original encoded bytes");
+    fs::remove(copy);ClearBackdrop(false);RequestBackdrop(saved);wait([&]{return !app.backgroundLoading;});check(HasBackdrop()&&app.backgroundPath==saved&&ThumbnailCache::Key(saved)==savedKey,"app-local background reloads after the selected original is removed");
+    auto countCopies=[&](){size_t count=0;for(auto& e:fs::directory_iterator(root))if(e.path().filename().wstring().find(L"KuniVRCPhotEditor_Background_")==0)++count;return count;};
+    auto before=countCopies();RequestBackdrop((root/L"v060-bad.png").wstring());wait([&]{return !app.backgroundLoading;});pump();check(app.backgroundPath==saved&&countCopies()==before,"failed copy decoding preserves the active background and removes the pending copy");
+    {Result cancelled;cancelled.job.path=sample.wstring();cancelled.job.destination=root.wstring();cancelled.job.applyGeneration=app.backgroundGeneration-1;LoadBackdropJob(cancelled);auto temporary=cancelled.job.path;AcceptBackdrop(cancelled);check(app.backgroundPath==saved,"obsolete copied result cannot replace the active image");cancelled={};check(!fs::exists(temporary),"discarded copied result removes its unpublished file");}
+    {Result failure;failure.job.path=sample.wstring();failure.job.destination=(root/L"no-directory-v061"/L"nested").wstring();bool failed=false;try{LoadBackdropJob(failure);}catch(...){failed=true;}check(failed&&app.backgroundPath==saved,"copy failure cannot replace the active image");}
+    // A nested metadata candidate list asks its own parent, rather than the main window.
+    auto panel=CreateWindowExW(0,L"STATIC",L"",WS_CHILD,20,30,180,120,app.side,nullptr,GetModuleHandleW(nullptr),nullptr);
+    auto nested=CreateWindowExW(0,WC_LISTVIEWW,L"",WS_CHILD|LVS_REPORT,4,4,160,100,panel,nullptr,GetModuleHandleW(nullptr),nullptr);SyncBackdrop();check(Near(RenderPixel(nested,60,60,true),RenderPixel(nested,60,60),3),"nested candidate list receives the correctly tinted parent backdrop");DestroyWindow(panel);
+    auto folder=root/L"v061-scroll";fs::create_directories(folder);for(int i=0;i<90;++i)fs::copy_file(root/L"v060-images"/L"transparent.png",folder/(L"image-"+std::to_wstring(i)+L".png"),fs::copy_options::overwrite_existing);
+    app.categoryMode=0;app.hideFileNames=true;app.layout=L"right";OpenFolder(folder.wstring());wait([&]{return !app.folderPending&&ThumbnailsReady();});
+    BackgroundProbe probe;SetWindowSubclass(app.window,ProbeBackground,6101,reinterpret_cast<DWORD_PTR>(&probe));struct Unhook{~Unhook(){RemoveWindowSubclass(app.window,ProbeBackground,6101);}} unhook;
+    check((ListView_GetExtendedListViewStyle(app.list)&(LVS_EX_TRANSPARENTBKGND|LVS_EX_DOUBLEBUFFER))==(LVS_EX_TRANSPARENTBKGND|LVS_EX_DOUBLEBUFFER),"native transparent parent background and double buffering are enabled together");
+    LVBKIMAGEW bk{};ListView_GetBkImage(app.list,&bk);check(!bk.hbm,"native list no longer holds a list-sized background bitmap");
+    for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();Layout();wait([&]{return ThumbnailsReady();});
+        for(auto layout:{L"right",L"left",L"bottom",L"none"}){app.layout=layout;Layout();RECT r{};GetClientRect(app.list,&r);int x=r.right-24,y=r.bottom-24;auto expected=RenderPixel(app.list,x,y);auto start=GetTickCount64();
+            for(int i=0;i<12;++i){SendMessageW(app.list,WM_VSCROLL,i%2?SB_LINEUP:SB_LINEDOWN,0);RedrawWindow(app.list,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);auto actual=RenderPixel(app.list,x,y,true);check(Near(actual,expected,3),"scrolled transparent tiles keep a window-fixed background in every placement");}
+            report<<"INFO: v061 theme="<<dark<<" layout="<<winrt::to_string(layout)<<" synthetic 12 scroll+print cycles ms="<<GetTickCount64()-start<<std::endl;
+        }
+        app.layout=L"right";Layout();bool wasVisible=IsWindowVisible(app.window);ShowWindow(app.window,SW_SHOWNOACTIVATE);RedrawWindow(app.list,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW);
+        bool fixed=true;auto parents=probe.parent;for(int i=0;i<10;++i){SendMessageW(app.list,WM_MOUSEWHEEL,MAKEWPARAM(0,WORD(i%2?WHEEL_DELTA:-WHEEL_DELTA)),0);UpdateWindow(app.list);auto dc=GetDC(app.list);RECT r{};GetClientRect(app.list,&r);auto actual=GetPixel(dc,r.right-24,r.bottom-24);ReleaseDC(app.list,dc);fixed=fixed&&Near(actual,RenderPixel(app.list,r.right-24,r.bottom-24),3);}
+        check(fixed&&probe.parent>parents,"normal WM_PAINT scrolling keeps the backdrop fixed without an extra full invalidation");CaptureV0412Ui(root/(dark?L"v061-scroll-dark.png":L"v061-scroll-light.png"),app.window);if(!wasVisible)ShowWindow(app.window,SW_HIDE);
+        app.layout=L"right";Layout();ShowBackdropDialog([&](HWND h){SendMessageW(h,WM_COMMAND,2801,0);check(app.backgroundPath==saved,"dialog selection previews without applying to the main window");CaptureV0412Ui(root/(dark?L"v061-dialog-dark.png":L"v061-dialog-light.png"),h);SendMessageW(h,WM_COMMAND,IDCANCEL,0);},[&](HWND){return sample.wstring();});check(app.backgroundPath==saved,"cancel discards the pending dialog selection");
+    }
+    app.categoryMode=app.displayCategoryMode=1;app.mdbRows.clear();for(int i=0;i<int(app.files.size());++i)app.mdbRows.push_back({i<45?L"A":L"B",i<45?L"背景確認A":L"背景確認B",false});app.collapseReset=true;SetupMdbGroups();
+    check(ListView_IsGroupViewEnabled(app.list)&&ListView_GetGroupCount(app.list)==2,"MDB group view is available with the same native backdrop");
+    LVGROUP group{sizeof(group)};group.mask=LVGF_GROUPID;check(ListView_GetGroupInfoByIndex(app.list,0,&group)!=FALSE,"MDB first header is available");
+    ListView_SetGroupState(app.list,group.iGroupId,LVGS_COLLAPSED,0);Layout();RECT header{};check(ListView_GetGroupRect(app.list,group.iGroupId,LVGGR_HEADER,&header)!=FALSE,"expanded MDB header has a display rectangle");
+    check(Near(RenderPixel(app.list,header.right-12,header.top+2,true),RenderPixel(app.list,header.right-12,header.top+2),3),"MDB header backdrop shares the buffered list coordinates");
+    CaptureV0412Ui(root/L"v061-groups-dark.png",app.window);app.categoryMode=app.displayCategoryMode=0;app.mdbRows.clear();SetupMdbGroups();Layout();
+    check(probe.parent>0&&probe.memory==probe.parent,"native list requests its parent backdrop only through memory DCs");
+    ShowBackdropDialog([&](HWND h){SendMessageW(h,WM_COMMAND,2801,0);SendMessageW(h,WM_COMMAND,IDOK,0);},[&](HWND){return sample.wstring();});wait([&]{return !app.backgroundLoading;});check(app.backgroundPath!=saved&&HasBackdrop(),"dialog Apply imports and activates the selected sample asynchronously");
+    auto applied=app.backgroundPath;ShowBackdropDialog([&](HWND h){SendMessageW(h,WM_COMMAND,2802,0);check(HasBackdrop(),"dialog clear is pending until Apply");SendMessageW(h,WM_COMMAND,IDCANCEL,0);});check(app.backgroundPath==applied,"cancel also discards pending clear");
+    ShowBackdropDialog([&](HWND h){SendMessageW(h,WM_COMMAND,2802,0);SendMessageW(h,WM_COMMAND,IDOK,0);});check(!HasBackdrop()&&!(ListView_GetExtendedListViewStyle(app.list)&LVS_EX_TRANSPARENTBKGND)&&fs::exists(applied),"clear restores solid list drawing while keeping the managed image file");
+    check(ThumbnailCache::Key(sample.wstring())==sampleKey,"provided sample is unchanged");
+}

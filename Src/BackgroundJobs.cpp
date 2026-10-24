@@ -1,4 +1,4 @@
-﻿#include "ViewerRuntime.h"
+#include "ViewerRuntime.h"
 bool CurrentJob(const Job& job) {
     if(job.kind==-1)return job.applyGeneration==app.backgroundGeneration;
     if (job.kind == 3 || job.kind == 4) return true; // A click requests this exact file even if selection changes.
@@ -23,7 +23,7 @@ void Worker(bool thumbnails) {
         try {
             struct Busy {bool thumbnail;Busy(bool active):thumbnail(active){if(thumbnail){auto n=++app.thumbnailActive;auto peak=app.thumbnailPeak.load();while(peak<n&&!app.thumbnailPeak.compare_exchange_weak(peak,n)){}}}~Busy(){if(thumbnail)--app.thumbnailActive;}} busy(thumbnails);
             if(job.kind==1||job.kind==2||job.kind==5){result.job.sourceKey=ThumbnailCache::Key(job.path);if(!job.sourceKey.empty()&&job.sourceKey!=result.job.sourceKey)throw std::runtime_error("Source changed; reload before viewing");}
-            if(job.kind==-1){result.pixels=ReadBackdrop(job.path);}
+            if(job.kind==-1){LoadBackdropJob(result);}
             else if (job.kind == 4) {
                 BatchProgress(job,L"保存中：コピー検証・バックアップ・原本置換…");
                 if(job.overwrite)result.text=SaveMetadataOverwrite(job.path,job.fingerprint,job.edit,job.autoBackup,job.backupLimit,job.preserve);

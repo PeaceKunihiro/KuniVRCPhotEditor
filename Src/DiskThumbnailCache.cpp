@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 #include "DiskThumbnailCache.h"
 #include "ViewerSettings.h"
 #include <bcrypt.h>
@@ -23,13 +23,13 @@ bool Under(const std::wstring& folder,const std::vector<std::wstring>& bookmarks
 struct Header {uint32_t magic=0x31435444,width=0,height=0,keyChars=0;std::array<BYTE,32> digest{};};
 constexpr size_t MaxPixels=256*256*4;
 }
-void DiskThumbnailCache::ResetEntries(){entries.clear();lru.clear();usedBytes=0;}
-void DiskThumbnailCache::EraseEntry(std::map<std::wstring,Entry>::iterator i){lru.erase({i->second.used,i->first});usedBytes-=i->second.bytes;entries.erase(i);}
+void DiskThumbnailCache::ResetEntries(){entries.clear();lru.clear();folderStats.clear();usedBytes=0;}
+void DiskThumbnailCache::EraseEntry(std::map<std::wstring,Entry>::iterator i){lru.erase({i->second.used,i->first});usedBytes-=i->second.bytes;auto folder=folderStats.find(i->second.folder);if(folder!=folderStats.end()){folder->second.bytes-=i->second.bytes;if(--folder->second.entries==0)folderStats.erase(folder);}entries.erase(i);}
 void DiskThumbnailCache::SetEntry(const std::wstring& name,Entry value){
     auto prior=entries.find(name);if(prior!=entries.end())EraseEntry(prior);
     decltype(entries.begin()) inserted;try{inserted=entries.emplace(name,value).first;}catch(...){loadedEpoch=UINT64_MAX;throw;}
     try{lru.emplace(value.used,name);}catch(...){entries.erase(inserted);loadedEpoch=UINT64_MAX;throw;}
-    usedBytes+=value.bytes;
+    usedBytes+=value.bytes;auto& folder=folderStats[value.folder];folder.folder=value.folder;++folder.entries;folder.bytes+=value.bytes;
 }
 void DiskThumbnailCache::Configure(const fs::path& path,Config value){
     if(value.limit<128ull*1024*1024||value.limit>2ull*1024*1024*1024||value.minutes<1||value.minutes>1440||value.visits<2||value.visits>100)throw std::runtime_error("disk cache configuration");
@@ -165,3 +165,5 @@ void DiskThumbnailCache::Maintain(){
 }
 void DiskThumbnailCache::WaitIdle(){std::unique_lock<std::mutex> lock(control);idle.wait(lock,[&]{return !pending&&!working;});}
 void DiskThumbnailCache::Stop(){ {std::lock_guard<std::mutex> lock(control);stopping=true;++epoch;wake.notify_all();}if(maintenance.joinable())maintenance.join();}
+
+bool DiskThumbnailCache::GetFolders(std::vector<FolderStatus>& result){std::unique_lock<std::mutex> lock(io,std::try_to_lock);if(!lock.owns_lock())return false;std::vector<FolderStatus> rows;rows.reserve(folderStats.size());for(auto& row:folderStats)rows.push_back(row.second);result=std::move(rows);return true;}

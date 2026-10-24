@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "IdDisplayNames.h"
 void CaptureV0412Ui(const fs::path&,HWND);
 namespace {
@@ -29,7 +29,7 @@ void RunIdNameTests(const fs::path& directory,std::ostream& report){
 void RunIdNameUiTests(const fs::path& directory,std::ostream& report){
     auto check=[&](bool v,const char* text){report<<(v?"PASS: ":"FAIL: ")<<"v0.5.8 "<<text<<std::endl;if(!v)throw std::runtime_error(text);};
     auto wait=[&](auto done){auto until=GetTickCount64()+30000;while(!done()){if(GetTickCount64()>until)throw std::runtime_error("alias UI async timeout");MSG m{};while(PeekMessageW(&m,nullptr,0,0,PM_REMOVE)){TranslateMessage(&m);DispatchMessageW(&m);}Sleep(10);}};
-    auto table=app.settings.parent_path()/L"IdDisplayNames.json";fs::remove(table);app.mdbEnabled=false;ConfigureMdb();bool shown=false;ShowIdNamesDialog(app.window,{{[&](HWND){shown=true;}}});check(!shown&&!fs::exists(table),"MDB OFF disables name editing");
+    auto table=AppDataFile(app.settings.parent_path(),L"IdDisplayNames.json");fs::remove(table);app.mdbEnabled=false;ConfigureMdb();bool shown=false;ShowIdNamesDialog(app.window,{{[&](HWND){shown=true;}}});check(!shown&&!fs::exists(table),"MDB OFF disables name editing");
     ShowMdbDialog([&](HWND h){check(!IsWindowEnabled(GetDlgItem(h,2304)),"MDB OFF disables settings entry");});
     auto root=directory/L"id-names-ui";fs::create_directories(root);auto source=directory/L"sample-日本語.png";auto original=MetadataFingerprint(source.wstring());
     for(int i=0;i<3;++i){MetadataEdit edit;for(auto& action:edit.actions)action=EditAction::Set;edit.values={L"2026-10-18T12:00:00+09:00",L"Photographer",L"Original World Name",i==0?W:i==1?B:L"",L"Name without ID",L"Test"};if(i==2)edit.actions[3]=EditAction::Remove;auto file=root/(std::to_wstring(i)+L".png");fs::remove(file);SaveMetadataCopy(source.wstring(),file.wstring(),MetadataFingerprint(source.wstring()),edit);}
