@@ -26,6 +26,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     bool comfortTest=std::wstring(command)==L"--comfort-test";
     bool bookmarkCacheTest=std::wstring(command)==L"--bookmark-cache-test";
     bool diskOptionsTest=std::wstring(command)==L"--disk-options-test";
+    bool v063Test=std::wstring(command)==L"--v063-test";
     bool v062Test=std::wstring(command)==L"--v062-test";
     bool backdropTest=std::wstring(command)==L"--backdrop-test";
     bool fontLayoutTest=std::wstring(command)==L"--font-layout-test";
@@ -36,13 +37,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     bool mdbTest=std::wstring(command)==L"--mdb-test";
     bool idNamesTest=std::wstring(command)==L"--id-names-test";
     bool mdbApplyTest=std::wstring(command)==L"--mdb-apply-test";
-    bool uiTest=v062Test||diskOptionsTest||backdropTest||fontLayoutTest||repaintTest||sideTest||previewTest||peopleTest||mdbApplyTest||idNamesTest||mdbTest||bookmarkCacheTest||tileTooltipTest||licenseDialogTest||updateDialogTest||comfortTest||shutdownTest||std::wstring(command)==L"--ui-test";
+    bool uiTest=v063Test||v062Test||diskOptionsTest||backdropTest||fontLayoutTest||repaintTest||sideTest||previewTest||peopleTest||mdbApplyTest||idNamesTest||mdbTest||bookmarkCacheTest||tileTooltipTest||licenseDialogTest||updateDialogTest||comfortTest||shutdownTest||std::wstring(command)==L"--ui-test";
     if (uiTest) {
         app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
         fs::create_directories(app.settings.parent_path());
         app.last.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;app.showBackupImages=true; app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
         app.mdbEnabled=false;app.mdbMode=0;app.mdbCapacityMB=100;app.categoryMode=0;app.hideFileNames=false;app.updateAttemptUtc=app.updateSuccessUtc=0;app.residentMode=false;app.residentOcr=false;app.bookmarkCache=false;app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
-        app.fontName.clear();app.fontPt=10;app.backgroundPath.clear();app.backgroundCopies.clear();
+        app.fontName.clear();app.fontPt=10;app.backgroundPath.clear();app.backgroundCopies.clear();app.backgroundThemes.clear();app.backdropThemeRevision=0;
         app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;
         app.autoThumbnails=false;app.sideWidth=400;app.sideHeight=300;app.manualThumbnailWidth=128;app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128; app.cacheMB = 100; app.saveHistory = true; app.bookmarks.clear();
     }
@@ -54,7 +55,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     SendMessageW(window,WM_SETICON,ICON_SMALL,reinterpret_cast<LPARAM>(LoadImageW(instance,MAKEINTRESOURCEW(IDI_APP_ICON),IMAGE_ICON,GetSystemMetrics(SM_CXSMICON),GetSystemMetrics(SM_CYSMICON),LR_SHARED)));
     SendMessageW(window,WM_SETICON,ICON_BIG,reinterpret_cast<LPARAM>(main.hIcon));
     if(shutdownTest){SendMessageW(window,WM_CLOSE,0,0);int result=app.closing&&app.activeWorkers==0?0:1;winrt::uninit_apartment();return result;}
-    if(uiTest){int result=v062Test?V062Test():diskOptionsTest?DiskOptionsTest():backdropTest?BackdropTest():fontLayoutTest?FontLayoutTest():repaintTest?RepaintTest():sideTest?SideViewTest():previewTest?PreviewTest():peopleTest?PeopleTest():mdbApplyTest?MdbApplyTest():idNamesTest?IdNamesTest():mdbTest?MdbTest():bookmarkCacheTest?BookmarkCacheTest():tileTooltipTest?TileTooltipTest():licenseDialogTest?LicenseDialogTest():updateDialogTest?UpdateDialogTest():comfortTest?ComfortTest():UiTest();SendMessageW(window,WM_CLOSE,0,0);if(!app.closing||app.activeWorkers)result=1;winrt::uninit_apartment();return result;}
+    if(uiTest){int result=v063Test?V063Test():v062Test?V062Test():diskOptionsTest?DiskOptionsTest():backdropTest?BackdropTest():fontLayoutTest?FontLayoutTest():repaintTest?RepaintTest():sideTest?SideViewTest():previewTest?PreviewTest():peopleTest?PeopleTest():mdbApplyTest?MdbApplyTest():idNamesTest?IdNamesTest():mdbTest?MdbTest():bookmarkCacheTest?BookmarkCacheTest():tileTooltipTest?TileTooltipTest():licenseDialogTest?LicenseDialogTest():updateDialogTest?UpdateDialogTest():comfortTest?ComfortTest():UiTest();SendMessageW(window,WM_CLOSE,0,0);if(!app.closing||app.activeWorkers)result=1;winrt::uninit_apartment();return result;}
     ShowWindow(window, show); UpdateWindow(window);StartAutomaticUpdateCheck(window);
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {

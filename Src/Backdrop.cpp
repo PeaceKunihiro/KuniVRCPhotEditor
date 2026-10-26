@@ -73,8 +73,8 @@ void DrawBackdropPixels(HDC target,const RECT& rect,const Pixels& pixels){
 }
 void InstallBackdropControls(){if(!app.window)return;EnumChildWindows(app.window,[](HWND h,LPARAM){DWORD_PTR existing=0;if(!GetWindowSubclass(h,ChildProc,600,&existing)){wchar_t type[64]{};GetClassNameW(h,type,64);ListStamp* stamp=_wcsicmp(type,WC_LISTVIEWW)==0?new ListStamp:nullptr;SetWindowSubclass(h,ChildProc,600,reinterpret_cast<DWORD_PTR>(stamp));}return TRUE;},0);}
 void SyncBackdrop(){if(!app.window)return;EnsureCanvas();InstallBackdropControls();EnumChildWindows(app.window,[](HWND h,LPARAM){DWORD_PTR stamp=0;if(GetWindowSubclass(h,ChildProc,600,&stamp)&&stamp)SyncList(h,*reinterpret_cast<ListStamp*>(stamp));return TRUE;},0);}
-Pixels ReadBackdrop(const std::wstring& path){auto ext=fs::path(path).extension().wstring();if(!Same(ext,L".png")&&!Same(ext,L".jpg")&&!Same(ext,L".jpeg")&&!Same(ext,L".webp"))throw std::runtime_error("Unsupported background format");if(Same(fs::path(path).extension().wstring(),L".webp")){auto image=ReadWebP(path,4096,4096);return {image.width,image.height,std::move(image.pixels)};}ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));ComPtr<IWICBitmapDecoder> decoder;winrt::check_hresult(factory->CreateDecoderFromFilename(path.c_str(),nullptr,GENERIC_READ,WICDecodeMetadataCacheOnLoad,&decoder));ComPtr<IWICBitmapFrameDecode> frame;winrt::check_hresult(decoder->GetFrame(0,&frame));return Decode(factory.Get(),frame.Get(),4096,4096);}
-void RequestBackdrop(const std::wstring& path){app.backgroundLoading=true;Job job;job.kind=-1;job.path=fs::absolute(path).lexically_normal().wstring();job.destination=app.settings.parent_path().wstring();job.applyGeneration=++app.backgroundGeneration;Queue(std::move(job),true);Counts(L"背景画像を読込み中…");}
+Pixels ReadBackdrop(const std::wstring& path,unsigned maxWidth,unsigned maxHeight){auto ext=fs::path(path).extension().wstring();if(!Same(ext,L".png")&&!Same(ext,L".jpg")&&!Same(ext,L".jpeg")&&!Same(ext,L".webp"))throw std::runtime_error("Unsupported background format");if(Same(fs::path(path).extension().wstring(),L".webp")){auto image=ReadWebP(path,maxWidth,maxHeight);return {image.width,image.height,std::move(image.pixels)};}ComPtr<IWICImagingFactory> factory;winrt::check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));ComPtr<IWICBitmapDecoder> decoder;winrt::check_hresult(factory->CreateDecoderFromFilename(path.c_str(),nullptr,GENERIC_READ,WICDecodeMetadataCacheOnLoad,&decoder));ComPtr<IWICBitmapFrameDecode> frame;winrt::check_hresult(decoder->GetFrame(0,&frame));return Decode(factory.Get(),frame.Get(),maxWidth,maxHeight);}
+void RequestBackdrop(const std::wstring& path,int theme){app.backgroundLoading=true;Job job;job.kind=-1;job.path=fs::absolute(path).lexically_normal().wstring();job.destination=app.settings.parent_path().wstring();job.backdropTheme=theme;job.backdropThemeRevision=app.backdropThemeRevision;job.applyGeneration=++app.backgroundGeneration;Queue(std::move(job),true);Counts(L"背景画像を読込み中…");}
 namespace {
 bool ManagedBackground(const fs::path& file,const fs::path& folder){auto name=file.stem().wstring();std::wstring prefix=L"KuniVRCPhotEditor_Background_";GUID guid{};auto ext=file.extension().wstring();return file.is_absolute()&&file.parent_path()==folder&&name.size()==prefix.size()+38&&name.compare(0,prefix.size(),prefix)==0&&SUCCEEDED(CLSIDFromString(name.substr(prefix.size()).c_str(),&guid))&&(Same(ext,L".png")||Same(ext,L".jpg")||Same(ext,L".jpeg")||Same(ext,L".webp"));}
 bool PlainBackground(const fs::path& file){auto attr=GetFileAttributesW(file.c_str());return attr!=INVALID_FILE_ATTRIBUTES&&!(attr&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY));}
@@ -88,17 +88,18 @@ void RetainBackgrounds(const std::wstring& current,const std::wstring& fingerpri
     records.erase(std::remove_if(records.begin(),records.end(),[&](auto& r){return r.first==current;}),records.end());records.insert(records.begin(),{current,fingerprint});
     SaveSettings(false);
     // Deletion is permitted only after the active path and ownership fingerprints are durable.
-    std::ifstream in(app.settings,std::ios::binary);auto saved=ParseViewerSettings(std::string((std::istreambuf_iterator<char>(in)),{}));if(saved.backgroundPath!=current||saved.backgroundCopies!=records)throw std::runtime_error("background retention settings not saved");
+    std::ifstream in(app.settings,std::ios::binary);auto saved=ParseViewerSettings(std::string((std::istreambuf_iterator<char>(in)),{}));in.close();std::map<std::wstring,bool> themes;for(auto& record:records){auto theme=app.backgroundThemes.find(record.first);if(theme!=app.backgroundThemes.end())themes.insert(*theme);}if(saved.backgroundPath!=current||saved.backgroundCopies!=records||saved.backgroundThemes!=themes)throw std::runtime_error("background retention settings not saved");
     size_t kept=0;std::vector<std::pair<std::wstring,std::wstring>> remain;
     for(auto& record:records){auto path=fs::path(record.first);if(!ManagedBackground(path,folder)||!PlainBackground(path))continue;
         try{if(MetadataFingerprint(record.first)!=record.second){remain.push_back(record);continue;}}catch(...){remain.push_back(record);continue;}
         if(kept<3||record.first==current){remain.push_back(record);++kept;continue;}
         if(!DeleteFileW(path.c_str()))remain.push_back(record);
     }
-    records=std::move(remain);SaveSettings(false);
+    records=std::move(remain);for(auto i=app.backgroundThemes.begin();i!=app.backgroundThemes.end();)if(std::none_of(records.begin(),records.end(),[&](auto& r){return r.first==i->first;}))i=app.backgroundThemes.erase(i);else ++i;SaveSettings(false);
 }
 }
-void AcceptBackdrop(Result& result){if(result.job.applyGeneration!=app.backgroundGeneration)return;app.backgroundLoading=false;if(!result.error.empty()||result.pixels.data.empty()){Counts(L"背景画像を保存・読込みできません。以前の背景を保持します。");return;}source=std::move(result.pixels);app.backgroundPath=result.job.path;if(result.backdropCopy)result.backdropCopy->retained=true;plain.Reset();tinted.Reset();++app.previewRevision;ApplyTheme();Layout();SyncBackdrop();SaveSettings();try{RetainBackgrounds(app.backgroundPath,result.job.fingerprint);}catch(...){Counts(L"背景画像を適用しました。古い背景画像の整理は保留しました。");return;}Counts(L"背景画像を適用しました。");}
+void AcceptBackdrop(Result& result){if(result.job.applyGeneration!=app.backgroundGeneration)return;app.backgroundLoading=false;if(!result.error.empty()||result.pixels.data.empty()){Counts(L"背景画像を保存・読込みできません。以前の背景を保持します。");return;}source=std::move(result.pixels);app.backgroundPath=result.job.path;if(result.job.backdropTheme>=0&&result.job.backdropThemeRevision==app.backdropThemeRevision)app.darkTheme=result.job.backdropTheme!=0;app.backgroundThemes[app.backgroundPath]=app.darkTheme;if(result.backdropCopy)result.backdropCopy->retained=true;plain.Reset();tinted.Reset();++app.previewRevision;ApplyTheme();Layout();SyncBackdrop();SaveSettings();try{RetainBackgrounds(app.backgroundPath,result.job.fingerprint);}catch(...){Counts(L"背景画像を適用しました。古い背景画像の整理は保留しました。");return;}Counts(L"背景画像を適用しました。");}
+void RememberBackdropTheme(){++app.backdropThemeRevision;if(HasBackdrop()&&!app.backgroundPath.empty())app.backgroundThemes[app.backgroundPath]=app.darkTheme;}
 void ClearBackdrop(bool persist){app.backgroundLoading=false;++app.backgroundGeneration;source={};foreground.Reset();foregroundKey=nullptr;app.backgroundPath.clear();plain.Reset();tinted.Reset();++canvasSerial;++app.previewRevision;if(app.window){ApplyTheme();Layout();SyncBackdrop();if(persist)SaveSettings();Counts(L"背景画像を解除しました。");}}
 std::wstring PickBackdrop(HWND owner){wchar_t path[32768]{};OPENFILENAMEW picker{sizeof(picker)};picker.hwndOwner=owner;picker.lpstrFilter=L"背景画像（PNG / JPEG / WebP）\0*.png;*.jpg;*.jpeg;*.webp\0\0";picker.lpstrFile=path;picker.nMaxFile=32768;picker.lpstrTitle=L"背景画像を選択";picker.Flags=OFN_EXPLORER|OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;return GetOpenFileNameW(&picker)?std::wstring(path):L"";}
 
@@ -127,8 +128,26 @@ void LoadBackdropJob(Result& result){
     result.pixels=ReadBackdrop(result.job.path);result.job.fingerprint=MetadataFingerprint(result.job.path);
 }
 namespace {
-constexpr int BackgroundPick=2801,BackgroundClear=2802,BackgroundPath=2803,BackgroundPreview=2804;
-struct BackgroundDialogState {std::function<void(HWND)> inspect;std::function<std::wstring(HWND)> choose;std::wstring pending;Pixels preview;bool clear=false;std::exception_ptr error;};
+constexpr int BackgroundPick=2801,BackgroundClear=2802,BackgroundPath=2803,BackgroundPreview=2804,BackgroundTheme=2805,HistoryFirst=2810;
+struct BackgroundHistoryItem {std::wstring path;Pixels thumbnail;int theme=-1;bool available=false;};
+struct BackgroundDialogState {std::function<void(HWND)> inspect;std::function<std::wstring(HWND)> choose;std::wstring pending;Pixels preview;std::vector<BackgroundHistoryItem> history;int pendingTheme=-1;bool clear=false;std::exception_ptr error;};
+std::wstring ThemeLabel(int theme){return theme<0?L"テーマ未記録":theme?L"ナイト":L"ライト";}
+void RefreshBackgroundDialog(HWND h,BackgroundDialogState& state){
+    SetDlgItemTextW(h,BackgroundPath,state.clear||state.pending.empty()?L"背景画像なし":state.pending.c_str());
+    auto theme=state.clear?L"解除後も現在のテーマを維持します。":state.pendingTheme<0?L"適用テーマ：現在（"+ThemeLabel(app.darkTheme?1:0)+L"）":L"復元テーマ："+ThemeLabel(state.pendingTheme);
+    SetDlgItemTextW(h,BackgroundTheme,theme.c_str());InvalidateRect(GetDlgItem(h,BackgroundPreview),nullptr,FALSE);
+    for(size_t i=0;i<state.history.size();++i)InvalidateRect(GetDlgItem(h,HistoryFirst+int(i)),nullptr,FALSE);
+}
+void DrawHistoryItem(const DRAWITEMSTRUCT& draw,const BackgroundDialogState& state){
+    auto index=int(draw.CtlID)-HistoryFirst;if(index<0||index>=int(state.history.size()))return;auto& item=state.history[index];auto dc=draw.hDC;auto r=draw.rcItem;int saved=SaveDC(dc);FillRect(dc,&r,ThemeBrush());
+    bool selected=!state.clear&&state.pending==item.path;auto frame=CreateSolidBrush(selected?GetSysColor(COLOR_HIGHLIGHT):GetSysColor(COLOR_GRAYTEXT));FrameRect(dc,&r,frame);if(selected){auto inner=r;InflateRect(&inner,-1,-1);FrameRect(dc,&inner,frame);}DeleteObject(frame);
+    SelectObject(dc,UiFont());SetBkMode(dc,TRANSPARENT);SetTextColor(dc,item.available?ThemeForeground():GetSysColor(COLOR_GRAYTEXT));auto caption=r;caption.top=caption.bottom-UiLineHeight()-6;caption.left+=4;caption.right-=4;
+    auto label=(item.path==app.backgroundPath?L"使用中":L"履歴"+std::to_wstring(index+1))+std::wstring(L" · ")+ThemeLabel(item.theme);if(!item.available)label=L"読込不可 · "+ThemeLabel(item.theme);DrawTextW(dc,label.c_str(),-1,&caption,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+    RECT image{r.left+5,r.top+5,r.right-5,caption.top-3};auto& pixels=item.thumbnail;
+    if(!pixels.data.empty()){double scale=std::min(double(image.right-image.left)/pixels.width,double(image.bottom-image.top)/pixels.height);int w=std::max(1,int(pixels.width*scale)),h=std::max(1,int(pixels.height*scale));Surface input;if(input.Create(pixels.width,pixels.height)){memcpy(input.bytes,pixels.data.data(),pixels.data.size());HDC sourceDc=CreateCompatibleDC(dc);auto old=SelectObject(sourceDc,input.bitmap);BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};AlphaBlend(dc,(image.left+image.right-w)/2,(image.top+image.bottom-h)/2,w,h,sourceDc,0,0,pixels.width,pixels.height,blend);SelectObject(sourceDc,old);DeleteDC(sourceDc);}}
+    else DrawTextW(dc,L"画像を読み込めません",-1,&image,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+    if(draw.itemState&ODS_FOCUS){InflateRect(&r,-3,-3);DrawFocusRect(dc,&r);}RestoreDC(dc,saved);
+}
 LRESULT CALLBACK BackgroundPreviewProc(HWND h,UINT m,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR data){
     if(m==WM_NCDESTROY){RemoveWindowSubclass(h,BackgroundPreviewProc,id);return DefSubclassProc(h,m,wp,lp);}
     if(m==WM_ERASEBKGND)return 1;
@@ -144,22 +163,28 @@ LRESULT CALLBACK BackgroundPreviewProc(HWND h,UINT m,WPARAM wp,LPARAM lp,UINT_PT
 INT_PTR CALLBACK BackgroundDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     auto state=reinterpret_cast<BackgroundDialogState*>(GetWindowLongPtrW(h,DWLP_USER));
     if(m==WM_INITDIALOG){state=reinterpret_cast<BackgroundDialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"背景画像");
-        RECT bounds{0,0,560,360};AdjustWindowRectEx(&bounds,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER);
+        RECT bounds{0,0,560,516};AdjustWindowRectEx(&bounds,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER);
         auto add=[&](const wchar_t* cls,const std::wstring& text,DWORD style,int x,int y,int w,int height,int id){auto c=CreateWindowExW(0,cls,text.c_str(),WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),FALSE);return c;};
-        auto preview=add(L"STATIC",L"",WS_BORDER,12,12,536,190,BackgroundPreview);SetWindowSubclass(preview,BackgroundPreviewProc,1,reinterpret_cast<DWORD_PTR>(state));
-        add(L"EDIT",state->pending.empty()?L"背景画像なし":state->pending,ES_READONLY|ES_AUTOHSCROLL|WS_BORDER,12,210,536,26,BackgroundPath);
-        add(L"STATIC",L"画面全体に合わせて中央を切り抜き、サイドにテーマ色を重ねます。\r\n適用時にアプリと同じ場所へ複製します。元画像は変更しません。\r\n使用中を含む直近3件を保持し、古い管理画像は自動削除します。",0,12,246,536,64,0);
-        add(L"BUTTON",L"画像を選択…",WS_TABSTOP,12,320,128,28,BackgroundPick);add(L"BUTTON",L"解除",WS_TABSTOP,148,320,88,28,BackgroundClear);add(L"BUTTON",L"適用",WS_TABSTOP|BS_DEFPUSHBUTTON,320,320,100,28,IDOK);add(L"BUTTON",L"キャンセル",WS_TABSTOP,428,320,120,28,IDCANCEL);
+        auto preview=add(L"STATIC",L"",WS_BORDER,12,12,536,168,BackgroundPreview);SetWindowSubclass(preview,BackgroundPreviewProc,1,reinterpret_cast<DWORD_PTR>(state));
+        add(L"EDIT",state->pending.empty()?L"背景画像なし":state->pending,ES_READONLY|ES_AUTOHSCROLL|WS_BORDER,12,188,536,26,BackgroundPath);
+        add(L"STATIC",L"",0,12,222,536,24,BackgroundTheme);add(L"STATIC",L"最近使った背景（使用中を含む3件）",0,12,252,536,24,2806);
+        for(size_t i=0;i<state->history.size();++i){auto& item=state->history[i];auto text=L"背景履歴"+std::to_wstring(i+1)+L"："+ThemeLabel(item.theme)+L" "+item.path;auto button=add(L"BUTTON",text,BS_OWNERDRAW|WS_TABSTOP,12+int(i)*180,280,176,110,HistoryFirst+int(i));EnableWindow(button,item.available);}
+        if(state->history.empty())add(L"STATIC",L"履歴はありません。画像を選択して適用すると登録されます。",0,12,310,536,50,2807);
+        add(L"STATIC",L"履歴を選び［適用］で背景と記録したテーマを復元します。\r\n新規画像は現在のテーマを記録します。画像はアプリ側へ複製します。\r\n使用中を含む直近3件を保持し、古い管理画像は自動削除します。",0,12,402,536,60,2808);
+        add(L"BUTTON",L"画像を選択…",WS_TABSTOP,12,474,128,28,BackgroundPick);add(L"BUTTON",L"解除",WS_TABSTOP,148,474,88,28,BackgroundClear);add(L"BUTTON",L"適用",WS_TABSTOP|BS_DEFPUSHBUTTON,320,474,100,28,IDOK);add(L"BUTTON",L"キャンセル",WS_TABSTOP,428,474,120,28,IDCANCEL);
+        RefreshBackgroundDialog(h,*state);
         ScaleUiDialog(h);if(state->inspect)SetTimer(h,61,100,nullptr);return TRUE;
     }
     if(m==WM_TIMER&&wp==61){KillTimer(h,61);try{state->inspect(h);}catch(...){state->error=std::current_exception();EndDialog(h,IDCANCEL);}return TRUE;}
     if(m==WM_ERASEBKGND){RECT r{};GetClientRect(h,&r);FillRect(reinterpret_cast<HDC>(wp),&r,ThemeBrush());return TRUE;}
     if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT||m==WM_CTLCOLORBTN)return ThemeControlColor(reinterpret_cast<HDC>(wp),reinterpret_cast<HWND>(lp));
     if(m==WM_NOTIFY&&reinterpret_cast<NMHDR*>(lp)->code==NM_CUSTOMDRAW){SetWindowLongPtrW(h,DWLP_MSGRESULT,ThemeNotify(reinterpret_cast<NMHDR*>(lp)));return TRUE;}
+    if(m==WM_DRAWITEM){auto draw=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(draw->CtlID>=HistoryFirst&&draw->CtlID<HistoryFirst+3){DrawHistoryItem(*draw,*state);return TRUE;}}
+    if(m==WM_COMMAND&&LOWORD(wp)>=HistoryFirst&&LOWORD(wp)<HistoryFirst+3){auto index=int(LOWORD(wp))-HistoryFirst;if(index>=int(state->history.size())||!state->history[index].available)return TRUE;auto& item=state->history[index];try{auto pixels=ReadBackdrop(item.path);state->preview=std::move(pixels);state->pending=item.path;state->pendingTheme=item.theme;state->clear=false;RefreshBackgroundDialog(h,*state);}catch(...){item.available=false;EnableWindow(GetDlgItem(h,HistoryFirst+index),FALSE);SetDlgItemTextW(h,BackgroundTheme,L"履歴画像を読み込めません。現在の選択を保持します。");InvalidateRect(GetDlgItem(h,HistoryFirst+index),nullptr,FALSE);}return TRUE;}
     if(m==WM_COMMAND){switch(LOWORD(wp)){
-        case BackgroundPick:{auto path=state->choose?state->choose(h):PickBackdrop(h);if(path.empty())return TRUE;try{auto pixels=ReadBackdrop(path);state->preview=std::move(pixels);state->pending=path;state->clear=false;SetDlgItemTextW(h,BackgroundPath,path.c_str());InvalidateRect(GetDlgItem(h,BackgroundPreview),nullptr,FALSE);}catch(...){MessageBoxW(h,L"画像を読み込めません。選択内容を保持します。",L"背景画像",MB_OK|MB_ICONWARNING);}return TRUE;}
-        case BackgroundClear:state->clear=true;state->pending.clear();state->preview={};SetDlgItemTextW(h,BackgroundPath,L"背景画像なし");InvalidateRect(GetDlgItem(h,BackgroundPreview),nullptr,FALSE);return TRUE;
-        case IDOK:if(state->clear)ClearBackdrop();else if(!state->pending.empty()&&state->pending!=app.backgroundPath)RequestBackdrop(state->pending);EndDialog(h,IDOK);return TRUE;
+        case BackgroundPick:{auto path=state->choose?state->choose(h):PickBackdrop(h);if(path.empty())return TRUE;try{auto pixels=ReadBackdrop(path);state->preview=std::move(pixels);state->pending=path;state->pendingTheme=-1;state->clear=false;RefreshBackgroundDialog(h,*state);}catch(...){MessageBoxW(h,L"画像を読み込めません。選択内容を保持します。",L"背景画像",MB_OK|MB_ICONWARNING);}return TRUE;}
+        case BackgroundClear:state->clear=true;state->pending.clear();state->pendingTheme=-1;state->preview={};RefreshBackgroundDialog(h,*state);return TRUE;
+        case IDOK:if(state->clear)ClearBackdrop();else if(!state->pending.empty())RequestBackdrop(state->pending,state->pendingTheme);EndDialog(h,IDOK);return TRUE;
         case IDCANCEL:EndDialog(h,IDCANCEL);return TRUE;
     }}
     if(m==WM_CLOSE){EndDialog(h,IDCANCEL);return TRUE;}return FALSE;
@@ -167,6 +192,9 @@ INT_PTR CALLBACK BackgroundDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
 }
 void ShowBackdropDialog(const std::function<void(HWND)>& inspect,const std::function<std::wstring(HWND)>& choose){
     BackgroundDialogState state;state.inspect=inspect;state.choose=choose;state.pending=app.backgroundPath;state.preview=source;
+    auto records=app.backgroundCopies;if(!app.backgroundPath.empty()&&std::none_of(records.begin(),records.end(),[](auto& row){return row.first==app.backgroundPath;}))records.insert(records.begin(),{app.backgroundPath,L""});
+    for(auto& record:records){if(state.history.size()>=3)break;BackgroundHistoryItem item;item.path=record.first;auto theme=app.backgroundThemes.find(item.path);if(theme!=app.backgroundThemes.end())item.theme=theme->second?1:0;
+        try{if(PlainBackground(item.path)){if(!record.second.empty()&&MetadataFingerprint(item.path)!=record.second)continue;item.thumbnail=ReadBackdrop(item.path,160,76);item.available=true;}}catch(...){}state.history.push_back(std::move(item));}
     struct Template{DLGTEMPLATE dialog;WORD menu,cls,title;} t{};t.dialog.style=WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_CENTER;t.dialog.cx=340;t.dialog.cy=230;
     DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&t.dialog,app.window,BackgroundDialog,reinterpret_cast<LPARAM>(&state));if(state.error)std::rethrow_exception(state.error);
 }

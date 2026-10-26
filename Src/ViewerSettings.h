@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <utility>
+#include <map>
 struct ViewerSettings {
     int thumbnailWidth = 128, cacheMB = 100;
     bool saveHistory = true, autoBackup=true, darkTheme=false, metadataSearch=false;
@@ -19,6 +20,7 @@ struct ViewerSettings {
     std::wstring fontName;int fontPt=12;
     std::wstring backgroundPath;
     std::vector<std::pair<std::wstring,std::wstring>> backgroundCopies;
+    std::map<std::wstring,bool> backgroundThemes;
 };
 std::wstring NormalizeFolderAddress(const std::wstring& path);
 bool SameFolderAddress(const std::wstring& a, const std::wstring& b);

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <windows.h>
 #include <string>
 #include <functional>
@@ -10,11 +10,12 @@ void PaintBackdrop(HWND,HDC,const RECT&);
 HBRUSH BackdropBrush(HWND,HDC);
 void SyncBackdrop();
 void InstallBackdropControls();
-void RequestBackdrop(const std::wstring&);
+void RequestBackdrop(const std::wstring&,int theme=-1);
+void RememberBackdropTheme();
 void AcceptBackdrop(Result&);
 void ChooseBackdrop();
 void ShowBackdropDialog(const std::function<void(HWND)>& inspect={},const std::function<std::wstring(HWND)>& choose={});
 void LoadBackdropJob(Result&);
 void ClearBackdrop(bool persist=true);
 void DrawBackdropPixels(HDC,const RECT&,const Pixels&);
-Pixels ReadBackdrop(const std::wstring&);
+Pixels ReadBackdrop(const std::wstring&,unsigned maxWidth=4096,unsigned maxHeight=4096);

@@ -35,7 +35,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
         return static_cast<int>(n);
     };
     settings.backgroundPath=object.GetNamedString(L"backgroundPath",L"");if(settings.backgroundPath.size()>32767||std::any_of(settings.backgroundPath.begin(),settings.backgroundPath.end(),[](wchar_t c){return c<32;}))throw std::runtime_error("background path");
-    if(object.HasKey(L"backgroundCopies")){auto list=object.GetNamedArray(L"backgroundCopies");if(list.Size()>1024)throw std::runtime_error("background history limit");for(auto entry:list){auto item=entry.GetObject();auto path=std::wstring(item.GetNamedString(L"path")),hash=std::wstring(item.GetNamedString(L"fingerprint"));if(path.size()>32767||hash.size()!=32)throw std::runtime_error("background history entry");settings.backgroundCopies.push_back({path,hash});}}
+    if(object.HasKey(L"backgroundCopies")){auto list=object.GetNamedArray(L"backgroundCopies");if(list.Size()>1024)throw std::runtime_error("background history limit");for(auto entry:list){auto item=entry.GetObject();auto path=std::wstring(item.GetNamedString(L"path")),hash=std::wstring(item.GetNamedString(L"fingerprint"));if(path.size()>32767||hash.size()!=32)throw std::runtime_error("background history entry");settings.backgroundCopies.push_back({path,hash});if(item.HasKey(L"darkTheme"))settings.backgroundThemes[path]=item.GetNamedBoolean(L"darkTheme");}}
     settings.fontName=object.GetNamedString(L"fontName",L"");if(settings.fontName.size()>=32||std::any_of(settings.fontName.begin(),settings.fontName.end(),[](wchar_t c){return c<32;}))throw std::runtime_error("font name");settings.fontPt=number(L"fontPt",12,10,24,2);
     settings.idLinks=object.HasKey(L"pageButtons")?object.GetNamedBoolean(L"pageButtons"):object.GetNamedBoolean(L"idLinks",true);
     settings.sortMode=number(L"sortMode",0,0,3,1);
@@ -91,7 +91,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
 }
 std::string SerializeViewerSettings(const ViewerSettings& settings) {
     JsonObject object;
-    if(settings.backgroundCopies.size()>1024)throw std::runtime_error("background history limit");JsonArray copies;for(auto& copy:settings.backgroundCopies){JsonObject item;item.Insert(L"path",JsonValue::CreateStringValue(copy.first));item.Insert(L"fingerprint",JsonValue::CreateStringValue(copy.second));copies.Append(item);}object.Insert(L"backgroundCopies",copies);
+    if(settings.backgroundCopies.size()>1024)throw std::runtime_error("background history limit");JsonArray copies;for(auto& copy:settings.backgroundCopies){JsonObject item;item.Insert(L"path",JsonValue::CreateStringValue(copy.first));item.Insert(L"fingerprint",JsonValue::CreateStringValue(copy.second));auto theme=settings.backgroundThemes.find(copy.first);if(theme!=settings.backgroundThemes.end())item.Insert(L"darkTheme",JsonValue::CreateBooleanValue(theme->second));copies.Append(item);}object.Insert(L"backgroundCopies",copies);
     object.Insert(L"backgroundPath",JsonValue::CreateStringValue(settings.backgroundPath));
     object.Insert(L"mdbEnabled",JsonValue::CreateBooleanValue(settings.mdbEnabled));object.Insert(L"mdbMode",JsonValue::CreateNumberValue(settings.mdbMode));object.Insert(L"mdbCapacityMB",JsonValue::CreateNumberValue(settings.mdbCapacityMB));object.Insert(L"categoryMode",JsonValue::CreateNumberValue(settings.mdbEnabled?(settings.categoryMode==3?2:settings.categoryMode):0));
     object.Insert(L"hideFileNames",JsonValue::CreateBooleanValue(settings.hideFileNames));
