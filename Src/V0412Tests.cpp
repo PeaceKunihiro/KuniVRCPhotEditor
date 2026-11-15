@@ -41,8 +41,8 @@ void BookmarkCacheTests(const fs::path& directory,std::ostream& report){
     for(int i=0;i<5;++i)constrained.Visit(n.parent_path().wstring());constrained.Put(key(n),n.wstring(),pixels);check(constrained.GetStatus().entries==1&&fs::exists(files.at(key(b))),"ordinary incoming thumbnail cannot displace priority folder");
     auto bytes=constrained.GetStatus().bytes;
     check(!constrained.Put(key(a),a.wstring(),pixels,true)&&constrained.GetStatus().bytes==bytes&&fs::exists(files.at(key(b))),"manual disk fill refuses full cache without evicting bookmark");
-    Pixels small{1,1,std::vector<BYTE>(4,7)};
-    check(constrained.Put(key(n),n.wstring(),small,true)&&constrained.Get(key(n),out)&&out.data==small.data,"manual disk fill continues with smaller photo after capacity rejection");
+    Pixels smallPixels{1,1,std::vector<BYTE>(4,7)};
+    check(constrained.Put(key(n),n.wstring(),smallPixels,true)&&constrained.Get(key(n),out)&&out.data==smallPixels.data,"manual disk fill continues with smaller photo after capacity rejection");
     cfg.bookmarks.clear();constrained.Configure(root,cfg);constrained.WaitIdle();check(!constrained.PriorityFolder(a.parent_path().wstring()),"bookmark removal immediately removes priority");
     constrained.Clear();constrained.WaitIdle();check(constrained.GetStatus().entries==0&&fs::file_size(a)==8&&fs::file_size(b)==8&&fs::file_size(n)==8,"explicit clear leaves all originals intact");constrained.Stop();
 }
