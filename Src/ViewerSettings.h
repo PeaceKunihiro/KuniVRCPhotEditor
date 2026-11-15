@@ -4,6 +4,8 @@
 #include <vector>
 #include <utility>
 #include <map>
+#include <optional>
+#include <functional>
 struct ViewerSettings {
     int thumbnailWidth = 128, cacheMB = 100;
     bool saveHistory = true, autoBackup=true, darkTheme=false, metadataSearch=false;
@@ -27,3 +29,8 @@ bool SameFolderAddress(const std::wstring& a, const std::wstring& b);
 ViewerSettings ParseViewerSettings(const std::string& json);
 std::string SerializeViewerSettings(const ViewerSettings& settings);
 bool ParseCacheLimitInput(const std::wstring& text, int& value);
+
+// Nullopt means no settings file; an empty string still means a corrupt existing file.
+ViewerSettings InitialViewerSettings(const std::optional<std::string>&,const std::function<bool()>&);
+bool DetectWindowsDarkTheme();
+bool DarkThemeFromForeground(unsigned red,unsigned green,unsigned blue);

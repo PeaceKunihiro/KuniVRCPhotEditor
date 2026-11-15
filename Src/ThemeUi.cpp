@@ -1,6 +1,7 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include <dwmapi.h>
 #include <uxtheme.h>
+#include <winrt/Windows.UI.ViewManagement.h>
 #pragma comment(lib,"dwmapi.lib")
 #pragma comment(lib,"uxtheme.lib")
 namespace {
@@ -17,6 +18,11 @@ void RefreshContrast(){
 bool SystemTheme(){if(!contrastState.initialized)RefreshContrast();return !contrastState.known||contrastState.high;}
 bool Night(){return !SystemTheme()&&app.darkTheme;}
 LRESULT CALLBACK ContrastColorProbe(HWND h,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR ref){if(message==WM_SYSCOLORCHANGE)++*reinterpret_cast<int*>(ref);return DefSubclassProc(h,message,wp,lp);}
+}
+bool DetectWindowsDarkTheme(){
+    winrt::Windows::UI::ViewManagement::UISettings settings;
+    auto color=settings.GetColorValue(winrt::Windows::UI::ViewManagement::UIColorType::Foreground);
+    return DarkThemeFromForeground(color.R,color.G,color.B);
 }
 bool ThemeIsDark(){return Night();}
 COLORREF ThemeBackground(){return Night()?RGB(32,32,32):GetSysColor(COLOR_WINDOW);}

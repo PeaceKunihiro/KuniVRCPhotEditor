@@ -126,3 +126,13 @@ std::string SerializeViewerSettings(const ViewerSettings& settings) {
     auto result = winrt::to_string(object.Stringify());
     if (result.size() > 1024 * 1024) throw std::runtime_error("settings limit"); return result;
 }
+
+ViewerSettings InitialViewerSettings(const std::optional<std::string>& json,const std::function<bool()>& query){
+    auto settings=json?ParseViewerSettings(*json):ViewerSettings{};
+    // Validate before querying Windows, and never treat an explicit false as missing.
+    if(!json||!JsonObject::Parse(winrt::to_hstring(*json)).HasKey(L"darkTheme")){
+        try{settings.darkTheme=query();}catch(...){settings.darkTheme=false;}
+    }
+    return settings;
+}
+bool DarkThemeFromForeground(unsigned red,unsigned green,unsigned blue){return 2*red+5*green+blue>8*128;}

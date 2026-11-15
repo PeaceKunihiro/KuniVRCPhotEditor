@@ -345,3 +345,5 @@ HBITMAP EmptyThumbnailMask(HBITMAP);
 void RunV062StorageTests(const fs::path&,std::ostream&);void RunV062UiTests(const fs::path&,std::ostream&);int V062Test();
 
 void RunV063SettingsTests(std::ostream&);void RunV063UiTests(const fs::path&,std::ostream&);int V063Test();
+
+void RunV064Tests(const fs::path&,std::ostream&);

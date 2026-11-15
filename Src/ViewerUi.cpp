@@ -104,13 +104,13 @@ void LoadSettings() {
     wchar_t executable[32768]; GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
     app.settings = fs::path(executable).parent_path() / L"settings.json";
     try {
-        if (!fs::exists(app.settings)) return;
-        if (fs::file_size(app.settings) > 1024 * 1024) throw std::runtime_error("settings size");
-        std::ifstream input(app.settings, std::ios::binary);
-        if (!input) throw std::runtime_error("read");
-        std::string json((std::istreambuf_iterator<char>(input)), {});
-        if (json.size() > 1024 * 1024) throw std::runtime_error("size");
-        auto settings = ParseViewerSettings(json);app.fontName=settings.fontName;app.fontPt=settings.fontPt;app.backgroundPath=settings.backgroundPath;app.backgroundCopies=settings.backgroundCopies;app.backgroundThemes=settings.backgroundThemes;
+        std::optional<std::string> json;
+        if(fs::exists(app.settings)){
+            if(fs::file_size(app.settings)>1024*1024)throw std::runtime_error("settings size");
+            std::ifstream input(app.settings,std::ios::binary);if(!input)throw std::runtime_error("read");
+            json=std::string((std::istreambuf_iterator<char>(input)),{});
+        }
+        auto settings=InitialViewerSettings(json,DetectWindowsDarkTheme);app.fontName=settings.fontName;app.fontPt=settings.fontPt;app.backgroundPath=settings.backgroundPath;app.backgroundCopies=settings.backgroundCopies;app.backgroundThemes=settings.backgroundThemes;
         app.hideFileNames=settings.hideFileNames;app.updateAttemptUtc=settings.updateAttemptUtc;app.updateSuccessUtc=settings.updateSuccessUtc;app.showBackupImages=settings.showBackupImages;app.navigation=std::move(settings.navigation);app.navigationIndex=settings.navigationIndex;app.idLinks=settings.idLinks;app.sortMode=settings.sortMode;app.mdbEnabled=settings.mdbEnabled;app.mdbMode=settings.mdbMode;app.mdbCapacityMB=settings.mdbCapacityMB;app.categoryMode=settings.categoryMode;app.last = settings.last; app.layout = settings.layout; app.recent = std::move(settings.history);
         app.thumbnailWidth = app.activeThumbnailWidth = settings.thumbnailWidth;
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;

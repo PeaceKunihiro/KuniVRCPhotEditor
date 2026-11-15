@@ -17,6 +17,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
         try{RunV0511Tests(folder,report);report<<"ALL PASSED\n";}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}
         winrt::uninit_apartment();return code;
     }
+    if(std::wstring(command)==L"--initial-theme-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"v064-result.txt");int code=0;try{RunV064Tests(folder,report);report<<"ALL PASSED\n";}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;code=1;}winrt::uninit_apartment();return code;}
     if (std::wstring(command) == L"--self-test") { auto result = SelfTest(); winrt::uninit_apartment(); return result; }
     if (std::wstring(command) == L"--photos-test") { auto result = PhotosTest(); winrt::uninit_apartment(); return result; }
     bool shutdownTest=std::wstring(command)==L"--shutdown-test";
