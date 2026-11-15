@@ -1,4 +1,4 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 #include "V048Features.h"
 #include <set>
 void CaptureV0412Ui(const fs::path&,HWND);
@@ -20,6 +20,11 @@ void RunMdbTests(const fs::path& directory,std::ostream& report){
     db.Configure(root,cfg,loader,{});db.WaitIdle();check(db.Status().entries==0,"MDB re-enable starts empty database");
     std::vector<fs::path> large;for(int n=0;n<3;++n){auto p=parent/(L"large"+std::to_wstring(n)+L".png");{std::ofstream f(p);f<<"image";}large.push_back(p);db.Read(p.wstring(),n==0?1:0);}
     check(db.Status().entries<=2&&db.Status().bytes<=100000000,"MDB capacity includes DB and journal reserve");first=reads;db.Read(large[0].wstring());check(reads==first,"MDB preferred record survives normal record eviction");
+    auto manual=parent/L"large-manual.png";{std::ofstream f(manual);f<<"image";}
+    count=db.Status().entries;check(!db.AddAvailable(manual.wstring())&&db.Status().entries==count,"manual MDB fill preserves existing records at capacity");
+    first=reads;db.Read(large[0].wstring());check(reads==first,"manual MDB fill does not displace preferred record");
+    check(db.AddAvailable(source.wstring())&&!db.AddAvailable(backup.wstring()),"manual MDB fill admits smaller later image and excludes backups");
+    check(db.AddAvailable(source.wstring()),"manual MDB fill reports existing revision as retained");
     db.Read(large[0].wstring(),1);db.Read(large[2].wstring(),1);db.Configure(root,cfg,loader,{});db.WaitIdle();auto fresh=parent/L"large-new.png";{std::ofstream f(fresh);f<<"new image";}db.Read(fresh.wstring());first=reads;db.Read(fresh.wstring());check(reads==first,"MDB fixed mode clears automatic priority so new records are admitted");
     fs::remove(large[1]);db.Reconcile(parent.wstring(),{source.wstring(),large[0].wstring(),large[2].wstring(),backup.wstring()});db.WaitIdle();check(db.Status().entries<=2,"MDB successful folder reload reconciles deleted paths");
     auto unrelated=root/L"unrelated.txt";{std::ofstream f(unrelated);f<<"keep";}db.Configure(root,{false,0,100},loader,{});db.WaitIdle();check(fs::exists(unrelated)&&!fs::exists(root/L"mdb.sqlite"),"MDB deletion preserves unrelated files");db.Stop();

@@ -25,7 +25,7 @@ public:
     // Index hint for MDB priority only. Never reads or validates pixel data.
     Presence Probe(const std::wstring&);
     bool Get(const std::wstring&,Pixels&,bool touch=true);
-    void Put(const std::wstring&,const std::wstring& source,const Pixels&);
+    bool Put(const std::wstring&,const std::wstring& source,const Pixels&,bool explicitFill=false);
     void Clear();
     Status GetStatus();
     struct FolderStatus {std::wstring folder;size_t entries=0,bytes=0;};

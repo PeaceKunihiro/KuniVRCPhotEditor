@@ -480,6 +480,7 @@ void Results() {
             RefreshHistory();SetWindowTextW(app.path,app.folder.c_str());SaveSettings();app.mdb.Reconcile(app.folder,app.allFiles);app.mdb.QueueCached(app.allFiles);
             if(app.appliedQuery.empty())CommitDisplay(app.allFiles,job.preserve);else StartSearch(app.appliedQuery,job.preserve);
         } else if (job.kind == 1) {
+            if(job.manualCache){FinishManualCache(result);continue;}
             if(job.diskPrefetch){ScheduleBookmarkPrefetch();continue;}
             app.thumbnailRequested[job.index] = false;
             if (!WantedThumbnail(job.index)) continue;
@@ -791,7 +792,8 @@ void OptionsMenu() {
 HMENU BuildBookmarkMenu() {
     auto menu = CreatePopupMenu(), remove = CreatePopupMenu();
     AppendMenuW(menu, MF_STRING, 1, L"このアドレスを追加");
-    AppendMenuW(menu,MF_STRING|(app.bookmarkCache?MF_CHECKED:0),2,app.bookmarkCache?L"キャッシュする：ON":L"キャッシュする：OFF");
+    AppendMenuW(menu,MF_STRING|(app.bookmarkCache?MF_CHECKED:0),2,app.bookmarkCache?L"ブックマーク優先：ON":L"ブックマーク優先：OFF");
+    AppendMenuW(menu,MF_STRING|((app.folder.empty()||app.folderPending||app.manualCacheActive)?MF_GRAYED:0),3,L"キャッシュする");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     auto escape = [](std::wstring path) { size_t position = 0; while ((position = path.find(L'&', position)) != std::wstring::npos) { path.insert(position, 1, L'&'); position += 2; } return path; };
     for (size_t i = 0; i < app.bookmarks.size(); ++i) {
@@ -808,6 +810,7 @@ void BookmarkMenu() {
     auto action = TrackUiMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, app.window, nullptr); DestroyMenu(menu);
     if (action == 1) AddBookmark(Text(app.path));
     else if(action==2)SetBookmarkCache(!app.bookmarkCache);
+    else if(action==3)StartManualCache();
     else if (action >= 1000 && action < 1000 + app.bookmarks.size()) LoadAddress(app.bookmarks[action - 1000]);
     else if (action >= 3000 && action < 3000 + app.bookmarks.size()) RemoveBookmark(action - 3000);
 }

@@ -63,10 +63,10 @@ constexpr UINT_PTR RecordTimer=4;
 constexpr int ThumbnailSlots = 512;
 enum { PathEdit = 101, OpenPath, Browse, History, Placement, Images, Details, MetadataTabs, Options, Bookmarks, EditMetadata, SaveMetadata, CancelMetadata, SearchEdit, SearchButton, Help, PersonSettings, RecordToggle, RecordIndicator, ResetView, SortMenu, HistoryBack, HistoryForward };
 struct Job { int kind = 0; unsigned generation = 0, selection = 0; int index = -1; std::wstring path, preserve; unsigned thumbnailGeneration = 0; int width = 128; MetadataEdit edit; std::wstring fingerprint, destination, sourceKey; bool userLoad=true, overwrite=false, autoBackup=true, metadataSearch=false; int backupLimit=10; unsigned searchGeneration=0; std::vector<std::wstring> files; std::vector<BackupCandidate> backups; std::wstring query; std::vector<EditableMetadata> metadata; std::vector<std::wstring> destinations; bool hideFileNames=false; uint64_t updateAttemptUtc=0,updateSuccessUtc=0;
-    int categoryMode=0; int sortMode=0; int navigationIndex=-1; bool clearSearch=false,diskPrefetch=false,useMdb=false; unsigned diskGeneration=0,applyGeneration=0,applyDelayMs=0;int backdropTheme=-1;unsigned backdropThemeRevision=0; };
+    int categoryMode=0; int sortMode=0; int navigationIndex=-1; bool clearSearch=false,diskPrefetch=false,useMdb=false,manualCache=false,manualDisk=false,manualMdb=false; unsigned diskGeneration=0,applyGeneration=0,applyDelayMs=0;int backdropTheme=-1;unsigned backdropThemeRevision=0; };
 // Pending copies are removed even when a worker result is cancelled or discarded.
 struct BackdropCopy {fs::path path;bool retained=false;~BackdropCopy(){if(!retained&&!path.empty())DeleteFileW(path.c_str());}};
-struct Result { std::shared_ptr<BackdropCopy> backdropCopy; std::vector<std::wstring> directories; Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false; std::vector<EditableMetadata> metadata; std::vector<MdbRow> mdbRows;MdbRecord mdbRecord;std::vector<MdbRecord> personRecords; };
+struct Result { std::shared_ptr<BackdropCopy> backdropCopy; std::vector<std::wstring> directories; Job job; std::vector<std::wstring> files; Pixels pixels; std::wstring text, error; PhotoSummary summary; EditableMetadata editable; std::wstring editError; std::vector<BackupCandidate> backups; int failures=0; bool progress=false,cacheMemory=false,cacheDisk=false,cacheMdb=false; std::vector<EditableMetadata> metadata; std::vector<MdbRow> mdbRows;MdbRecord mdbRecord;std::vector<MdbRecord> personRecords; };
 struct State {
     bool mdbEnabled=false,categoryCommitting=false;int mdbMode=0,mdbCapacityMB=100,categoryMode=0,displayCategoryMode=0;
     IdNameStore idNames;
@@ -122,6 +122,10 @@ struct State {
     size_t imageBytes = 0;
     bool residentMode=false,residentOcr=false;
     bool bookmarkCache=false,diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
+    std::vector<std::wstring> manualCacheFiles;
+    size_t manualCacheCursor=0,manualMemoryCount=0,manualDiskCount=0,manualMdbCount=0,manualCacheErrors=0;
+    unsigned manualCacheGeneration=0,manualCacheDiskGeneration=0,manualCacheThumbnailGeneration=0;
+    bool manualCacheNotify=true,manualCacheActive=false,manualCacheWaiting=false,manualCacheDisk=false,manualCacheMdb=false;
     size_t diskPrefetchCursor=0,diskPrefetchCount=0;std::atomic<unsigned> diskGeneration{0};
     bool saveHistory = true;
     bool thumbnailBudgetLimited = false;
@@ -275,6 +279,8 @@ void ShowVersion(const std::function<void(HWND)>& inspect = {});
 void ShowDiskCacheDialog(const std::function<void(HWND)>& inspect = {});
 void ConfigureDiskCache();
 void ScheduleBookmarkPrefetch();
+void StartManualCache(bool notify=true);
+void FinishManualCache(const Result&);
 bool SetBookmarkCache(bool enabled,bool notify=true);
 void ApplyTheme();
 void RunV0421ThemeTests(std::ostream&,const std::function<void(const wchar_t*)>& capture = {});

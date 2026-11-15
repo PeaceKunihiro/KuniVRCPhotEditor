@@ -6,6 +6,10 @@ void RunV055UiTests(const fs::path&,std::ostream&);
 namespace {
 void BookmarkCacheTests(const fs::path& directory,std::ostream& report){
     auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);report<<"PASS: v0.5.5 "<<label<<'\n';};
+    ThumbnailCache memory;memory.SetLimit(8);Pixels tiny{1,1,std::vector<BYTE>(4,1)},held;
+    auto ticket=memory.Ticket();
+    check(memory.PutAvailable(L"a",tiny,ticket)&&memory.PutAvailable(L"b",tiny,ticket)&&!memory.PutAvailable(L"c",tiny,ticket)&&memory.Get(L"a",held)&&memory.Get(L"b",held),"manual memory fill preserves earlier filenames at capacity");
+    memory.Clear();check(!memory.PutAvailable(L"stale",tiny,ticket),"manual memory fill rejects changed budget generation");
     auto legacy=ParseViewerSettings("{\"version\":3}");check(!legacy.bookmarkCache,"legacy bookmark priority defaults OFF");
     legacy.diskCache=legacy.bookmarkCache=true;auto parsed=ParseViewerSettings(SerializeViewerSettings(legacy));check(parsed.bookmarkCache&&parsed.diskCache,"shared priority setting persists");
     check(!ParseViewerSettings("{\"version\":3,\"diskCache\":false,\"bookmarkCache\":true}").bookmarkCache,"disabled master suppresses priority setting");
@@ -35,6 +39,10 @@ void BookmarkCacheTests(const fs::path& directory,std::ostream& report){
     DiskThumbnailCache constrained;constrained.Configure(root,cfg);constrained.WaitIdle();constrained.Put(key(a),a.wstring(),pixels);
     check(constrained.GetStatus().entries==1&&fs::exists(files.at(key(b)))&&!fs::exists(files.at(key(a))),"older bookmark cannot displace newer folder when budget is full");
     for(int i=0;i<5;++i)constrained.Visit(n.parent_path().wstring());constrained.Put(key(n),n.wstring(),pixels);check(constrained.GetStatus().entries==1&&fs::exists(files.at(key(b))),"ordinary incoming thumbnail cannot displace priority folder");
+    auto bytes=constrained.GetStatus().bytes;
+    check(!constrained.Put(key(a),a.wstring(),pixels,true)&&constrained.GetStatus().bytes==bytes&&fs::exists(files.at(key(b))),"manual disk fill refuses full cache without evicting bookmark");
+    Pixels small{1,1,std::vector<BYTE>(4,7)};
+    check(constrained.Put(key(n),n.wstring(),small,true)&&constrained.Get(key(n),out)&&out.data==small.data,"manual disk fill continues with smaller photo after capacity rejection");
     cfg.bookmarks.clear();constrained.Configure(root,cfg);constrained.WaitIdle();check(!constrained.PriorityFolder(a.parent_path().wstring()),"bookmark removal immediately removes priority");
     constrained.Clear();constrained.WaitIdle();check(constrained.GetStatus().entries==0&&fs::file_size(a)==8&&fs::file_size(b)==8&&fs::file_size(n)==8,"explicit clear leaves all originals intact");constrained.Stop();
 }
@@ -131,6 +139,15 @@ void RunV055UiTests(const fs::path& directory,std::ostream& report){
     SetBookmarkCache(false,false);app.disk.WaitIdle();check(app.diskCache&&!app.bookmarkCache&&!CurrentJob(stale)&&app.disk.GetStatus().entries==prior,"v055 bookmark OFF preserves cache and cancels old prefetch");
     SetBookmarkCache(true,false);ShowDiskCacheDialog([&](HWND h){CheckDlgButton(h,2100,BST_UNCHECKED);SendMessageW(h,WM_COMMAND,MAKEWPARAM(2100,BN_CLICKED),0);check(IsDlgButtonChecked(h,2106)==BST_UNCHECKED,"v055 master OFF clears priority checkbox");SendMessageW(h,WM_COMMAND,IDOK,0);});
     check(!app.diskCache&&!app.bookmarkCache,"v055 master OFF applies both settings");
+    app.disk.Clear();app.disk.WaitIdle();app.diskCache=true;ConfigureDiskCache();app.disk.WaitIdle();
+    bookmarkMenu=BuildBookmarkMenu();wchar_t manualLabel[128]{},priorityLabel[128]{};
+    GetMenuStringW(bookmarkMenu,3,manualLabel,128,MF_BYCOMMAND);GetMenuStringW(bookmarkMenu,2,priorityLabel,128,MF_BYCOMMAND);
+    check(std::wstring(manualLabel)==L"キャッシュする"&&std::wstring(priorityLabel).find(L"ブックマーク優先")==0,"manual cache action is separate from bookmark priority setting");DestroyMenu(bookmarkMenu);
+    StartManualCache(false);check(app.manualCacheActive&&app.manualCacheFiles.size()==80&&fs::path(app.manualCacheFiles.front()).filename()==L"100.jpg","manual fill uses loaded directory and filename order");
+    pump([]{return !app.manualCacheActive;});
+    check(app.manualCacheCursor==80&&app.manualDiskCount==80&&app.disk.GetStatus().entries==80&&!app.bookmarkCache,"manual fill bypasses visit threshold without changing bookmark priority or traversing children");
+    StartManualCache(false);++app.diskGeneration;ScheduleBookmarkPrefetch();check(!app.manualCacheActive,"manual fill cancels when cache settings change");
+    app.diskCache=false;
     app.bookmarks=bookmarks;ConfigureDiskCache();app.disk.WaitIdle();SaveSettings();
 }
 

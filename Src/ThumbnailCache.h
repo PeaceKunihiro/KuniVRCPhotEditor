@@ -42,6 +42,15 @@ public:
         while (!entries.empty() && bytes + pixels.data.size() > limit) { Evict(); }
         entries.push_front({ key, pixels });try{index.emplace(key,entries.begin());}catch(...){entries.pop_front();throw;}bytes += pixels.data.size();
     }
+    // Explicit fills preserve all thumbnails already held by the viewer.
+    bool PutAvailable(const std::wstring& key,const Pixels& pixels,uint64_t ticket) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if(ticket!=epoch)return false;
+        if(index.count(key))return true;
+        if(pixels.data.size()>limit||bytes>limit-pixels.data.size())return false;
+        entries.push_front({key,pixels});try{index.emplace(key,entries.begin());}catch(...){entries.pop_front();throw;}
+        bytes+=pixels.data.size();return true;
+    }
     void Clear() { std::lock_guard<std::mutex> lock(mutex); ++epoch; index.clear(); entries.clear(); bytes = 0; }
     size_t Bytes() { std::lock_guard<std::mutex> lock(mutex); return bytes; }
     void SetLimit(size_t value) {

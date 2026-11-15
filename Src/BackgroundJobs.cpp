@@ -1,8 +1,8 @@
-#include "ViewerRuntime.h"
+﻿#include "ViewerRuntime.h"
 bool CurrentJob(const Job& job) {
     if(job.kind==-1)return job.applyGeneration==app.backgroundGeneration;
     if (job.kind == 3 || job.kind == 4) return true; // A click requests this exact file even if selection changes.
-    return (!job.diskPrefetch||(job.diskGeneration==app.diskGeneration&&app.disk.PriorityFolder(fs::path(job.path).parent_path().wstring()))) && job.generation == app.currentGeneration &&
+    return (!job.diskPrefetch||(job.diskGeneration==app.diskGeneration&&(job.manualCache||app.disk.PriorityFolder(fs::path(job.path).parent_path().wstring())))) && job.generation == app.currentGeneration &&
         (job.kind != 1 || job.thumbnailGeneration == app.currentThumbnailGeneration) &&
         ((job.kind != 2 && job.kind != 5) || job.selection == app.currentSelection);
 }
@@ -94,13 +94,17 @@ void Worker(bool thumbnails) {
                     result.text = Info(decoder.Get(), frame.Get(), job.path) + L"\r\n" + result.summary.notes + result.summary.xmpDetail;
                 }
                 }
-                if (job.kind == 1 && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) {if(!job.diskPrefetch)app.cache.Put(cacheKey,result.pixels,cacheTicket);if(!diskHit)app.disk.Put(cacheKey+L"|256x256|v2",job.path,result.pixels);}
+                if (job.kind == 1 && CurrentJob(job) && cacheKey == ThumbnailCache::Key(job.path)) {if(job.manualCache){
+                    result.cacheMemory=app.cache.PutAvailable(cacheKey,result.pixels,cacheTicket);
+                    if(job.manualDisk)result.cacheDisk=diskHit||app.disk.Put(cacheKey+L"|256x256|v2",job.path,result.pixels,true);
+                    if(job.manualMdb&&CurrentJob(job))result.cacheMdb=app.mdb.AddAvailable(job.path);
+                }else{if(!job.diskPrefetch)app.cache.Put(cacheKey,result.pixels,cacheTicket);if(!diskHit)app.disk.Put(cacheKey+L"|256x256|v2",job.path,result.pixels);}}
             }
         } catch (const winrt::hresult_error& error) { result.error = ErrorText(error.code()); }
           catch (const fs::filesystem_error& error) { result.error = ErrorText(HRESULT_FROM_WIN32(error.code().value())); }
           catch (const std::exception& error) { result.error = winrt::to_hstring(error.what()).c_str(); }
           catch (...) { result.error = L"読込みエラー: パスまたはファイルを確認してください。"; }
-        if(result.error.empty()){if(job.kind==1||job.kind==2)app.mdb.Queue(job.path);if(job.kind==4){app.mdb.Invalidate(job.destination);app.mdb.Queue(job.destination);}}
+        if(result.error.empty()){if((job.kind==1||job.kind==2)&&!job.manualCache)app.mdb.Queue(job.path);if(job.kind==4){app.mdb.Invalidate(job.destination);app.mdb.Queue(job.destination);}}
         if (app.stopping || !CurrentJob(job)) continue;
         { std::unique_lock<std::mutex> lock(app.mutex);
           app.wake.wait(lock, [] { return app.stopping || app.results.size() < 32; });

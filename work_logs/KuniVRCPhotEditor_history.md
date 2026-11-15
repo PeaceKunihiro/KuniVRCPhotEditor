@@ -1,4 +1,4 @@
-# KuniVRCPhotEditor 開発履歴
+﻿# KuniVRCPhotEditor 開発履歴
 
 日付ごとの作業・変更点・試験結果・設計判断を追記する。現在の引継ぎ事項は [KuniVRCPhotEditor_work.md](KuniVRCPhotEditor_work.md) を参照。
 
@@ -1037,3 +1037,9 @@ https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/wic/-wic-codec-read
 - 限定試験で初回両モード・旧キー欠損・明示false／trueと問い合わせ省略・取得失敗・不正／空ファイル・明度境界、節先行保存・保存後の再読込み・背景別情報維持を確認。実WinRT問い合わせも取得可能。実Windows設定は変更せず、両モード／例外は模擬入力として検査した。
 - 最終Debug／Release全自己・UI・各3回終了試験が成功。背景テーマ・ハイコントラスト等の既存回帰も成功。両EXEの0.6.4.0／ProductVersion 0.6.4／OriginalFilename一致、変更文書リンク103件・空白差分を確認。コンパイラー警告なし。[実装・検証](../KuniVRCPhotEditor/Documents/V0.6.4_IMPLEMENTATION.md)へ記録。
 - 実OS設定切替・カスタム配色・別PCは未検証。Stable配布物・本番設定・実写真・Windows設定・ユーザー稼働アプリは未変更。commit／push／tagは未実施。
+
+## 2026-11-15 v0.6.5 明示的キャッシュ追加（実行検証待ち）
+
+- ユーザー依頼に基づき、ブックマークメニューへ［キャッシュする］を追加。有効な各キャッシュの空きへロード済みフォルダー直下画像をファイル名順に追加する。既存保持の追い出しを避け、容量不足画像を省略して後続画像も試す。
+- 既存のON/OFF切替は［ブックマーク優先］へ改称。開始・完了通知、世代／設定変更での中止、容量上限の自己試験と80画像のUI回帰試験を追加。
+- Visual Studio 2017のMSBuildでDebug/x64ビルドを試したが、v143ツールセット不足のMSB8020でコンパイル前に停止。VS2022指定先も不在。ビルド・自動試験の成功は未確認、EXE未生成。Stable・本番設定・実写真は未変更。詳細はDocuments/V0.6.5_IMPLEMENTATION.md。
