@@ -43,7 +43,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
         app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
         fs::create_directories(app.settings.parent_path());
         app.last.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;app.showBackupImages=true; app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
-        app.mdbEnabled=false;app.mdbMode=0;app.mdbCapacityMB=100;app.categoryMode=0;app.hideFileNames=false;app.updateAttemptUtc=app.updateSuccessUtc=0;app.residentMode=false;app.residentOcr=false;app.bookmarkCache=false;app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
+        app.mdbEnabled=false;app.mdbMode=0;app.mdbCapacityMB=100;app.categoryMode=0;app.hideFileNames=false;app.updateAttemptUtc=app.updateSuccessUtc=0;app.residentMode=false;app.residentOcr=false;app.memoryCache=true;app.bookmarkCache=false;app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
         app.fontName.clear();app.fontPt=10;app.backgroundPath.clear();app.backgroundCopies.clear();app.backgroundThemes.clear();app.backdropThemeRevision=0;
         app.autoBackup=true;app.backupLimit=10;app.darkTheme=false;app.metadataSearch=false;
         app.autoThumbnails=false;app.sideWidth=400;app.sideHeight=300;app.manualThumbnailWidth=128;app.layout = L"right"; app.thumbnailWidth = app.activeThumbnailWidth = 128; app.cacheMB = 100; app.saveHistory = true; app.bookmarks.clear();

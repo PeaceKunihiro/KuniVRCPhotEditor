@@ -1,6 +1,6 @@
 ﻿# KuniVRCPhotEditor 引継ぎ
 
-最終更新: 2026-11-15（日本時間）
+最終更新: 2026-11-17（日本時間）
 
 ## 恒久的な指示
 
@@ -14,6 +14,8 @@
 - 全構成のEXE名は KuniVRCPhotEditor_vN.M.X.exe とする。版番号はSrc/AppVersion.hから取得する。Stable化の判断はユーザーが行い、Stable配下へ無断でコピー／差替えしない。
 
 ## 現在の実装・検証状況
+
+- v0.6.6でメモリ・ディスク・MDB設定を統合。無効化適用時に通知し、ディスクとMDBの保存分を保持する。Debug／Release x64ビルド成功。Releaseでディスク設定（メモリ切替・ブックマークを含む）、MDBの保持・再利用、MDB性能回帰、終了試験が成功。全体UI試験・無効化通知の実画面確認は未実施。
 
 - v0.6.5の［ブックマーク］→［キャッシュする］をソース実装。有効なメモリ／ディスク／MDBへ直下画像をファイル名順に追加し、既存保持を追い出さず容量内のみ記録する。従来切替は［ブックマーク優先：ON/OFF］へ改称。VS2022導入後、Debug／Releaseビルド・全自己試験・キャッシュ限定UI・各3回終了試験が成功。最終版情報0.6.5.0を確認。全体UI試験は両構成ともviewport larger than cache budget finishes without generation loopで失敗、原因未確定。実操作は未確認。[実装・未検証](../Documents/V0.6.5_IMPLEMENTATION.md)を参照。
 

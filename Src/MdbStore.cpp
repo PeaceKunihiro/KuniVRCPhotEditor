@@ -126,9 +126,9 @@ struct MetadataDb::Impl {
     }
 };
 MetadataDb::MetadataDb():impl(std::make_unique<Impl>()){}MetadataDb::~MetadataDb(){Stop();}
-void MetadataDb::Configure(const fs::path& path,MdbConfig cfg,std::function<MdbRecord(const std::wstring&)> reader,std::function<int(const std::wstring&)> priority){
+void MetadataDb::Configure(const fs::path& path,MdbConfig cfg,std::function<MdbRecord(const std::wstring&)> reader,std::function<int(const std::wstring&)> priority,bool purge){
     if(cfg.mode<0||cfg.mode>2||cfg.capacityMB<100||cfg.capacityMB>4000)throw std::runtime_error("Invalid MDB configuration");
-    std::lock_guard<std::mutex> l(impl->control);if(impl->cfg.enabled&&!cfg.enabled&&std::find(impl->eraseRoots.begin(),impl->eraseRoots.end(),impl->root)==impl->eraseRoots.end())impl->eraseRoots.push_back(impl->root);
+    std::lock_guard<std::mutex> l(impl->control);if(purge&&impl->cfg.enabled&&!cfg.enabled&&std::find(impl->eraseRoots.begin(),impl->eraseRoots.end(),impl->root)==impl->eraseRoots.end())impl->eraseRoots.push_back(impl->root);
     impl->cfg=cfg;impl->root=path;impl->reader=std::move(reader);impl->priority=std::move(priority);++impl->epoch;impl->tasks.clear();impl->queued.clear();impl->pending=true;impl->status.error.clear();
     if(impl->workers.empty()&&(cfg.enabled||!impl->eraseRoots.empty())){impl->stopping=false;for(int n=0;n<2;++n)impl->workers.emplace_back([this]{impl->Work(this);});}if(impl->workers.empty())impl->pending=false;impl->wake.notify_all();
 }

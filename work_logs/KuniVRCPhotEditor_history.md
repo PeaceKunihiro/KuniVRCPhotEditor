@@ -1048,3 +1048,7 @@ https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/wic/-wic-codec-read
 
 - VS2022導入後、SDKマクロと衝突する試験変数名とRC版文字列を修正。Debug／ReleaseのEXE生成、版情報0.6.5.0確認が成功。
 - 両構成の全自己試験、最終版のキャッシュ限定UIと各3回終了試験が成功。全体UI試験は両構成で表示領域／キャッシュ予算の既存検査が失敗し、原因未確定。初回失敗した試験データは保管済み。詳細はV0.6.5_IMPLEMENTATION.md。Stableは未変更。
+
+## 2026-11-17
+
+v0.6.6でメモリ・ディスク・MDB設定を統合。無効化適用時に通知し、ディスクとMDBの保存分を保持する。Debug／Release x64ビルド成功。Releaseでディスク設定（メモリ切替・ブックマークを含む）、MDBの保持・再利用、MDB性能回帰、終了試験が成功。全体UI試験・無効化通知の実画面確認は未実施。

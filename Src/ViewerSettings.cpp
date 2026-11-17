@@ -49,6 +49,7 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     settings.sideWidth=number(L"sideWidth",400,280,10000,1);settings.sideHeight=number(L"sideHeight",300,120,10000,1);
     settings.residentMode=object.GetNamedBoolean(L"residentMode",false);settings.residentOcr=object.GetNamedBoolean(L"residentOcr",false);
     settings.diskCache=object.GetNamedBoolean(L"diskCache",false);
+    settings.memoryCache=object.GetNamedBoolean(L"memoryCache",true);
     settings.bookmarkCache=settings.diskCache&&object.GetNamedBoolean(L"bookmarkCache",false);
     settings.diskCacheMiB=number(L"diskCacheMiB",512,128,2048,1);
     if(settings.diskCacheMiB!=128&&settings.diskCacheMiB!=256&&settings.diskCacheMiB!=512&&settings.diskCacheMiB!=1024&&settings.diskCacheMiB!=2048)throw std::runtime_error("disk capacity");
@@ -110,6 +111,7 @@ std::string SerializeViewerSettings(const ViewerSettings& settings) {
     object.Insert(L"sideWidth",JsonValue::CreateNumberValue(settings.sideWidth));object.Insert(L"sideHeight",JsonValue::CreateNumberValue(settings.sideHeight));
     object.Insert(L"residentMode",JsonValue::CreateBooleanValue(settings.residentMode));object.Insert(L"residentOcr",JsonValue::CreateBooleanValue(settings.residentOcr));
     object.Insert(L"diskCache",JsonValue::CreateBooleanValue(settings.diskCache));
+    object.Insert(L"memoryCache",JsonValue::CreateBooleanValue(settings.memoryCache));
     object.Insert(L"bookmarkCache",JsonValue::CreateBooleanValue(settings.diskCache&&settings.bookmarkCache));
     object.Insert(L"diskCacheMiB",JsonValue::CreateNumberValue(settings.diskCacheMiB));
     object.Insert(L"diskCacheMinutes",JsonValue::CreateNumberValue(settings.diskCacheMinutes));

@@ -116,7 +116,7 @@ void LoadSettings() {
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
         app.residentMode=settings.residentMode;app.residentOcr=settings.residentOcr;app.diskCache=settings.diskCache;app.bookmarkCache=settings.bookmarkCache;app.diskCacheMiB=settings.diskCacheMiB;app.diskCacheMinutes=settings.diskCacheMinutes;app.diskCacheVisits=settings.diskCacheVisits;
-        app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
+        app.memoryCache=settings.memoryCache; app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
     } catch (...) {
         app.settingsProtected = true;
         app.settingsError = L"設定の読込みに失敗しました。元のsettings.jsonを保全し、今回は設定を保存しません。";
@@ -127,7 +127,7 @@ void SaveSettings(bool notify) {
     try {
         ViewerSettings settings;settings.fontName=app.fontName;settings.fontPt=app.fontPt;settings.backgroundPath=app.backgroundPath;settings.backgroundCopies=app.backgroundCopies;settings.backgroundThemes=app.backgroundThemes;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
-        settings.thumbnailWidth = std::clamp((( (app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth)+16)/32)*32,ThumbnailMin,ThumbnailMax); settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
+        settings.thumbnailWidth = std::clamp((( (app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth)+16)/32)*32,ThumbnailMin,ThumbnailMax); settings.memoryCache=app.memoryCache; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.bookmarkCache=app.bookmarkCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
         settings.autoBackup=app.autoBackup;settings.backupLimit=app.backupLimit;settings.darkTheme=app.darkTheme;settings.metadataSearch=app.metadataSearch;
         settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
@@ -344,7 +344,7 @@ void ApplyThumbnailSize(bool force) {
     auto previous = ListView_SetImageList(app.list, images, LVSIL_NORMAL); app.thumbs = images;
     if (previous) ImageList_Destroy(previous);
     app.slotLimit = slots; app.imageBytes = retained;
-    app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - retained);
+    app.cache.SetLimit(app.memoryCache ? size_t(app.cacheMB) * 1000000 - retained : 0);
     UpdateThumbnailSpacing();
     app.loaded = 0; ResetThumbnailTracking();
     SendMessageW(app.list, WM_SETREDRAW, FALSE, 0);
@@ -785,8 +785,7 @@ void OptionsMenu() {
     else if(action==8){stage3::ShowMonitorDialog();UpdateRecordingControls();}
     else if (action >= 3) NewOptionsAction(static_cast<int>(action));
     else if (action == 1) {
-        int mb = app.cacheMB;
-        if (ShowCacheLimitDialog(mb) == IDOK) ChangeCacheLimit(mb);
+        ShowCacheSettings(0);
     } else if (action == 2) ToggleHistorySaving();
 }
 HMENU BuildBookmarkMenu() {
@@ -845,7 +844,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         UpdateThumbnailSpacing();
         app.thumbs = CreateThumbnails(app.activeThumbnailWidth, app.slotLimit, app.imageBytes);
         if (!app.thumbs) return -1;
-        app.cache.SetLimit(size_t(app.cacheMB) * 1000000 - app.imageBytes); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
+        app.cache.SetLimit(app.memoryCache ? size_t(app.cacheMB) * 1000000 - app.imageBytes : 0); ListView_SetImageList(app.list, app.thumbs, LVSIL_NORMAL);
         CreateCategoryBar();
         CreateSideView();app.sideBuilding=true;
         app.preview = Control(L"KuniPreview", L"", 0, 0);

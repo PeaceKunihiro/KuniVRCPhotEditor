@@ -16,7 +16,7 @@ class MetadataDb {
 public:
     MetadataDb();~MetadataDb();
     MetadataDb(const MetadataDb&)=delete;MetadataDb& operator=(const MetadataDb&)=delete;
-    void Configure(const std::filesystem::path&,MdbConfig,std::function<MdbRecord(const std::wstring&)>,std::function<int(const std::wstring&)>);
+    void Configure(const std::filesystem::path&,MdbConfig,std::function<MdbRecord(const std::wstring&)>,std::function<int(const std::wstring&)>,bool purge=false);
     MdbRecord Read(const std::wstring&,int priority=-1,bool includeText=true,bool requirePeople=false);
     bool AddAvailable(const std::wstring&);
     // Cached probe: 1=present, 0=absent, -1=retry, <-1=unavailable.

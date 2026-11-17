@@ -121,6 +121,7 @@ struct State {
     int cacheMB = 100, slotLimit = ThumbnailSlots;
     size_t imageBytes = 0;
     bool residentMode=false,residentOcr=false;
+    bool memoryCache=true;
     bool bookmarkCache=false,diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
     std::vector<std::wstring> manualCacheFiles;
     size_t manualCacheCursor=0,manualMemoryCount=0,manualDiskCount=0,manualMdbCount=0,manualCacheErrors=0;
@@ -278,6 +279,7 @@ void NewOptionsAction(int action);
 void ShowVersion(const std::function<void(HWND)>& inspect = {});
 void ShowDiskCacheDialog(const std::function<void(HWND)>& inspect = {});
 void ConfigureDiskCache();
+void ShowCacheSettings(int section,const std::function<void(HWND)>& inspect={});
 void ScheduleBookmarkPrefetch();
 void StartManualCache(bool notify=true);
 void FinishManualCache(const Result&);

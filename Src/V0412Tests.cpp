@@ -119,6 +119,14 @@ void RunV055UiTests(const fs::path& directory,std::ostream& report){
     auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);report<<"PASS: v0.5.5 "<<label<<'\n';};
     auto pump=[&](auto complete){auto deadline=GetTickCount64()+15000;while(!complete()){if(GetTickCount64()>deadline)throw std::runtime_error("v055 async timeout");MSG m{};while(PeekMessageW(&m,nullptr,0,0,PM_REMOVE)){TranslateMessage(&m);DispatchMessageW(&m);}Sleep(10);}};
     // v0.5.5: one shared setting, cancellation, both themes and real background prefetch.
+    ShowCacheSettings(0,[&](HWND h){
+        check(SendDlgItemMessageW(h,2410,BM_GETCHECK,0,0)==BST_CHECKED,"memory entry selects memory section");
+        SendDlgItemMessageW(h,2400,BM_CLICK,0,0);
+        SendMessageW(h,WM_COMMAND,IDOK,0);
+    });
+    check(!app.memoryCache&&app.cache.Bytes()==0,"memory OFF releases reusable pixels");
+    ShowCacheSettings(0,[&](HWND h){SendDlgItemMessageW(h,2400,BM_CLICK,0,0);SendMessageW(h,WM_COMMAND,IDOK,0);});
+    check(app.memoryCache,"memory re-enabled");
     auto bookmarks=app.bookmarks;
     auto book=directory/L"v055-ui-book";fs::create_directories(book/L"unvisited");
     for(int i=0;i<80;++i)fs::copy_file(directory/L"sample.jpg",book/(std::to_wstring(100+i)+L".jpg"),fs::copy_options::overwrite_existing);
