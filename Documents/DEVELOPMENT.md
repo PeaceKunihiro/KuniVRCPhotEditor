@@ -1,4 +1,4 @@
-﻿# KuniVRCPhotEditor 開発ガイド
+# KuniVRCPhotEditor 開発ガイド
 
 [概要](../README.md) ｜ [利用ガイド](USER_GUIDE.md) ｜ [簡易手順](../Stable/readme.md)
 
@@ -7,6 +7,8 @@
 VS2022でリポジトリ直下の `KuniVRCPhotEditor.sln` を開き、Debug／x64を選びます。Ctrl＋Shift＋Bでビルド、Ctrl＋F5で起動します。
 
 `build.cmd Release` でRelease／x64を生成し、出力は `x64\Release\KuniVRCPhotEditor_vN.M.X.exe`（現在は `KuniVRCPhotEditor_v0.6.6.exe`）です。Debugも `x64\Debug` 配下に同じ版付き名称で生成します。build.cmdはこの開発PCのVS2022 Community配置を使用します。`build.cmd Debug Test`／`build.cmd Release Test` は自己・UI・終了試験を実行します。試験用書込み先はEXE配下のself-test-dataで、本番設定・参照写真は変更しません。試験成功は全要件や実VRChat精度の保証ではありません。
+
+統合キャッシュ設定の画面仕様、容量単位、無効化・再有効化の動作とv0.6.6の検証範囲は[統合仕様](CACHE_SETTINGS_PLAN.md)を参照してください。一覧サムネイルはメモリ、ディスク、原画像の順に取得します。通常のディスク追加条件と明示的な［キャッシュする］の条件は[利用ガイド](USER_GUIDE.md#オプション注意点)に記載しています。
 
 - [更新履歴](UPDATELOG.md)
 - [閲覧要件](VIEWER_REQUIREMENTS.md)
