@@ -149,7 +149,8 @@ ObservationResult ReadObservation(fs::path directory,fs::path logs,size_t limit,
             result.text+=row.substr(7,2)+L":"+row.substr(9,2)+L":"+row.substr(11,2)+L" "+row.substr(14,separator-14)+L" "+row.substr(separator+1)+L"\r\n";
             if(result.text.size()>500000)break;
         }
-    }catch(const std::exception& e){result.error=std::wstring(winrt::to_hstring(e.what()));}
+    }catch(const winrt::hresult_error& e){result.error=std::wstring(e.message());}
+    catch(const std::exception& e){result.error=std::wstring(winrt::to_hstring(e.what()));}
     return result;
 }
 
@@ -279,27 +280,31 @@ void ObservationTick(){
     if(mode!=observationFrequency){observationReset=true;observationFrequency=mode;observationNext=0;}
     if(observationFuture.valid()){
         if(observationFuture.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
-        auto result=observationFuture.get();
+        ObservationResult result;
+        try{result=observationFuture.get();}
+        catch(const winrt::hresult_error& e){SetWindowTextW(observationStatus,e.message().c_str());return;}
+        catch(const std::exception& e){SetWindowTextW(observationStatus,std::wstring(winrt::to_hstring(e.what())).c_str());return;}
         if(!result.error.empty())SetWindowTextW(observationStatus,result.error.c_str());
         else SetWindowTextW(observationStatus,mode?L"観測中":L"停止");
-        if(observationDisplay!=result.text)RenderObservation(result.text,true);
+        if((!result.text.empty()||result.error.empty())&&observationDisplay!=result.text)RenderObservation(result.text,true);
     }
     static int previousCapacity=-1;
     if(!mode&&previousCapacity==app.observationMB)return;
     if(GetTickCount64()<observationNext&&previousCapacity==app.observationMB)return;
     try{
         auto logs=mode?stage3::ObservationLogFolder():std::wstring{};
-        auto storageFile=ObservationDataFile(app.settings.parent_path());
+        auto storageFile=ObservationDataFile(AppDirectory());
         auto directory=storageFile.parent_path();
         bool reset=observationReset;observationReset=false;previousCapacity=app.observationMB;
         observationNext=GetTickCount64()+(mode==2?2000:10000);
         auto limit=size_t(app.observationMB)*1000000;
         observationFuture=std::async(std::launch::async,[directory,logs,limit,reset,mode,storageFile]{return ReadObservation(directory,logs,limit,reset,mode!=0,storageFile);});
-    }catch(const std::exception& e){SetWindowTextW(observationStatus,std::wstring(winrt::to_hstring(e.what())).c_str());}
+    }catch(const winrt::hresult_error& e){SetWindowTextW(observationStatus,e.message().c_str());}
+    catch(const std::exception& e){SetWindowTextW(observationStatus,std::wstring(winrt::to_hstring(e.what())).c_str());}
 }
-void StopObservation(){if(observationFuture.valid())observationFuture.get();}
+void StopObservation(){if(observationFuture.valid()){try{observationFuture.get();}catch(...){}}}
 int ObservationTest(){
-    auto directory=app.settings.parent_path()/L"self-test-data"/L"observation";
+    auto directory=AppDirectory()/L"self-test-data"/L"observation";
     fs::create_directories(directory);
     std::ofstream report(directory/L"result.txt");
     try{
@@ -330,6 +335,23 @@ int ObservationTest(){
         auto migration=directory/(L"migration-"+std::to_wstring(GetTickCount64()));
         fs::create_directories(migration/L"MetadataDB");
         {std::ofstream out(migration/L"MetadataDB"/L"fixture.txt");out<<"preserve";}
+        auto originalSettings=SerializeViewerSettings(ViewerSettings{});
+        {std::ofstream out(migration/L"settings.json",std::ios::binary);out<<originalSettings;}
+        auto migratedSettings=SettingsDataFile(migration);
+        if(migratedSettings!=migration/L"Data"/L"settings.json"||fs::exists(migration/L"settings.json"))throw std::runtime_error("settings migration path");
+        auto originalPath=app.settings;
+        app.settings=migratedSettings;
+        bool basePreserved=AppDirectory()==migration;
+        app.settings=originalPath;
+        if(!basePreserved)throw std::runtime_error("application base remains outside Data");
+        std::ifstream settingsInput(migratedSettings,std::ios::binary);
+        std::string restored((std::istreambuf_iterator<char>(settingsInput)),{});
+        settingsInput.close();
+        if(restored!=originalSettings)throw std::runtime_error("settings bytes preserved");
+        bool legacy=false;
+        WriteSettingsSection(migration,L"ocr",R"({"version":1,"fps":7})");
+        auto section=ReadSettingsSection(migration,L"ocr",L"",legacy);
+        if(section.find("fps")==std::string::npos)throw std::runtime_error("unified sections use Data settings");
         auto moved=RuntimeDataDirectory(migration,L"MetadataDB");
         if(moved!=migration/L"Data"/L"MetadataDB"||!fs::exists(moved/L"fixture.txt")||fs::exists(migration/L"MetadataDB"))throw std::runtime_error("directory migration");
         fs::create_directories(migration/L"Observation");
@@ -339,12 +361,13 @@ int ObservationTest(){
         auto conflict=migration/L"conflict";fs::create_directories(conflict/L"MetadataDB");fs::create_directories(conflict/L"Data"/L"MetadataDB");
         if(RuntimeDataDirectory(conflict,L"MetadataDB")!=conflict/L"MetadataDB"||!fs::exists(conflict/L"Data"/L"MetadataDB"))throw std::runtime_error("migration conflict preservation");
         report<<"ALL PASSED\n";return 0;
-    }catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}
+    }catch(const winrt::hresult_error& e){report<<"FAIL HRESULT: "<<std::hex<<static_cast<unsigned>(e.code())<<std::endl;return 1;}
+    catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}
 }
 
 void CaptureV0412Ui(const fs::path&,HWND);
 int ObservationUiTest(){
-    std::ofstream report(app.settings.parent_path()/L"observation-ui-result.txt");
+    std::ofstream report(AppDirectory()/L"observation-ui-result.txt");
     try{
         if(TabCtrl_GetItemCount(app.metadataTabs)!=4||SendMessageW(observationMode,CB_GETCURSEL,0,0)!=0)throw std::runtime_error("initial observation OFF tab");
         auto old=app.layout;app.layout=L"right";
@@ -389,10 +412,10 @@ int ObservationUiTest(){
         if(TabCtrl_GetCurSel(app.metadataTabs)!=3||!(GetWindowLongPtrW(observationText,GWL_STYLE)&WS_VISIBLE))throw std::runtime_error("observation selection");
         if(!(GetWindowLongPtrW(observationWrapButton,GWL_STYLE)&WS_VISIBLE))throw std::runtime_error("wrap toggle visible in observation tab");
         RedrawWindow(app.side,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
-        CaptureV0412Ui(app.settings.parent_path()/L"observation-ui.png",app.side);
+        CaptureV0412Ui(AppDirectory()/L"observation-ui.png",app.side);
         app.darkTheme=true;ApplyTheme();
         colorAt(L"movie",RGB(255,255,255));colorAt(L"02:11:38",RGB(255,255,255));colorAt(L"Other",RGB(255,255,255));
-        CaptureV0412Ui(app.settings.parent_path()/L"observation-night.png",app.side);
+        CaptureV0412Ui(AppDirectory()/L"observation-night.png",app.side);
         app.darkTheme=false;ApplyTheme();
         auto originalColors=app.observationColors;
         ShowFontDialog([&](HWND h){
@@ -403,7 +426,7 @@ int ObservationUiTest(){
         if(app.observationColors!=originalColors)throw std::runtime_error("palette invalid/cancel changed settings");
         ShowFontDialog([&](HWND h){
             SetDlgItemTextW(h,2801,L"#112233");SetDlgItemTextW(h,2803,L"#ABCDEF");
-            CaptureV0412Ui(app.settings.parent_path()/L"observation-font-colors.png",h);
+            CaptureV0412Ui(AppDirectory()/L"observation-font-colors.png",h);
             SendMessageW(h,WM_COMMAND,IDOK,0);
         });
         RenderObservation(sample,true);
@@ -421,7 +444,7 @@ int ObservationUiTest(){
             if(GetWindowLongPtrW(GetDlgItem(h,2430),GWL_STYLE)&WS_VISIBLE)throw std::runtime_error("memory details hidden for observation");
             RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
             if(Text(GetDlgItem(h,2423)).find(L" / ")==std::wstring::npos)throw std::runtime_error("current usage / configured capacity");
-            CaptureV0412Ui(app.settings.parent_path()/L"observation-cache-settings.png",h);
+            CaptureV0412Ui(AppDirectory()/L"observation-cache-settings.png",h);
             if(Text(GetDlgItem(h,2441))!=L"10")throw std::runtime_error("initial capacity");
             RECT minimum{0,0,480+GetSystemMetrics(SM_CXVSCROLL),320};
             AdjustWindowRectEx(&minimum,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));
@@ -431,7 +454,7 @@ int ObservationUiTest(){
             if(minimumClient.right<480||minimumClient.bottom<320||footer.top<0||footer.bottom>minimumClient.bottom)throw std::runtime_error("minimum dialog size and fixed footer");
             if(!(GetWindowLongPtrW(GetDlgItem(h,2443),GWL_STYLE)&WS_VISIBLE))throw std::runtime_error("observation details reachable at minimum size");
             RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_UPDATENOW|RDW_ALLCHILDREN);
-            CaptureV0412Ui(app.settings.parent_path()/L"cache-settings-minimum.png",h);
+            CaptureV0412Ui(AppDirectory()/L"cache-settings-minimum.png",h);
             SetDlgItemTextW(h,2441,L"1");SendMessageW(h,WM_COMMAND,IDOK,0);
         });
         if(app.observationMB!=1)throw std::runtime_error("capacity apply");
@@ -439,5 +462,6 @@ int ObservationUiTest(){
         if(ParseViewerSettings(SerializeViewerSettings(settings)).observationMB!=42||!ParseViewerSettings("{\"version\":3}").memoryCache)throw std::runtime_error("settings roundtrip");
         app.layout=old;Layout();
         report<<"ALL PASSED\n";return 0;
-    }catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}
+    }catch(const winrt::hresult_error& e){report<<"FAIL HRESULT: "<<std::hex<<static_cast<unsigned>(e.code())<<std::endl;return 1;}
+    catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}
 }

@@ -62,4 +62,4 @@ void RunV0513UiTests(const fs::path& root,std::ostream& report){
     app.layout=L"right";LoadOriginalPreview();auto oldJob=Job{5,app.generation,app.selection,app.selected,app.files[app.selected],L""};Select(-1,false);check(!CurrentJob(oldJob)&&app.previewPixels.data.empty()&&!app.previewOriginal,"v0513 deselection cancels old preview work and releases pixels");
     ResetViewer();app.layout=L"right";Layout();report<<"v0513 preview cases complete\n";
 }
-int PreviewTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"v0513-result.txt");try{RunV0513UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int PreviewTest(){auto root=AppDirectory();std::ofstream report(root/L"v0513-result.txt");try{RunV0513UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

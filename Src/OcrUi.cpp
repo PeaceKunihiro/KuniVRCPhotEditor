@@ -28,7 +28,7 @@ std::wstring OcrTestStatus(){return test_ocr::Status();}
 void StopOcrUi(){test_ocr::Stop();}
 void CreateOcrUi(){
     source=0;names=false;imageRunning=false;testWindow=nullptr;normalWindow=nullptr;refreshed=0;lastImage.clear();previousRaw.clear();previousStatus.clear();
-    person_ocr::LoadSettings(app.settings.parent_path());auto settings=person_ocr::GetSettings();
+    person_ocr::LoadSettings(AppDirectory());auto settings=person_ocr::GetSettings();
     mode=Control(L"BUTTON",settings.always?L"常にOCR":L"撮影時OCR",WS_TABSTOP,Mode);
     high=Control(L"BUTTON",settings.highPrecision?L"高精度：ON":L"高精度：OFF",WS_TABSTOP|BS_OWNERDRAW,High);
     fpsLabel=Control(L"STATIC",L"読み取りFPS (5–15)",SS_LEFT,0);

@@ -90,14 +90,14 @@ void RefreshCacheUsage(HWND h,int section){
         mdb.bytes=0;
         for(auto name:{L"mdb.sqlite",L"mdb.sqlite-journal",L"mdb.sqlite-wal",L"mdb.sqlite-shm",L"owner.lock"}){
             std::error_code error;
-            auto size=fs::file_size(RuntimeDataDirectory(app.settings.parent_path(),L"MetadataDB")/name,error);
+            auto size=fs::file_size(RuntimeDataDirectory(AppDirectory(),L"MetadataDB")/name,error);
             if(!error)mdb.bytes+=size;
         }
     }
     uint64_t limit=MdbConfig{app.mdbEnabled,app.mdbMode,app.mdbCapacityMB}.Limit();
     SetDlgItemTextW(h,usageIds[2],(UsageLabel(mdb.bytes,limit,1000000,L" MB")+(app.mdbEnabled?L" / "+std::to_wstring(mdb.entries)+L"枚":L"")).c_str());
     std::error_code error;
-    auto observationFile=ObservationDataFile(app.settings.parent_path());
+    auto observationFile=ObservationDataFile(AppDirectory());
     auto bytes=fs::file_size(observationFile,error);
     auto observationDescription=L"観測ログをUTF-8の1行1イベントで保存します。初期10 MB、1～1000 MB。上限を超えると古いイベントから削除します。開始・停止は観測タブで選択します。保存先: "+observationFile.wstring();
     SetDlgItemTextW(h,2443,observationDescription.c_str());

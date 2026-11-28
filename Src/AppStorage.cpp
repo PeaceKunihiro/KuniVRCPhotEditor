@@ -6,9 +6,9 @@ std::wstring Unique(){GUID g{};winrt::check_hresult(CoCreateGuid(&g));wchar_t s[
 void SafeDirectory(const fs::path& path){fs::create_directories(path);auto a=GetFileAttributesW(path.c_str());if(a==INVALID_FILE_ATTRIBUTES||!(a&FILE_ATTRIBUTE_DIRECTORY)||(a&FILE_ATTRIBUTE_REPARSE_POINT))throw std::runtime_error("redirected data folder");}
 void NewBytes(const fs::path& path,const std::string& bytes){HANDLE h=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);if(h==INVALID_HANDLE_VALUE)winrt::throw_last_error();bool ok=true;size_t at=0;while(at<bytes.size()){DWORD written=0;if(!WriteFile(h,bytes.data()+at,DWORD(std::min<size_t>(65536,bytes.size()-at)),&written,nullptr)||!written){ok=false;break;}at+=written;}if(ok)ok=FlushFileBuffers(h)!=FALSE;CloseHandle(h);if(!ok){DeleteFileW(path.c_str());throw std::runtime_error("storage write failed");}}
 void Atomic(const fs::path& path,const std::string& bytes,bool replace=true){auto temp=path;temp+=L"."+Unique()+L".tmp";bool created=false;try{NewBytes(temp,bytes);created=true;if(ReadBytes(temp,16*1024*1024)!=bytes)throw std::runtime_error("storage verification failed");if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_WRITE_THROUGH|(replace?MOVEFILE_REPLACE_EXISTING:0)))winrt::throw_last_error();}catch(...){if(created)DeleteFileW(temp.c_str());throw;}}
-fs::path LegacyDirectory(const fs::path& folder){SafeDirectory(folder/L"Data");SafeDirectory(folder/L"Data"/L"Legacy");return folder/L"Data"/L"Legacy";}
+fs::path LegacyDirectory(const fs::path& folder){auto base=folder.filename()==L"Data"?folder.parent_path():folder;SafeDirectory(base/L"Data");SafeDirectory(base/L"Data"/L"Legacy");return base/L"Data"/L"Legacy";}
 void Archive(const fs::path& old,const std::string& expected){if(!fs::exists(old)||ReadBytes(old,8*1024*1024)!=expected)return;auto to=LegacyDirectory(old.parent_path())/(old.filename().wstring()+L"."+Unique()+L".legacy");if(!MoveFileExW(old.c_str(),to.c_str(),MOVEFILE_WRITE_THROUGH))winrt::throw_last_error();}
-fs::path SettingsFile(const fs::path& folder){return !app.settings.empty()&&app.settings.parent_path()==folder?app.settings:folder/L"settings.json";}
+fs::path SettingsFile(const fs::path& folder){return !app.settings.empty()&&AppDirectory()==folder?app.settings:SettingsDataFile(folder);}
 JsonObject Root(const fs::path& file){if(!fs::exists(file)){auto root=JsonObject::Parse(winrt::to_hstring(SerializeViewerSettings(ViewerSettings{})));root.Remove(L"darkTheme");return root;}auto bytes=ReadBytes(file);ParseViewerSettings(bytes);return JsonObject::Parse(winrt::to_hstring(bytes));}
 void SaveRoot(const fs::path& file,const JsonObject& value){auto bytes=winrt::to_string(value.Stringify());ParseViewerSettings(bytes);if(fs::exists(file)){auto old=ReadBytes(file);auto json=JsonObject::Parse(winrt::to_hstring(old));if(json.GetNamedNumber(L"version")<4){auto archive=LegacyDirectory(file.parent_path())/(L"settings-before-v062-"+Unique()+L".legacy");NewBytes(archive,old);}}Atomic(file,bytes);}
 }
@@ -74,3 +74,11 @@ fs::path ObservationDataFile(const fs::path& folder){
     return path;
 }
 std::wstring RuntimeStorageWarning(){std::lock_guard<std::recursive_mutex> lock(storageMutex);return runtimeWarning;}
+
+fs::path SettingsDataFile(const fs::path& folder){
+    return ConsolidateRuntime(folder,folder/L"settings.json",folder/L"Data"/L"settings.json");
+}
+fs::path AppDirectory(){
+    auto parent=app.settings.parent_path();
+    return app.settings.filename()==L"settings.json"&&parent.filename()==L"Data"?parent.parent_path():parent;
+}

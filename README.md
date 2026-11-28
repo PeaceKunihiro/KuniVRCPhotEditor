@@ -1,6 +1,6 @@
 # KuniVRCPhotEditor
 
-VRChat写真のメタデータを閲覧・編集し、新しい写真へ同室者情報やOCRによるモデル候補を記録するWindows用アプリです。本体は **v0.6.11**。Stableの配布版はファイル名の版番号を確認してください。
+VRChat写真のメタデータを閲覧・編集し、新しい写真へ同室者情報やOCRによるモデル候補を記録するWindows用アプリです。本体は **v0.6.12**。Stableの配布版はファイル名の版番号を確認してください。
 
 [簡単な使い方](Stable/readme.md) ｜ [詳しい使い方](Documents/USER_GUIDE.md) ｜ [更新履歴](Documents/UPDATELOG.md)
 
@@ -12,7 +12,7 @@ v0.6.6の画面です。アドレス欄と履歴欄のパスはぼかしてい�
 
 ## 動作環境・起動
 
-Windows 10 1903以降／Windows 11のx64に対応します。Stable配下の配布ファイルを取得し、ZIPの場合は展開してください。版付きの `KuniVRCPhotEditor_vN.M.X.exe` を、書込み可能なフォルダーへ置いて起動します。設定・キャッシュ等はEXEと同じ場所へ保存します。Releaseは追加のWebPコーデックや専用DLLなしで動作します。OCRには利用可能なWindowsの言語モデルが必要です。
+Windows 10 1903以降／Windows 11のx64に対応します。Stable配下の配布ファイルを取得し、ZIPの場合は展開してください。版付きの `KuniVRCPhotEditor_vN.M.X.exe` を、書込み可能なフォルダーへ置いて起動します。設定はEXE配下のData/settings.json、キャッシュ等もData配下へ保存します。旧保存先は初回起動時に移行します。Releaseは追加のWebPコーデックや専用DLLなしで動作します。OCRには利用可能なWindowsの言語モデルが必要です。
 
 配布時は `THIRD_PARTY_NOTICES.md`、`libwebp-COPYING.txt`、`libwebp-PATENTS.txt` を同梱してください。ライセンスは［ヘルプ］→［ライセンス情報］でも確認できます。
 

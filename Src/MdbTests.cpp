@@ -84,7 +84,7 @@ void RunMdbUiTests(const fs::path& directory,std::ostream& report){
         if(axis==4)check(std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[&](auto& r){return r.key==world&&r.label==world;}),"MDB conflicting world names use ID as category name");
         if(axis==6)check(std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[](auto& r){return r.label==L"Photographer";}),"MDB photographer is a separate category");}
     app.metadataSearch=true;StartSearch(L"Red");wait([]{return !app.searching&&!app.sorting&&ThumbnailsReady();});check(VisibleImages().size()==2,"MDB search includes excluded backup via direct metadata fallback");
-    ShowMdbDialog([&](HWND h){SendDlgItemMessageW(h,2300,BM_CLICK,0,0);SendMessageW(h,WM_COMMAND,IDOK,0);});wait([]{return !app.searching&&!app.sorting;});app.mdb.WaitIdle();check(!app.mdbEnabled&&app.categoryMode==0&&fs::exists(RuntimeDataDirectory(app.settings.parent_path(),L"MetadataDB")/L"mdb.sqlite"),"MDB OFF retains DB and restores normal view");app.metadataSearch=false;app.appliedQuery.clear();wait([]{return ThumbnailsReady();});
+    ShowMdbDialog([&](HWND h){SendDlgItemMessageW(h,2300,BM_CLICK,0,0);SendMessageW(h,WM_COMMAND,IDOK,0);});wait([]{return !app.searching&&!app.sorting;});app.mdb.WaitIdle();check(!app.mdbEnabled&&app.categoryMode==0&&fs::exists(RuntimeDataDirectory(AppDirectory(),L"MetadataDB")/L"mdb.sqlite"),"MDB OFF retains DB and restores normal view");app.metadataSearch=false;app.appliedQuery.clear();wait([]{return ThumbnailsReady();});
     {
         auto first=app.wantedFirst,last=app.wantedLast;auto requested=app.thumbnailRequested;
         app.mdbEnabled=true;ConfigureMdb();app.mdb.WaitIdle();
@@ -94,7 +94,7 @@ void RunMdbUiTests(const fs::path& directory,std::ostream& report){
         check(app.mdb.Status().entries>0,"v0511 UI request completion resumes collection without waiting for all images");
         app.wantedFirst=first;app.wantedLast=last;app.thumbnailRequested=std::move(requested);UpdateMdbDisplayPriority();
         // The following automatic admission test needs an empty fixture database.
-        app.mdb.Configure(RuntimeDataDirectory(app.settings.parent_path(),L"MetadataDB"),{false,0,100},ReadMdbSource,{},true);app.mdb.WaitIdle();
+        app.mdb.Configure(RuntimeDataDirectory(AppDirectory(),L"MetadataDB"),{false,0,100},ReadMdbSource,{},true);app.mdb.WaitIdle();
         app.mdbEnabled=false;ConfigureMdb();app.mdb.WaitIdle();
     }
     app.diskCache=true;app.bookmarkCache=false;ConfigureDiskCache();app.disk.WaitIdle();app.disk.Clear();app.disk.WaitIdle();for(int i=0;i<5;++i)app.disk.Visit(root.wstring());Pixels thumb{16,16,std::vector<BYTE>(16*16*4,80)};app.disk.Put(ThumbnailCache::Key(files[0].wstring())+L"|256x256|v2",files[0].wstring(),thumb);
@@ -102,7 +102,7 @@ void RunMdbUiTests(const fs::path& directory,std::ostream& report){
     app.categoryMode=1;StartCategory(app.allFiles,L"");SendMessageW(app.window,WM_COMMAND,SearchButton,0);check(!app.sorting&&!app.searching,"MDB category preparation can be cancelled");
     app.mdbEnabled=false;app.categoryMode=0;ConfigureMdb();app.mdb.WaitIdle();app.diskCache=false;ConfigureDiskCache();app.disk.WaitIdle();app.mdbMode=0;SaveSettings();
 }
-int MdbTest(){auto directory=app.settings.parent_path();std::ofstream report(directory/L"mdb-result.txt");try{RunMdbTests(directory,report);RunMdbUiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+int MdbTest(){auto directory=AppDirectory();std::ofstream report(directory/L"mdb-result.txt");try{RunMdbTests(directory,report);RunMdbUiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
 
 
 void RunV0511Tests(const fs::path& directory,std::ostream& report){
@@ -234,4 +234,4 @@ void RunV0512UiTests(const fs::path& directory,std::ostream& report){
     check(MetadataFingerprint(source.wstring())==fingerprint,"classification never writes source image");
     app.mdbEnabled=false;app.categoryMode=0;ResetCategoryView();ConfigureMdb();app.mdb.WaitIdle();Layout();
 }
-int PeopleTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"v0512-result.txt");try{RunV0512Tests(folder,report);RunV0512UiTests(folder,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int PeopleTest(){auto folder=AppDirectory();std::ofstream report(folder/L"v0512-result.txt");try{RunV0512Tests(folder,report);RunV0512UiTests(folder,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

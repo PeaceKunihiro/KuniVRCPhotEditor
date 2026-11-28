@@ -43,7 +43,7 @@ void RunV060UiTests(const fs::path& root,std::ostream& report){
     app.layout=L"right";app.darkTheme=false;ResetViewer();ApplyTheme();Layout();
 }
 void RunV061UiTests(const fs::path&,std::ostream&);
-int BackdropTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"v061-result.txt");try{RunV060UiTests(root,report);RunV061UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int BackdropTest(){auto root=AppDirectory();std::ofstream report(root/L"v061-result.txt");try{RunV060UiTests(root,report);RunV061UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
 
 namespace {
 struct BackgroundProbe {unsigned parent=0,paint=0,memory=0;};

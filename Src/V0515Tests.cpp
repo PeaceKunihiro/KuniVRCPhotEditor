@@ -48,4 +48,4 @@ void RunV0515UiTests(const fs::path& directory,std::ostream& report){
     }
     app.darkTheme=false;app.layout=L"right";app.previewPixels={};++app.previewRevision;app.previewDedicated=false;app.previewOriginalRequested=false;ShowSummary({});ResetSideScroll();ApplyTheme();Layout();pump();if(!visible)ShowWindow(app.window,SW_HIDE);
 }
-int RepaintTest(){auto directory=app.settings.parent_path();std::ofstream report(directory/L"v0515-result.txt");try{RunV0515UiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int RepaintTest(){auto directory=AppDirectory();std::ofstream report(directory/L"v0515-result.txt");try{RunV0515UiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

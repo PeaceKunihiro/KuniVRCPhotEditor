@@ -31,4 +31,4 @@ void RunV0516UiTests(const fs::path& root,std::ostream& report){
     for(bool dark:{false,true}){app.darkTheme=dark;ApplyTheme();Layout();CaptureV0412Ui(root/(dark?L"v0516-bottom-dark.png":L"v0516-bottom-light.png"),app.window);}
     app.darkTheme=false;app.layout=L"right";app.sideWidth=400;app.sideHeight=300;app.previewPixels={};app.previewDedicated=false;app.previewOriginalRequested=false;++app.previewRevision;ShowSummary({});ResetSideScroll();ApplyTheme();Layout();
 }
-int FontLayoutTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"v0516-result.txt");try{RunV0516UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int FontLayoutTest(){auto root=AppDirectory();std::ofstream report(root/L"v0516-result.txt");try{RunV0516UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

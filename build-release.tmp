@@ -1,10 +1,8 @@
 
-  AppStorage.cpp
-  DiskCacheUi.cpp
-  IdDisplayNamesTests.cpp
+  SideView.cpp
   コード生成しています。
-  10 of 21859 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+  67 of 21861 functions ( 0.3%) were compiled, the rest were copied from previous compilation.
     0 functions were new in current compilation
-    167 functions had inline decision re-evaluated but remain unchanged
+    230 functions had inline decision re-evaluated but remain unchanged
   コード生成が終了しました。
-  KuniVRCPhotEditor.vcxproj -> E:\GPT_WORKS\KuniVRCPhotEditor\x64\Release\KuniVRCPhotEditor_v0.6.11.exe
+  KuniVRCPhotEditor.vcxproj -> E:\GPT_WORKS\KuniVRCPhotEditor\x64\Release\KuniVRCPhotEditor_v0.6.12.exe

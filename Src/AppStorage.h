@@ -9,3 +9,6 @@ std::filesystem::path AppDataFile(const std::filesystem::path&,const wchar_t* na
 std::filesystem::path RuntimeDataDirectory(const std::filesystem::path&,const wchar_t* name);
 std::filesystem::path ObservationDataFile(const std::filesystem::path&);
 std::wstring RuntimeStorageWarning();
+
+std::filesystem::path SettingsDataFile(const std::filesystem::path&);
+std::filesystem::path AppDirectory();

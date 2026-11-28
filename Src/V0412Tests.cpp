@@ -159,6 +159,6 @@ void RunV055UiTests(const fs::path& directory,std::ostream& report){
     app.bookmarks=bookmarks;ConfigureDiskCache();app.disk.WaitIdle();SaveSettings();
 }
 
-int BookmarkCacheTest(){auto directory=app.settings.parent_path();std::ofstream report(directory/L"bookmark-cache-result.txt");try{RunV055UiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+int BookmarkCacheTest(){auto directory=AppDirectory();std::ofstream report(directory/L"bookmark-cache-result.txt");try{RunV055UiTests(directory,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
 
-int DiskOptionsTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"disk-options-result.txt");try{RunV0412UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int DiskOptionsTest(){auto root=AppDirectory();std::ofstream report(root/L"disk-options-result.txt");try{RunV0412UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

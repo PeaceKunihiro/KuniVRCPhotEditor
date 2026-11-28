@@ -6,12 +6,12 @@ void Put(const fs::path& file,const std::string& bytes){std::ofstream out(file,s
 }
 void RunV062StorageTests(const fs::path& root,std::ostream& report){
     auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);report<<"PASS: v062 "<<label<<std::endl;};
-    auto folder=root/L"v062-storage";fs::create_directories(folder);auto file=folder/L"settings.json";
+    auto folder=root/(L"v062-storage-"+std::to_wstring(GetTickCount64()));fs::create_directories(folder);auto file=folder/L"settings.json";
     // Explicitly reset only this test's known files, preserving all real settings.
     for(auto name:{L"settings.json",L"ocr-settings.json",L"stage3-settings.json",L"backups.json",L"IdDisplayNames.json"}){auto path=folder/name;if(fs::is_directory(path))fs::remove(path);else fs::remove(path);}
     auto ocr=std::string(R"({"version":1,"fps":7,"seconds":8,"always":true})");auto recording=std::string(R"({"version":1,"photoFolder":"D:\\写真","saveUserIds":false,"saveGroupIds":true})");
     Put(file,R"({"version":3,"thumbnailCacheMB":123})");Put(folder/L"ocr-settings.json",ocr);Put(folder/L"stage3-settings.json",recording);bool legacy=false;
-    auto loaded=ReadSettingsSection(folder,L"ocr",L"ocr-settings.json",legacy);check(legacy&&loaded==ocr,"legacy OCR settings read without modifying the old file");WriteSettingsSection(folder,L"ocr",loaded,L"ocr-settings.json");
+    auto loaded=ReadSettingsSection(folder,L"ocr",L"ocr-settings.json",legacy);file=SettingsDataFile(folder);check(legacy&&loaded==ocr,"legacy OCR settings read without modifying the old file");WriteSettingsSection(folder,L"ocr",loaded,L"ocr-settings.json");
     loaded=ReadSettingsSection(folder,L"recording",L"stage3-settings.json",legacy);check(legacy&&loaded==recording,"legacy recording settings read intact");WriteSettingsSection(folder,L"recording",loaded,L"stage3-settings.json");
     check(!fs::exists(folder/L"ocr-settings.json")&&!fs::exists(folder/L"stage3-settings.json")&&ParseViewerSettings(Bytes(file)).cacheMB==123,"verified settings migration archives old files and preserves UI values");
     ViewerSettings ui;ui.cacheMB=144;WriteViewerSettingsFile(file,SerializeViewerSettings(ui));auto json=JsonObject::Parse(winrt::to_hstring(Bytes(file)));check(json.GetNamedNumber(L"version")==4&&json.GetNamedObject(L"ocr").GetNamedNumber(L"fps")==7&&json.GetNamedObject(L"recording").GetNamedBoolean(L"saveGroupIds"),"UI saves preserve OCR and recording sections");
@@ -41,4 +41,4 @@ void RunV062UiTests(const fs::path& root,std::ostream& report){
     bool shown=false;ShowDiskCacheDialog([&](HWND h){auto listing=Text(GetDlgItem(h,2110));auto address=NormalizeFolderAddress(folder.wstring());for(auto& c:address)c=wchar_t(towlower(c));shown=listing.find(address)!=std::wstring::npos&&listing.find(L"1枚")!=std::wstring::npos;CaptureV0412Ui(root/L"v062-disk-folders.png",h);});check(shown,"disk cache dialog displays stored source folders, image counts and size");
     app.disk.Clear();app.disk.WaitIdle();wait([&]{return app.disk.GetFolders(rows);});check(rows.empty(),"cache deletion also removes the displayed folder inventory");
 }
-int V062Test(){auto root=app.settings.parent_path();std::ofstream report(root/L"v062-result.txt");try{RunV062StorageTests(root,report);RunV060UiTests(root,report);RunV062UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int V062Test(){auto root=AppDirectory();std::ofstream report(root/L"v062-result.txt");try{RunV062StorageTests(root,report);RunV060UiTests(root,report);RunV062UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

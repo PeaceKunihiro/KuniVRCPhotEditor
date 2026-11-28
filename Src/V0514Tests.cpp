@@ -36,4 +36,4 @@ void RunV0514UiTests(const fs::path& root,std::ostream& report){
     app.layout=L"none";Layout();check(!IsWindowVisible(app.side)&&!IsWindowVisible(app.preview),"none hides scroll container and contents");
     app.layout=L"right";SendMessageW(app.placement,CB_SETCURSEL,0,0);app.darkTheme=false;app.sideWidth=400;TabCtrl_SetCurSel(app.metadataTabs,0);ResetViewer();ApplyTheme();Layout();check(app.fontPt==10,"all visual cases use only default face at 10pt");
 }
-int SideViewTest(){auto root=app.settings.parent_path();std::ofstream report(root/L"v0514-result.txt");try{RunV0514UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}
+int SideViewTest(){auto root=AppDirectory();std::ofstream report(root/L"v0514-result.txt");try{RunV0514UiTests(root,report);report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;return 1;}}

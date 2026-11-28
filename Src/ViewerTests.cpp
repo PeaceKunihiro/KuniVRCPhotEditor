@@ -24,7 +24,7 @@ void TestSelectItem(HWND list,int index,UINT state,UINT mask) {
 int SelfTest() {
     // Unit fixtures exercise normal thumbnails independently of saved display preferences.
     app.hideFileNames=false;
-    auto directory = app.settings.parent_path() / L"self-test-data";
+    auto directory = AppDirectory() / L"self-test-data";
     fs::create_directories(directory);
     std::ofstream report(directory / L"result.txt");
     try {
@@ -130,7 +130,7 @@ int SelfTest() {
     return 1;
 }
 int PhotosTest() {
-    auto directory = app.settings.parent_path() / L"self-test-data";
+    auto directory = AppDirectory() / L"self-test-data";
     fs::create_directories(directory);
     std::ofstream report(directory / L"photos-result.txt");
     try {
@@ -202,7 +202,7 @@ void CaptureUiTest(const fs::path& file, HWND target = nullptr, UINT printFlags 
 }
 void CaptureV0412Ui(const fs::path& path,HWND h){CaptureUiTest(path,h,0);}
 int UiTest() {
-    auto directory = app.settings.parent_path();
+    auto directory = AppDirectory();
     std::ofstream report(directory / L"ui-result.txt");
     auto require = [&](bool ok, const char* label) { if (!ok) throw std::runtime_error(label); report << "PASS: " << label << '\n'; };
     auto wait = [&](auto complete) {
@@ -682,10 +682,10 @@ void RunV0415Tests(const fs::path& directory,std::ostream& report){
     auto ledger=folder/L"legacy.json";{std::ofstream out(ledger);out<<"{\"version\":1,\"entries\":[{\"path\":\"AB_old.png\",\"source\":\"old.png\",\"fingerprint\":\"original-hash\",\"created\":\"1\"}]}";}auto entries=ReadBackupLedger(ledger);check(entries.size()==1&&entries[0].sourceFingerprint==L"original-hash","legacy backup fingerprints migrate safely");WriteBackupLedger(ledger,entries);check(ReadBackupLedger(ledger)[0].sourceFingerprint==L"original-hash","backup ledger retains source fingerprint");
 }
 
-int ComfortTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"comfort-result.txt");try{RunV050UiTests(folder,report,[&](const wchar_t* name){CaptureUiTest(folder/name);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+int ComfortTest(){auto folder=AppDirectory();std::ofstream report(folder/L"comfort-result.txt");try{RunV050UiTests(folder,report,[&](const wchar_t* name){CaptureUiTest(folder/name);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
 
-int UpdateDialogTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"update-dialog-result.txt");try{RunUpdateDialogTests(folder,report,[&](HWND dialog){CaptureUiTest(folder/L"v051-update-dialog.png",dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+int UpdateDialogTest(){auto folder=AppDirectory();std::ofstream report(folder/L"update-dialog-result.txt");try{RunUpdateDialogTests(folder,report,[&](HWND dialog){CaptureUiTest(folder/L"v051-update-dialog.png",dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
 
-int LicenseDialogTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"license-dialog-result.txt");try{RunLicenseUiTests(folder,report,[&](HWND dialog,const wchar_t* name){CaptureUiTest(folder/name,dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+int LicenseDialogTest(){auto folder=AppDirectory();std::ofstream report(folder/L"license-dialog-result.txt");try{RunLicenseUiTests(folder,report,[&](HWND dialog,const wchar_t* name){CaptureUiTest(folder/name,dialog);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
 
-int TileTooltipTest(){auto folder=app.settings.parent_path();std::ofstream report(folder/L"tile-tooltip-result.txt");try{RunV053UiTests(folder,report,[&](const wchar_t* name){CaptureUiTest(folder/name);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}
+int TileTooltipTest(){auto folder=AppDirectory();std::ofstream report(folder/L"tile-tooltip-result.txt");try{RunV053UiTests(folder,report,[&](const wchar_t* name){CaptureUiTest(folder/name);});report<<"ALL PASSED\n";return 0;}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';return 1;}}

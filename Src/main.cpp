@@ -9,15 +9,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES }; InitCommonControlsEx(&controls);
     if(!LoadLibraryW(L"Msftedit.dll"))return 1;
     LoadSettings();
-    if(std::wstring(command)==L"--update-network-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"update-network-result.txt");int code=0;try{RunUpdateNetworkTests(folder,report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
+    if(std::wstring(command)==L"--update-network-test"){auto folder=AppDirectory()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"update-network-result.txt");int code=0;try{RunUpdateNetworkTests(folder,report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
     if(std::wstring(command).find(L"--stage3-evaluate")==0){int count=0;auto args=CommandLineToArgvW(GetCommandLineW(),&count);if(count!=6){LocalFree(args);return 2;}auto log=fs::path(args[2]),photos=fs::path(args[3]),samples=fs::path(args[4]),output=fs::path(args[5]);LocalFree(args);int code=0;std::thread probe([&]{auto init=RoInitialize(RO_INIT_MULTITHREADED);std::ofstream report(output);try{winrt::check_hresult(init);stage3::EvaluateReferences(log,photos,samples,report);report<<"EVALUATION COMPLETED\n";}catch(const winrt::hresult_error& e){report<<"FAILED HRESULT="<<std::hex<<static_cast<unsigned>(e.code())<<'\n';code=1;}catch(const std::exception& e){report<<"FAILED: "<<e.what()<<'\n';code=1;}if(SUCCEEDED(init))RoUninitialize();});probe.join();winrt::uninit_apartment();return code;}
-    if(std::wstring(command)==L"--ocr-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"ocr-result.txt");int code=0;try{person_ocr::RunCaptureTests(report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
+    if(std::wstring(command)==L"--ocr-test"){auto folder=AppDirectory()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"ocr-result.txt");int code=0;try{person_ocr::RunCaptureTests(report);}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}winrt::uninit_apartment();return code;}
     if(std::wstring(command)==L"--mdb-performance-test"){
-        auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"v0511-result.txt");int code=0;
+        auto folder=AppDirectory()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"v0511-result.txt");int code=0;
         try{RunV0511Tests(folder,report);report<<"ALL PASSED\n";}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<'\n';code=1;}
         winrt::uninit_apartment();return code;
     }
-    if(std::wstring(command)==L"--initial-theme-test"){auto folder=app.settings.parent_path()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"v064-result.txt");int code=0;try{RunV064Tests(folder,report);report<<"ALL PASSED\n";}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;code=1;}winrt::uninit_apartment();return code;}
+    if(std::wstring(command)==L"--initial-theme-test"){auto folder=AppDirectory()/L"self-test-data";fs::create_directories(folder);std::ofstream report(folder/L"v064-result.txt");int code=0;try{RunV064Tests(folder,report);report<<"ALL PASSED\n";}catch(const std::exception& e){report<<"FAIL: "<<e.what()<<std::endl;code=1;}winrt::uninit_apartment();return code;}
     if(std::wstring(command)==L"--observation-test"){int result=ObservationTest();winrt::uninit_apartment();return result;}
     if (std::wstring(command) == L"--self-test") { auto result = SelfTest(); winrt::uninit_apartment(); return result; }
     if (std::wstring(command) == L"--photos-test") { auto result = PhotosTest(); winrt::uninit_apartment(); return result; }
@@ -42,8 +42,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
     bool mdbApplyTest=std::wstring(command)==L"--mdb-apply-test";
     bool uiTest=observationUiTest||v063Test||v062Test||diskOptionsTest||backdropTest||fontLayoutTest||repaintTest||sideTest||previewTest||peopleTest||mdbApplyTest||idNamesTest||mdbTest||bookmarkCacheTest||tileTooltipTest||licenseDialogTest||updateDialogTest||comfortTest||shutdownTest||std::wstring(command)==L"--ui-test";
     if (uiTest) {
-        app.settings = app.settings.parent_path() / L"self-test-data" / L"ui-settings.json";
-        fs::create_directories(app.settings.parent_path());
+        app.settings = AppDirectory() / L"self-test-data" / L"ui-settings.json";
+        fs::create_directories(AppDirectory());
         app.last.clear();app.directories.clear();app.folderItems.clear();app.navigation.clear();app.navigationIndex=-1;app.showBackupImages=true; app.recent.clear(); app.settingsError.clear(); app.settingsProtected = false;
         app.mdbEnabled=false;app.mdbMode=0;app.mdbCapacityMB=100;app.categoryMode=0;app.hideFileNames=false;app.updateAttemptUtc=app.updateSuccessUtc=0;app.residentMode=false;app.residentOcr=false;app.observationColors=DefaultObservationColors();app.observationWrap=true;app.observationMB=10;app.memoryCache=true;app.bookmarkCache=false;app.diskCache=false;app.diskCacheMiB=512;app.diskCacheMinutes=30;app.diskCacheVisits=5;
         app.fontName.clear();app.fontPt=10;app.backgroundPath.clear();app.backgroundCopies.clear();app.backgroundThemes.clear();app.backdropThemeRevision=0;

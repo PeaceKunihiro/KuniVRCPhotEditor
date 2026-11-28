@@ -104,6 +104,12 @@ void LoadSettings() {
     wchar_t executable[32768]; GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
     app.settings = fs::path(executable).parent_path() / L"settings.json";
     try {
+        int argumentCount=0;
+        auto arguments=CommandLineToArgvW(GetCommandLineW(),&argumentCount);
+        bool migrate=arguments&&(argumentCount<2||wcsncmp(arguments[1],L"--",2)!=0);
+        if(arguments)LocalFree(arguments);
+        if(migrate)app.settings=SettingsDataFile(fs::path(executable).parent_path());
+        else if(fs::exists(fs::path(executable).parent_path()/L"Data"/L"settings.json"))app.settings=fs::path(executable).parent_path()/L"Data"/L"settings.json";
         std::optional<std::string> json;
         if(fs::exists(app.settings)){
             if(fs::file_size(app.settings)>1024*1024)throw std::runtime_error("settings size");
@@ -134,7 +140,7 @@ void SaveSettings(bool notify) {
         auto bytes = SerializeViewerSettings(settings);
         WriteViewerSettingsFile(app.settings,bytes);
     } catch (...) {
-        if(notify)MessageBoxW(app.window, L"アプリのフォルダーへsettings.jsonを保存できませんでした。", L"設定保存エラー", MB_OK | MB_ICONWARNING);
+        if(notify)MessageBoxW(app.window, L"設定ファイルへ保存できませんでした。保存先・アクセス権を確認してください。", L"設定保存エラー", MB_OK | MB_ICONWARNING);
     }
 }
 
