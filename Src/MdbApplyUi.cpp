@@ -61,9 +61,13 @@ bool MdbApplyBusy(){return pending.active;}
 bool MdbApplyCurrent(const Job& job){return !app.stopping&&job.applyGeneration==token&&job.generation==app.currentGeneration&&job.selection==app.currentSelection;}
 void CancelMdbApply(const std::wstring& reason){if(!pending.active)return;pending.active=false;++token;{std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.kind==14;}),app.jobs.end());}if(!reason.empty())message=reason;if(confirmation)EndDialog(confirmation,IDCANCEL);app.wake.notify_all();}
 void RefreshMdbApplyUi(){
-    if(!app.metadataTabs)return;int count=TabCtrl_GetItemCount(app.metadataTabs);if(app.mdbEnabled&&count==3){TCITEMW tab{};tab.mask=TCIF_TEXT;tab.pszText=const_cast<wchar_t*>(L"MDB");TabCtrl_InsertItem(app.metadataTabs,3,&tab);}else if(!app.mdbEnabled&&count>3){if(TabCtrl_GetCurSel(app.metadataTabs)==3)TabCtrl_SetCurSel(app.metadataTabs,0);TabCtrl_DeleteItem(app.metadataTabs,3);}
+    static unsigned shownSelection=UINT_MAX,shownGeneration=UINT_MAX;
+    bool selectionChanged=shownSelection!=app.currentSelection||shownGeneration!=app.currentGeneration;
+    if(selectionChanged){shownSelection=app.currentSelection;shownGeneration=app.currentGeneration;message=L"未実施";}
+    if(!app.metadataTabs)return;int count=TabCtrl_GetItemCount(app.metadataTabs);bool hasMdb=false;for(int i=0;i<count;++i){wchar_t label[32]{};TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=label;item.cchTextMax=32;TabCtrl_GetItem(app.metadataTabs,i,&item);if(wcscmp(label,L"MDB")==0)hasMdb=true;}if(app.mdbEnabled&&!hasMdb){TCITEMW tab{};tab.mask=TCIF_TEXT;tab.pszText=const_cast<wchar_t*>(L"MDB");TabCtrl_InsertItem(app.metadataTabs,3,&tab);}else if(!app.mdbEnabled&&hasMdb){if(TabCtrl_GetCurSel(app.metadataTabs)==3)TabCtrl_SetCurSel(app.metadataTabs,0);TabCtrl_DeleteItem(app.metadataTabs,3);}
     if(pending.active&&!SameContext())CancelMdbApply(L"画像選択・読込み状態またはMDB設定が変わったため中止しました。");
-    if(!pane)return;auto reason=Reason();EnableWindow(GetDlgItem(pane,Run),!pending.active&&reason.empty());auto text=pending.active?L"メタデータを読み込み、対応を確認しています…\r\n"+fs::path(pending.path).filename().wstring():!reason.empty()?reason:message.empty()?L"［実行］すると保存内容を確認します。":message;if(Text(GetDlgItem(pane,Output))!=text)SetDlgItemTextW(pane,Output,text.c_str());
+    if(selectionChanged)message=L"未実施";
+    if(!pane)return;auto reason=Reason();EnableWindow(GetDlgItem(pane,Run),!pending.active&&reason.empty());auto text=pending.active?L"メタデータを読み込み、対応を確認しています…\r\n"+fs::path(pending.path).filename().wstring():!reason.empty()?reason:message.empty()?L"未実施":message;if(Text(GetDlgItem(pane,Output))!=text)SetDlgItemTextW(pane,Output,text.c_str());
 }
 void StartMdbApply(){
     FlushSelectionUpdate();RefreshMdbApplyUi();if(pending.active||!Reason().empty())return;

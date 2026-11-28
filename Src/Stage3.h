@@ -45,5 +45,6 @@ void RunMonitorTests(const std::filesystem::path& directory,std::ostream& report
 void ShowMonitorDialog();std::wstring MonitorStatus();void Shutdown();void RunTests(const std::filesystem::path& directory,std::ostream& report);
 bool RecordingOcr();bool Stopping();void RequestStop();
 bool Recording();void ToggleRecording();void AutoTick();
+std::wstring ObservationLogFolder();
 std::filesystem::path LatestLog(const std::filesystem::path& folder);
 }

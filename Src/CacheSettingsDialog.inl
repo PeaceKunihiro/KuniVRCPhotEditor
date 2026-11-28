@@ -99,6 +99,7 @@ INT_PTR CALLBACK UnifiedCacheDialogProc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
         add(L"BUTTON",L"キャッシュ削除…",WS_TABSTOP,14,362,160,28,2105);
         add(L"BUTTON",L"ID・表示名の編集…",WS_TABSTOP,14,178,195,30,2304);
         EnableWindow(GetDlgItem(h,2304),app.mdbEnabled);
+        add(L"STATIC",L"観測容量（1～1000 MB）",0,14,395,220,24,2440);number(2441,app.observationMB,230,392,75);
         add(L"BUTTON",L"適用",BS_DEFPUSHBUTTON|WS_TABSTOP,452,410,100,30,IDOK);
         add(L"BUTTON",L"キャンセル",WS_TABSTOP,565,410,106,30,IDCANCEL);
         RECT r{0,0,695,455};AdjustWindowRectEx(&r,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,0);
@@ -128,10 +129,11 @@ INT_PTR CALLBACK UnifiedCacheDialogProc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
     if(id==2105){if(MessageBoxW(h,L"保存したディスクサムネイルを削除しますか？",L"キャッシュ削除",MB_YESNO|MB_DEFBUTTON2)==IDYES){++app.diskGeneration;app.disk.Clear();}return TRUE;}
     if(id==IDCANCEL){EndDialog(h,IDCANCEL);return TRUE;}
     if(id!=IDOK)return FALSE;
+    int observation=GetDlgItemInt(h,2441,nullptr,FALSE);
     int memory=GetDlgItemInt(h,2401,nullptr,FALSE),minutes=GetDlgItemInt(h,2102,nullptr,FALSE),visits=GetDlgItemInt(h,2103,nullptr,FALSE);
     int mode=int(SendDlgItemMessageW(h,2301,CB_GETCURSEL,0,0));
     int capacity=mode==0?GetDlgItemInt(h,2302,nullptr,FALSE):app.mdbCapacityMB;
-    if(memory<16||memory>2048||minutes<1||minutes>1440||visits<2||visits>100||capacity<100||capacity>4000){
+    if(observation<1||observation>1000||memory<16||memory>2048||minutes<1||minutes>1440||visits<2||visits>100||capacity<100||capacity>4000){
         MessageBoxW(h,L"メモリは16～2048 MB、MDBは100～4000 MB、判定期間は1～1440分、ロード回数は2～100で指定してください。",L"設定値を確認してください",MB_OK);return TRUE;
     }
     bool mem=Checked(h,2400),disk=Checked(h,2100),mdb=Checked(h,2300),priority=disk&&Checked(h,2106);
@@ -155,7 +157,7 @@ INT_PTR CALLBACK UnifiedCacheDialogProc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
         if(!mdb)app.categoryMode=0;
         ConfigureMdb();
     }
-    SaveSettings();
+    app.observationMB=observation;SaveSettings();ObservationTick();
     if(!disabled.empty()&&!state->inspect)MessageBoxW(h,(disabled+L"を無効にしました。\r\n保存済みのキャッシュは自動削除されません").c_str(),L"キャッシュ設定",MB_OK|MB_ICONINFORMATION);
     EndDialog(h,IDOK);
     if(refresh&&!app.folder.empty())StartSearch(app.appliedQuery);

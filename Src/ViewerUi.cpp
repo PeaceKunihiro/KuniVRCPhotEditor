@@ -116,7 +116,7 @@ void LoadSettings() {
         app.autoBackup=settings.autoBackup;app.backupLimit=settings.backupLimit;app.darkTheme=settings.darkTheme;app.metadataSearch=settings.metadataSearch;
         app.autoThumbnails=settings.autoThumbnails;app.sideWidth=settings.sideWidth;app.sideHeight=settings.sideHeight;app.manualThumbnailWidth=settings.thumbnailWidth;
         app.residentMode=settings.residentMode;app.residentOcr=settings.residentOcr;app.diskCache=settings.diskCache;app.bookmarkCache=settings.bookmarkCache;app.diskCacheMiB=settings.diskCacheMiB;app.diskCacheMinutes=settings.diskCacheMinutes;app.diskCacheVisits=settings.diskCacheVisits;
-        app.memoryCache=settings.memoryCache; app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
+        app.observationMB=settings.observationMB;app.memoryCache=settings.memoryCache; app.cacheMB = settings.cacheMB; app.saveHistory = settings.saveHistory; app.bookmarks = std::move(settings.bookmarks);
     } catch (...) {
         app.settingsProtected = true;
         app.settingsError = L"設定の読込みに失敗しました。元のsettings.jsonを保全し、今回は設定を保存しません。";
@@ -127,7 +127,7 @@ void SaveSettings(bool notify) {
     try {
         ViewerSettings settings;settings.fontName=app.fontName;settings.fontPt=app.fontPt;settings.backgroundPath=app.backgroundPath;settings.backgroundCopies=app.backgroundCopies;settings.backgroundThemes=app.backgroundThemes;settings.hideFileNames=app.hideFileNames;settings.updateAttemptUtc=app.updateAttemptUtc;settings.updateSuccessUtc=app.updateSuccessUtc;settings.showBackupImages=app.showBackupImages;settings.navigation=app.navigation;settings.navigationIndex=app.navigationIndex;settings.idLinks=app.idLinks;settings.sortMode=app.sortMode;settings.mdbEnabled=app.mdbEnabled;settings.mdbMode=app.mdbMode;settings.mdbCapacityMB=app.mdbCapacityMB;settings.categoryMode=app.categoryMode;
         settings.autoThumbnails=app.autoThumbnails;settings.sideWidth=app.sideWidth;settings.sideHeight=app.sideHeight;
-        settings.thumbnailWidth = std::clamp((( (app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth)+16)/32)*32,ThumbnailMin,ThumbnailMax); settings.memoryCache=app.memoryCache; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
+        settings.thumbnailWidth = std::clamp((( (app.autoThumbnails?app.manualThumbnailWidth:app.thumbnailWidth)+16)/32)*32,ThumbnailMin,ThumbnailMax); settings.observationMB=app.observationMB;settings.memoryCache=app.memoryCache; settings.cacheMB = app.cacheMB; settings.saveHistory = app.saveHistory;
         settings.residentMode=app.residentMode;settings.residentOcr=app.residentOcr;settings.diskCache=app.diskCache;settings.bookmarkCache=app.bookmarkCache;settings.diskCacheMiB=app.diskCacheMiB;settings.diskCacheMinutes=app.diskCacheMinutes;settings.diskCacheVisits=app.diskCacheVisits;
         settings.autoBackup=app.autoBackup;settings.backupLimit=app.backupLimit;settings.darkTheme=app.darkTheme;settings.metadataSearch=app.metadataSearch;
         settings.last = app.last; settings.layout = app.layout; settings.history = app.recent; settings.bookmarks = app.bookmarks;
@@ -850,7 +850,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         app.preview = Control(L"KuniPreview", L"", 0, 0);
         app.metadataTabs = Control(WC_TABCONTROLW, L"", WS_TABSTOP | WS_CLIPSIBLINGS, MetadataTabs);
         for (auto label : { L"シンプル", L"詳細", L"OCR" }) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<LPWSTR>(label); TabCtrl_InsertItem(app.metadataTabs, TabCtrl_GetItemCount(app.metadataTabs), &item); }
-        CreateMdbApplyUi();
+        CreateMdbApplyUi();CreateObservation();
         app.simple = Control(L"KuniSimple", L"", WS_VSCROLL | WS_CLIPCHILDREN, 0);
         SetWindowLongPtrW(app.simple, GWL_EXSTYLE, GetWindowLongPtrW(app.simple, GWL_EXSTYLE) | WS_EX_CONTROLPARENT);
         const wchar_t* labels[]{ L"ファイル名", L"容量", L"解像度", L"作成日時", L"撮影者", L"ワールド名", L"ワールドID", L"モデル", L"タグ", L"同室者", L"モデル候補" };
@@ -894,7 +894,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize={760,std::max(520,4*(UiControlHeight()+8)+180)};return 0;
     case WM_SIZE: if (wparam != SIZE_MINIMIZED) Layout(); return 0;
     case WM_TIMER:
-        if(wparam==RecordTimer){RefreshMdbApplyUi();MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();if(!app.previewOriginalRequested)ScheduleOriginalPreview();return 0;}
+        if(wparam==RecordTimer){ObservationTick();RefreshMdbApplyUi();MdbTick();ScheduleBookmarkPrefetch();PollUpdateChecker();stage3::AutoTick();UpdateRecordingControls(true);RefreshOcrUi();RefreshPreview();if(!app.previewOriginalRequested)ScheduleOriginalPreview();return 0;}
         if(wparam==ActivityTimer){++app.activityFrame;Status(L"");return 0;}
         if (wparam == ZoomTimer) { ApplyThumbnailSize(); return 0; }
         if (wparam == ThumbnailTimer) { KillTimer(window, ThumbnailTimer); ScheduleThumbnails(); return 0; } break;
@@ -970,7 +970,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lpa
         if(app.closing)return 0;
         if(!GuardTransition([window]{SendMessageW(window,WM_CLOSE,0,0);}))return 0;
         KillTimer(window, ZoomTimer);
-        KillTimer(window, ThumbnailTimer);StopActivity();CancelMdbApply();app.closing=true;StopUpdateChecker();StopOcrUi();stage3::Shutdown();TrayShutdown();
+        KillTimer(window, ThumbnailTimer);StopActivity();CancelMdbApply();app.closing=true;StopUpdateChecker();StopOcrUi();StopObservation();stage3::Shutdown();TrayShutdown();
         if (app.thumbnailWidth != app.activeThumbnailWidth) SaveSettings();
         CancelSearch();{std::lock_guard<std::mutex> lock(app.mutex);app.stopping=true;}app.wake.notify_all();
         // COM teardown may call back into the UI STA. Keep it pumping until workers finish.

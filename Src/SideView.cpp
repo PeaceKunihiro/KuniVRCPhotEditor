@@ -1,5 +1,6 @@
 ﻿#include "ViewerRuntime.h"
 #include <windowsx.h>
+#include "Observation.inl"
 namespace {
 constexpr UINT TabBase=2600;
 void ScrollSide(int next){app.sideScroll=std::clamp(next,0,std::max(0,app.sideContent));LayoutSideView();}
@@ -15,7 +16,8 @@ LRESULT CALLBACK SideProc(HWND h,UINT m,WPARAM wp,LPARAM lp){
     if(m==WM_MOUSEWHEEL){app.sideWheel+=GET_WHEEL_DELTA_WPARAM(wp);int delta=app.sideWheel/WHEEL_DELTA;app.sideWheel%=WHEEL_DELTA;ScrollSide(app.sideScroll-delta*std::max(36,UiLineHeight()*3));return 0;}
     if(m==WM_VSCROLL){SCROLLINFO info{sizeof(info),SIF_ALL};GetScrollInfo(h,SB_VERT,&info);int next=app.sideScroll;switch(LOWORD(wp)){case SB_TOP:next=0;break;case SB_BOTTOM:next=app.sideContent;break;case SB_LINEUP:next-=UiLineHeight()+4;break;case SB_LINEDOWN:next+=UiLineHeight()+4;break;case SB_PAGEUP:next-=int(info.nPage);break;case SB_PAGEDOWN:next+=int(info.nPage);break;case SB_THUMBTRACK:case SB_THUMBPOSITION:next=info.nTrackPos;break;}ScrollSide(next);return 0;}
     if(m==WM_APP+16){EnsureSideVisible(GetFocus());return 0;}
-    if(m==WM_COMMAND&&LOWORD(wp)>=TabBase&&LOWORD(wp)<TabBase+4&&HIWORD(wp)==BN_CLICKED){int index=LOWORD(wp)-TabBase;if(index<TabCtrl_GetItemCount(app.metadataTabs)){TabCtrl_SetCurSel(app.metadataTabs,index);LayoutSideView();}return 0;}
+    if(m==WM_COMMAND&&LOWORD(wp)==2690&&HIWORD(wp)==CBN_SELCHANGE){TabCtrl_SetCurSel(app.metadataTabs,int(SendMessageW(app.sideSelector,CB_GETCURSEL,0,0)));LayoutSideView();return 0;}
+    if(m==WM_COMMAND&&LOWORD(wp)>=TabBase&&LOWORD(wp)<TabBase+5&&HIWORD(wp)==BN_CLICKED){int index=LOWORD(wp)-TabBase;if(index<TabCtrl_GetItemCount(app.metadataTabs)){TabCtrl_SetCurSel(app.metadataTabs,index);LayoutSideView();}return 0;}
     if(m==WM_DRAWITEM){auto d=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(d->CtlID>=TabBase&&d->CtlID<TabBase+4){PaintVerticalTab(d);return TRUE;}}
     if(m==WM_COMMAND||m==WM_NOTIFY||m==WM_DRAWITEM||m==WM_MEASUREITEM)return SendMessageW(app.window,m,wp,lp);
     if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX||m==WM_CTLCOLORBTN)return ThemeControlColor(reinterpret_cast<HDC>(wp),reinterpret_cast<HWND>(lp));
@@ -33,7 +35,8 @@ HWND SideHit(POINT point){MapWindowPoints(app.window,app.side,&point,1);return C
 void CreateSideView(){
     WNDCLASSW wc{};wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"KuniSideView";wc.lpfnWndProc=SideProc;wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
     app.side=CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,L"",WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_CLIPCHILDREN|WS_CLIPSIBLINGS,0,0,1,1,app.window,nullptr,wc.hInstance,nullptr);
-    for(int i=0;i<4;++i){app.verticalTabs[i]=CreateWindowExW(0,L"BUTTON",L"",WS_CHILD|WS_TABSTOP|BS_OWNERDRAW,0,0,1,1,app.side,reinterpret_cast<HMENU>(INT_PTR(TabBase+i)),wc.hInstance,nullptr);SendMessageW(app.verticalTabs[i],WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),FALSE);}
+    app.sideSelector=CreateWindowExW(0,L"COMBOBOX",L"",WS_CHILD|CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL,0,0,1,200,app.side,reinterpret_cast<HMENU>(2690),wc.hInstance,nullptr);SendMessageW(app.sideSelector,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),FALSE);
+    for(int i=0;i<5;++i){app.verticalTabs[i]=CreateWindowExW(0,L"BUTTON",L"",WS_CHILD|WS_TABSTOP|BS_OWNERDRAW,0,0,1,1,app.side,reinterpret_cast<HMENU>(INT_PTR(TabBase+i)),wc.hInstance,nullptr);SendMessageW(app.verticalTabs[i],WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),FALSE);}
 }
 void ResetSideScroll(){app.sideScroll=app.sideWheel=0;}
 bool SideWheel(HWND hovered,WPARAM wp,LPARAM lp){
@@ -57,7 +60,12 @@ void LayoutSideView(){
     int tabX=bottom?imageW+gap:0,tabY=bottom?0:imageH+gap,tabW=std::max(1,w-tabX),line=UiLineHeight();
     int index=TabCtrl_GetCurSel(app.metadataTabs);if(index<0)index=0;
     int header=std::max(24,line+8),nav=bottom?std::min(std::max(60,tabW/2),std::max(88,UiTextWidth(L"シンプル")+12)):0;
-    RECT page{tabX+(bottom?nav+gap:4),tabY+(bottom?0:header),w-4,0};
+    int required=0;
+    for(int i=0;i<TabCtrl_GetItemCount(app.metadataTabs);++i){wchar_t label[64]{};TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=label;item.cchTextMax=64;TabCtrl_GetItem(app.metadataTabs,i,&item);required+=UiTextWidth(label)+24;}
+    bool dropdown=tabW<required;
+    bool vertical=bottom&&!dropdown;
+    if(dropdown)nav=0;
+    RECT page{tabX+(vertical?nav+gap:4),tabY+(vertical?0:header),w-4,0};
     int pageW=std::max(1L,page.right-page.left);
     // Line wrapping needs the width only. Never move the measuring pane over the image.
     static int measuredWidth=0;static HFONT measuredFont=nullptr;
@@ -69,12 +77,16 @@ void LayoutSideView(){
     int editHeader=UiControlHeight()+std::max(32,line*2+4)+4,editX=0;
     for(auto control:{app.editButton,app.saveButton,app.cancelButton}){int bw=std::min(pageW,std::max(control==app.cancelButton?88:64,UiTextWidth(Text(control))+16));if(editX&&editX+bw>pageW){editX=0;editHeader+=UiControlHeight()+4;}editX+=bw+4;}
     int body=index==0?std::max(40,app.simpleContentHeight):index==1?(app.editing?app.editorUi.DesiredHeight()+editHeader:std::max(240,h-header)):index==2?std::max(UiScale(400),h-header):std::max(UiScale(280),h-header);
-    int tabH=(bottom?0:header)+body,total=std::max(imageH,tabY+tabH);
-    if(bottom)total=std::max(total,int(TabCtrl_GetItemCount(app.metadataTabs))*(header+2));
+    int tabH=(vertical?0:header)+body,total=std::max(imageH,tabY+tabH);
+    if(vertical)total=std::max(total,int(TabCtrl_GetItemCount(app.metadataTabs))*(header+2));
     SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS|SIF_DISABLENOSCROLL};info.nMax=std::max(0,total-1);info.nPage=h;info.nPos=app.sideScroll;SetScrollInfo(app.side,SB_VERT,&info,TRUE);info.fMask=SIF_POS;GetScrollInfo(app.side,SB_VERT,&info);app.sideScroll=info.nPos;app.sideContent=std::max(0,total-h);
     int yoff=app.sideScroll;MoveWindow(app.preview,0,-yoff,imageW,imageH,FALSE);ShowWindow(app.preview,none?SW_HIDE:SW_SHOW);
-    MoveWindow(app.metadataTabs,tabX,tabY-yoff,tabW,tabH,FALSE);ShowWindow(app.metadataTabs,!bottom&&!none?SW_SHOW:SW_HIDE);
-    for(int i=0;i<4;++i){auto button=app.verticalTabs[i];bool show=bottom&&!none&&i<TabCtrl_GetItemCount(app.metadataTabs);ShowWindow(button,show?SW_SHOW:SW_HIDE);if(show){wchar_t text[64]{};TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=text;item.cchTextMax=64;TabCtrl_GetItem(app.metadataTabs,i,&item);SetWindowTextW(button,text);MoveWindow(button,tabX,i*(header+2)-yoff,nav,header,FALSE);InvalidateRect(button,nullptr,FALSE);}}
+    MoveWindow(app.metadataTabs,tabX,tabY-yoff,tabW,tabH,FALSE);ShowWindow(app.metadataTabs,!bottom&&!dropdown&&!none?SW_SHOW:SW_HIDE);
+    for(int i=0;i<5;++i){auto button=app.verticalTabs[i];bool show=vertical&&!none&&i<TabCtrl_GetItemCount(app.metadataTabs);ShowWindow(button,show?SW_SHOW:SW_HIDE);if(show){wchar_t text[64]{};TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=text;item.cchTextMax=64;TabCtrl_GetItem(app.metadataTabs,i,&item);SetWindowTextW(button,text);MoveWindow(button,tabX,i*(header+2)-yoff,nav,header,FALSE);InvalidateRect(button,nullptr,FALSE);}}
+    SendMessageW(app.sideSelector,CB_RESETCONTENT,0,0);
+    for(int i=0;i<TabCtrl_GetItemCount(app.metadataTabs);++i){wchar_t label[64]{};TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=label;item.cchTextMax=64;TabCtrl_GetItem(app.metadataTabs,i,&item);SendMessageW(app.sideSelector,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label));}
+    SendMessageW(app.sideSelector,CB_SETCURSEL,index,0);
+    MoveWindow(app.sideSelector,tabX,tabY-yoff,tabW,header+180,FALSE);ShowWindow(app.sideSelector,dropdown&&!none?SW_SHOW:SW_HIDE);
     page.top-=yoff;page.bottom=page.top+body;
     MoveWindow(app.simple,page.left,page.top,pageW,body,FALSE);ShowWindow(app.simple,index==0&&!none?SW_SHOW:SW_HIDE);LayoutSimple();
     bool detailed=index==1&&!none;int buttonH=UiControlHeight(),statusH=std::max(32,line*2+4),bx=0,by=page.top;
@@ -83,7 +95,7 @@ void LayoutSideView(){
     MoveWindow(app.details,page.left,editTop,pageW,std::max(1L,page.bottom-editTop),FALSE);
     for(auto control:{app.editButton,app.saveButton,app.cancelButton,app.editStatus})ShowWindow(control,detailed?SW_SHOW:SW_HIDE);
     app.editorUi.Place(page.left,editTop,pageW,std::max(1L,page.bottom-editTop),detailed&&app.editing);ShowWindow(app.details,detailed&&!app.editing?SW_SHOW:SW_HIDE);
-    LayoutOcrUi(page,index==2&&!none);LayoutMdbApplyUi(page,index==3&&!none);
+    LayoutOcrUi(page,index==2&&!none);LayoutMdbApplyUi(page,index==3&&app.mdbEnabled&&!none);LayoutObservation(page,index==(app.mdbEnabled?4:3)&&!none);
     for(auto control:{app.simple,app.details,app.editorUi.Window(),app.editButton,app.saveButton,app.cancelButton,app.editStatus})SetWindowPos(control,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     app.sideLayout=false;
 }
