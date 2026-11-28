@@ -1,8 +1,10 @@
 
-  ViewerTests.cpp
+  AppStorage.cpp
+  DiskCacheUi.cpp
+  IdDisplayNamesTests.cpp
   コード生成しています。
-  177 of 21720 functions ( 0.8%) were compiled, the rest were copied from previous compilation.
+  10 of 21859 functions (<0.1%) were compiled, the rest were copied from previous compilation.
     0 functions were new in current compilation
-    278 functions had inline decision re-evaluated but remain unchanged
+    167 functions had inline decision re-evaluated but remain unchanged
   コード生成が終了しました。
-  KuniVRCPhotEditor.vcxproj -> E:\GPT_WORKS\KuniVRCPhotEditor\x64\Release\KuniVRCPhotEditor_v0.6.7.exe
+  KuniVRCPhotEditor.vcxproj -> E:\GPT_WORKS\KuniVRCPhotEditor\x64\Release\KuniVRCPhotEditor_v0.6.11.exe

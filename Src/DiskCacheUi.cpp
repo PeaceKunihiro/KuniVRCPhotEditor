@@ -3,7 +3,7 @@
 void ConfigureDiskCache(){
     if(!app.diskCache)app.bookmarkCache=false;
     ++app.diskGeneration;app.diskPrefetchCursor=app.diskPrefetchCount=0;
-    app.disk.Configure(app.settings.parent_path()/L"ThumbnailDiskCache",{app.diskCache,size_t(app.diskCacheMiB)*1024*1024,app.diskCacheMinutes,app.diskCacheVisits,app.bookmarkCache,app.bookmarks});
+    app.disk.Configure(RuntimeDataDirectory(app.settings.parent_path(),L"ThumbnailDiskCache"),{app.diskCache,size_t(app.diskCacheMiB)*1024*1024,app.diskCacheMinutes,app.diskCacheVisits,app.bookmarkCache,app.bookmarks});
     {std::lock_guard<std::mutex> lock(app.mutex);app.jobs.erase(std::remove_if(app.jobs.begin(),app.jobs.end(),[](auto& j){return j.diskPrefetch;}),app.jobs.end());}
     if(!app.folder.empty()&&app.disk.PriorityFolder(app.folder))app.disk.Visit(app.folder);
     ScheduleBookmarkPrefetch();

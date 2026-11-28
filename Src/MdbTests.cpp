@@ -84,7 +84,7 @@ void RunMdbUiTests(const fs::path& directory,std::ostream& report){
         if(axis==4)check(std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[&](auto& r){return r.key==world&&r.label==world;}),"MDB conflicting world names use ID as category name");
         if(axis==6)check(std::any_of(app.mdbRows.begin(),app.mdbRows.end(),[](auto& r){return r.label==L"Photographer";}),"MDB photographer is a separate category");}
     app.metadataSearch=true;StartSearch(L"Red");wait([]{return !app.searching&&!app.sorting&&ThumbnailsReady();});check(VisibleImages().size()==2,"MDB search includes excluded backup via direct metadata fallback");
-    ShowMdbDialog([&](HWND h){SendDlgItemMessageW(h,2300,BM_CLICK,0,0);SendMessageW(h,WM_COMMAND,IDOK,0);});wait([]{return !app.searching&&!app.sorting;});app.mdb.WaitIdle();check(!app.mdbEnabled&&app.categoryMode==0&&fs::exists(app.settings.parent_path()/L"MetadataDB"/L"mdb.sqlite"),"MDB OFF retains DB and restores normal view");app.metadataSearch=false;app.appliedQuery.clear();wait([]{return ThumbnailsReady();});
+    ShowMdbDialog([&](HWND h){SendDlgItemMessageW(h,2300,BM_CLICK,0,0);SendMessageW(h,WM_COMMAND,IDOK,0);});wait([]{return !app.searching&&!app.sorting;});app.mdb.WaitIdle();check(!app.mdbEnabled&&app.categoryMode==0&&fs::exists(RuntimeDataDirectory(app.settings.parent_path(),L"MetadataDB")/L"mdb.sqlite"),"MDB OFF retains DB and restores normal view");app.metadataSearch=false;app.appliedQuery.clear();wait([]{return ThumbnailsReady();});
     {
         auto first=app.wantedFirst,last=app.wantedLast;auto requested=app.thumbnailRequested;
         app.mdbEnabled=true;ConfigureMdb();app.mdb.WaitIdle();
@@ -94,7 +94,7 @@ void RunMdbUiTests(const fs::path& directory,std::ostream& report){
         check(app.mdb.Status().entries>0,"v0511 UI request completion resumes collection without waiting for all images");
         app.wantedFirst=first;app.wantedLast=last;app.thumbnailRequested=std::move(requested);UpdateMdbDisplayPriority();
         // The following automatic admission test needs an empty fixture database.
-        app.mdb.Configure(app.settings.parent_path()/L"MetadataDB",{false,0,100},ReadMdbSource,{},true);app.mdb.WaitIdle();
+        app.mdb.Configure(RuntimeDataDirectory(app.settings.parent_path(),L"MetadataDB"),{false,0,100},ReadMdbSource,{},true);app.mdb.WaitIdle();
         app.mdbEnabled=false;ConfigureMdb();app.mdb.WaitIdle();
     }
     app.diskCache=true;app.bookmarkCache=false;ConfigureDiskCache();app.disk.WaitIdle();app.disk.Clear();app.disk.WaitIdle();for(int i=0;i<5;++i)app.disk.Visit(root.wstring());Pixels thumb{16,16,std::vector<BYTE>(16*16*4,80)};app.disk.Put(ThumbnailCache::Key(files[0].wstring())+L"|256x256|v2",files[0].wstring(),thumb);

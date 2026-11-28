@@ -1,11 +1,19 @@
 ﻿#pragma once
 #include <string>
+#include <array>
 #include <cstdint>
 #include <vector>
 #include <utility>
 #include <map>
 #include <optional>
 #include <functional>
+using ObservationColors=std::array<std::array<uint32_t,10>,2>;
+inline ObservationColors DefaultObservationColors(){
+    ObservationColors colors{};colors[0]={0,0,0,0xED9564,0x32CD9A,0xCD0000,0x000080,0x006400,0,0};
+    colors[1]=colors[0];for(auto& color:colors[1])if(!color)color=0xFFFFFF;return colors;
+}
+uint32_t ParseObservationRgb(const std::wstring&);
+std::wstring FormatObservationRgb(uint32_t);
 struct ViewerSettings {
     int thumbnailWidth = 128, cacheMB = 100;
     bool saveHistory = true, autoBackup=true, darkTheme=false, metadataSearch=false;
@@ -17,7 +25,9 @@ struct ViewerSettings {
     bool hideFileNames=false; uint64_t updateAttemptUtc=0,updateSuccessUtc=0;
     int sortMode=0; bool idLinks=true,showBackupImages=true;
     std::vector<std::wstring> navigation; int navigationIndex=-1;
+    ObservationColors observationColors=DefaultObservationColors();
     int observationMB=10;
+    bool observationWrap=true;
     bool memoryCache=true;
     bool bookmarkCache=false,diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
     bool mdbEnabled=false;int mdbMode=0,mdbCapacityMB=100,categoryMode=0;

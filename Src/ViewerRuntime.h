@@ -121,7 +121,9 @@ struct State {
     int cacheMB = 100, slotLimit = ThumbnailSlots;
     size_t imageBytes = 0;
     bool residentMode=false,residentOcr=false;
+    ObservationColors observationColors=DefaultObservationColors();
     int observationMB=10;
+    bool observationWrap=true;
     bool memoryCache=true;
     bool bookmarkCache=false,diskCache=false; int diskCacheMiB=512,diskCacheMinutes=30,diskCacheVisits=5;
     std::vector<std::wstring> manualCacheFiles;
@@ -283,6 +285,8 @@ void ConfigureDiskCache();
 void CreateObservation();
 void LayoutObservation(RECT,bool);
 void ObservationTick();
+void RefreshObservationAppearance();
+bool ObservationCommand(WPARAM);
 void StopObservation();
 int ObservationTest();
 int ObservationUiTest();

@@ -6,9 +6,9 @@
 
 VS2022でリポジトリ直下の `KuniVRCPhotEditor.sln` を開き、Debug／x64を選びます。Ctrl＋Shift＋Bでビルド、Ctrl＋F5で起動します。
 
-`build.cmd Release` でRelease／x64を生成し、出力は `x64\Release\KuniVRCPhotEditor_vN.M.X.exe`（現在は `KuniVRCPhotEditor_v0.6.7.exe`）です。Debugも `x64\Debug` 配下に同じ版付き名称で生成します。build.cmdはこの開発PCのVS2022 Community配置を使用します。`build.cmd Debug Test`／`build.cmd Release Test` は自己・UI・終了試験を実行します。試験用書込み先はEXE配下のself-test-dataで、本番設定・参照写真は変更しません。試験成功は全要件や実VRChat精度の保証ではありません。
+`build.cmd Release` でRelease／x64を生成し、出力は `x64\Release\KuniVRCPhotEditor_vN.M.X.exe`（現在は `KuniVRCPhotEditor_v0.6.11.exe`）です。Debugも `x64\Debug` 配下に同じ版付き名称で生成します。build.cmdはこの開発PCのVS2022 Community配置を使用します。`build.cmd Debug Test`／`build.cmd Release Test` は自己・UI・終了試験を実行します。試験用書込み先はEXE配下のself-test-dataで、本番設定・参照写真は変更しません。試験成功は全要件や実VRChat精度の保証ではありません。
 
-統合キャッシュ設定の画面仕様、容量単位、無効化・再有効化の動作とv0.6.7の検証範囲は[統合仕様](CACHE_SETTINGS_PLAN.md)を参照してください。一覧サムネイルはメモリ、ディスク、原画像の順に取得します。通常のディスク追加条件と明示的な［キャッシュする］の条件は[利用ガイド](USER_GUIDE.md#オプション注意点)に記載しています。
+統合キャッシュ設定の画面仕様、容量単位、無効化・再有効化の動作とv0.6.11の検証範囲は[統合仕様](CACHE_SETTINGS_PLAN.md)を参照してください。一覧サムネイルはメモリ、ディスク、原画像の順に取得します。通常のディスク追加条件と明示的な［キャッシュする］の条件は[利用ガイド](USER_GUIDE.md#オプション注意点)に記載しています。
 
 - [更新履歴](UPDATELOG.md)
 - [閲覧要件](VIEWER_REQUIREMENTS.md)
@@ -20,3 +20,5 @@ VS2022でリポジトリ直下の `KuniVRCPhotEditor.sln` を開き、Debug／x6
 - [v0.5.10：選択画像から対応表への反映](V0.5.9_PLAN.md)
 - [第三者ライセンス通知](THIRD_PARTY_NOTICES.md)
 - [Stable向け簡易手順](../Stable/readme.md)
+
+v0.6.11以降の実行時データはData配下へ統合します。旧MetadataDB・ThumbnailDiskCacheとObservation/events.txtは移動前後の識別情報を照合して切り替えます。競合・使用中・アクセス不可時は旧保存先を固定して利用し、次回起動で再判定します。独立した色設定ファイルは作成せず、settings.jsonのobservationColorsへ標準／ナイト各10行の#RRGGBB配列を保存します。

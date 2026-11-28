@@ -4,11 +4,11 @@ namespace {
 struct FontOwner {std::map<std::pair<std::wstring,int>,HFONT> fonts;~FontOwner(){for(auto& item:fonts)DeleteObject(item.second);}} owner;
 constexpr int Family=2701,Size=2702,Defaults=2703;
 const wchar_t* Warning=L"フォントやサイズの変更により、文字の欠けやレイアウトの崩れが生じる場合があります。表示確認は既定フォント・10ptのみです。";
-struct DialogState {std::function<void(HWND)> inspect;std::wstring name;int pt=12;std::exception_ptr error;};
+struct DialogState {std::function<void(HWND)> inspect;std::wstring name;int pt=12;std::exception_ptr error;ObservationColors colors=DefaultObservationColors();};
 int CALLBACK FontFamily(const LOGFONTW* lf,const TEXTMETRICW*,DWORD,LPARAM lp){if(lf->lfFaceName[0]&&lf->lfFaceName[0]!=L'@')reinterpret_cast<std::set<std::wstring>*>(lp)->insert(lf->lfFaceName);return 1;}
 INT_PTR CALLBACK FontDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
     auto state=reinterpret_cast<DialogState*>(GetWindowLongPtrW(h,DWLP_USER));
-    if(m==WM_INITDIALOG){state=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"フォント");RECT bounds{0,0,514,238};AdjustWindowRectEx(&bounds,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER);
+    if(m==WM_INITDIALOG){state=reinterpret_cast<DialogState*>(lp);SetWindowLongPtrW(h,DWLP_USER,lp);SetWindowTextW(h,L"フォント");RECT bounds{0,0,580,560};AdjustWindowRectEx(&bounds,DWORD(GetWindowLongPtrW(h,GWL_STYLE)),FALSE,DWORD(GetWindowLongPtrW(h,GWL_EXSTYLE)));SetWindowPos(h,nullptr,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER);
         auto control=[&](const wchar_t* type,const wchar_t* text,DWORD style,int x,int y,int w,int height,int id){auto child=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,x,y,w,height,h,reinterpret_cast<HMENU>(INT_PTR(id)),GetModuleHandleW(nullptr),nullptr);SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont()),FALSE);return child;};
         control(L"STATIC",L"アプリ内の文字表示に使用するフォントとサイズ",0,12,12,490,26,0);
         auto fonts=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL,12,44,490,320,Family);
@@ -17,20 +17,40 @@ INT_PTR CALLBACK FontDialog(HWND h,UINT m,WPARAM wp,LPARAM lp){
         int selected=0,i=1;for(auto& name:families){auto label=L"フォント："+name;SendMessageW(fonts,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));if(_wcsicmp(name.c_str(),state->name.c_str())==0)selected=i;++i;}SendMessageW(fonts,CB_SETCURSEL,selected,0);
         control(L"STATIC",L"フォントサイズ（pt）",0,12,82,180,26,0);
         auto sizes=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP,200,80,100,260,Size);for(int n=10;n<=24;n+=2){auto text=std::to_wstring(n);SendMessageW(sizes,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));}SendMessageW(sizes,CB_SETCURSEL,(state->pt-10)/2,0);
-        control(L"STATIC",Warning,0,12,118,490,64,0);
-        control(L"BUTTON",L"既定に戻す",WS_TABSTOP,12,194,130,28,Defaults);control(L"BUTTON",L"適用",WS_TABSTOP|BS_DEFPUSHBUTTON,282,194,100,28,IDOK);control(L"BUTTON",L"キャンセル",WS_TABSTOP,390,194,112,28,IDCANCEL);
+        control(L"STATIC",L"観測文字色（#RRGGBB）",0,12,118,210,24,0);
+        control(L"STATIC",L"標準",0,230,118,120,24,0);
+        control(L"STATIC",L"ナイトモード",0,370,118,180,24,0);
+        const wchar_t* labels[]{L"日時（日付）",L"時刻",L"コンテンツ（通常）",L"コンテンツ URL",L"コンテンツ ユーザーID",L"タグ join",L"タグ leave",L"タグ world",L"タグ movie",L"タグ other"};
+        for(int row=0;row<10;++row){
+            int y=146+row*27;
+            control(L"STATIC",labels[row],0,12,y+2,210,24,0);
+            for(int mode=0;mode<2;++mode){
+                auto edit=control(L"EDIT",FormatObservationRgb(state->colors[mode][row]).c_str(),WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,230+mode*140,y,125,24,2800+mode*10+row);
+                SendMessageW(edit,EM_SETLIMITTEXT,7,0);
+            }
+        }
+        control(L"STATIC",L"",0,12,420,550,26,2899);
+        control(L"STATIC",Warning,0,12,450,550,50,0);
+        control(L"BUTTON",L"既定に戻す",WS_TABSTOP,12,518,130,28,Defaults);control(L"BUTTON",L"適用",WS_TABSTOP|BS_DEFPUSHBUTTON,342,518,100,28,IDOK);control(L"BUTTON",L"キャンセル",WS_TABSTOP,450,518,112,28,IDCANCEL);
         ScaleUiDialog(h);if(state->inspect)SetTimer(h,51,100,nullptr);return TRUE;
     }
     if(m==WM_TIMER&&wp==51){KillTimer(h,51);try{state->inspect(h);}catch(...){state->error=std::current_exception();EndDialog(h,IDCANCEL);}return TRUE;}
     if(m==WM_ERASEBKGND){RECT r{};GetClientRect(h,&r);FillRect(reinterpret_cast<HDC>(wp),&r,ThemeBrush());return TRUE;}
     if(m==WM_NOTIFY&&reinterpret_cast<NMHDR*>(lp)->code==NM_CUSTOMDRAW){SetWindowLongPtrW(h,DWLP_MSGRESULT,ThemeNotify(reinterpret_cast<NMHDR*>(lp)));return TRUE;}
     if(m==WM_CTLCOLORSTATIC||m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX||m==WM_CTLCOLORBTN)return ThemeControlColor(reinterpret_cast<HDC>(wp),reinterpret_cast<HWND>(lp));
-    if(m==WM_COMMAND){if(LOWORD(wp)==Defaults){SendDlgItemMessageW(h,Family,CB_SETCURSEL,0,0);SendDlgItemMessageW(h,Size,CB_SETCURSEL,1,0);return TRUE;}
+    if(m==WM_COMMAND){if(LOWORD(wp)==Defaults){SendDlgItemMessageW(h,Family,CB_SETCURSEL,0,0);SendDlgItemMessageW(h,Size,CB_SETCURSEL,1,0);
+            auto defaults=DefaultObservationColors();
+            for(int mode=0;mode<2;++mode)for(int row=0;row<10;++row)SetDlgItemTextW(h,2800+mode*10+row,FormatObservationRgb(defaults[mode][row]).c_str());
+            SetDlgItemTextW(h,2899,L"");return TRUE;}
         if(LOWORD(wp)==IDCANCEL){EndDialog(h,IDCANCEL);return TRUE;}
         if(LOWORD(wp)==IDOK){int family=int(SendDlgItemMessageW(h,Family,CB_GETCURSEL,0,0)),size=int(SendDlgItemMessageW(h,Size,CB_GETCURSEL,0,0));if(family<0||size<0)return TRUE;
+            auto colors=state->colors;
+            try{
+                for(int mode=0;mode<2;++mode)for(int row=0;row<10;++row)colors[mode][row]=ParseObservationRgb(Text(GetDlgItem(h,2800+mode*10+row)));
+            }catch(...){SetDlgItemTextW(h,2899,L"色は#RRGGBB形式の16進数6桁で入力してください。");return TRUE;}
             auto text=Text(GetDlgItem(h,Family));std::wstring name=family==0?L"":text.substr(std::wstring(L"フォント：").size());int pt=10+size*2;
             if((!name.empty()||pt!=12)&&(name!=app.fontName||pt!=app.fontPt)&&MessageBoxW(h,Warning,L"フォント変更の注意",MB_OKCANCEL|MB_ICONWARNING)!=IDOK)return TRUE;
-            state->name=name;state->pt=pt;EndDialog(h,IDOK);return TRUE;}}
+            state->colors=colors;state->name=name;state->pt=pt;EndDialog(h,IDOK);return TRUE;}}
     if(m==WM_CLOSE){EndDialog(h,IDCANCEL);return TRUE;}return FALSE;
 }
 }
@@ -89,8 +109,8 @@ void SetAppFont(const std::wstring& name,int pt,bool persist){
     if(persist)SaveSettings();
 }
 void ShowFontDialog(const std::function<void(HWND)>& inspect){
-    DialogState state{inspect,app.fontName,app.fontPt};struct Template{DLGTEMPLATE d;WORD menu,cls,title;}t{{WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_CENTER,0,0,0,0,300,150},0,0,0};
-    auto answer=DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&t.d,app.window,FontDialog,reinterpret_cast<LPARAM>(&state));if(state.error)std::rethrow_exception(state.error);if(answer==IDOK)SetAppFont(state.name,state.pt);
+    DialogState state{inspect,app.fontName,app.fontPt};state.colors=app.observationColors;struct Template{DLGTEMPLATE d;WORD menu,cls,title;}t{{WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_CENTER,0,0,0,0,300,150},0,0,0};
+    auto answer=DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&t.d,app.window,FontDialog,reinterpret_cast<LPARAM>(&state));if(state.error)std::rethrow_exception(state.error);if(answer==IDOK){app.observationColors=state.colors;SetAppFont(state.name,state.pt);RefreshObservationAppearance();SaveSettings();}
 }
 
 namespace {

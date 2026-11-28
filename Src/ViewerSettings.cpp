@@ -24,6 +24,14 @@ bool SameFolderAddress(const std::wstring& a, const std::wstring& b) {
     std::error_code error; bool same = std::filesystem::equivalent(a, b, error);
     return error ? NormalizeFolderAddress(a) == NormalizeFolderAddress(b) : same;
 }
+uint32_t ParseObservationRgb(const std::wstring& text){
+    if(text.size()!=7||text[0]!=L'#'||text.substr(1).find_first_not_of(L"0123456789abcdefABCDEF")!=std::wstring::npos)throw std::runtime_error("RGB code must be #RRGGBB");
+    auto rgb=std::stoul(text.substr(1),nullptr,16);
+    return ((rgb>>16)&255)|(rgb&0xFF00)|((rgb&255)<<16);
+}
+std::wstring FormatObservationRgb(uint32_t color){
+    wchar_t text[8]{};swprintf_s(text,L"#%02X%02X%02X",color&255,(color>>8)&255,(color>>16)&255);return text;
+}
 ViewerSettings ParseViewerSettings(const std::string& json) {
     if (json.size() > 1024 * 1024) throw std::runtime_error("settings limit");
     auto object = JsonObject::Parse(winrt::to_hstring(json)); ViewerSettings settings;
@@ -49,6 +57,16 @@ ViewerSettings ParseViewerSettings(const std::string& json) {
     settings.sideWidth=number(L"sideWidth",400,280,10000,1);settings.sideHeight=number(L"sideHeight",300,120,10000,1);
     settings.residentMode=object.GetNamedBoolean(L"residentMode",false);settings.residentOcr=object.GetNamedBoolean(L"residentOcr",false);
     settings.diskCache=object.GetNamedBoolean(L"diskCache",false);
+    if(object.HasKey(L"observationColors")){
+        auto modes=object.GetNamedArray(L"observationColors");
+        if(modes.Size()!=2)throw std::runtime_error("observation palette modes");
+        for(unsigned mode=0;mode<2;++mode){
+            auto entries=modes.GetAt(mode).GetArray();
+            if(entries.Size()!=10)throw std::runtime_error("observation palette entries");
+            for(unsigned row=0;row<10;++row)settings.observationColors[mode][row]=ParseObservationRgb(std::wstring(entries.GetAt(row).GetString()));
+        }
+    }
+    settings.observationWrap=object.GetNamedBoolean(L"observationWrap",true);
     settings.observationMB=number(L"observationMB",10,1,1000,1);
     settings.memoryCache=object.GetNamedBoolean(L"memoryCache",true);
     settings.bookmarkCache=settings.diskCache&&object.GetNamedBoolean(L"bookmarkCache",false);
@@ -112,6 +130,13 @@ std::string SerializeViewerSettings(const ViewerSettings& settings) {
     object.Insert(L"sideWidth",JsonValue::CreateNumberValue(settings.sideWidth));object.Insert(L"sideHeight",JsonValue::CreateNumberValue(settings.sideHeight));
     object.Insert(L"residentMode",JsonValue::CreateBooleanValue(settings.residentMode));object.Insert(L"residentOcr",JsonValue::CreateBooleanValue(settings.residentOcr));
     object.Insert(L"diskCache",JsonValue::CreateBooleanValue(settings.diskCache));
+    JsonArray modes;
+    for(auto& palette:settings.observationColors){
+        JsonArray entries;for(auto color:palette)entries.Append(JsonValue::CreateStringValue(FormatObservationRgb(color)));
+        modes.Append(entries);
+    }
+    object.Insert(L"observationColors",modes);
+    object.Insert(L"observationWrap",JsonValue::CreateBooleanValue(settings.observationWrap));
     object.Insert(L"observationMB",JsonValue::CreateNumberValue(settings.observationMB));
     object.Insert(L"memoryCache",JsonValue::CreateBooleanValue(settings.memoryCache));
     object.Insert(L"bookmarkCache",JsonValue::CreateBooleanValue(settings.diskCache&&settings.bookmarkCache));

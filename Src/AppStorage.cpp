@@ -23,3 +23,54 @@ fs::path AppDataFile(const fs::path& folder,const wchar_t* name){
         return now;
     }catch(...){if(fs::exists(now))return now;if(fs::exists(old))return old;return now;}
 }
+
+namespace {
+std::map<std::wstring,fs::path> runtimeLocations;
+std::wstring runtimeWarning;
+std::pair<DWORD,uint64_t> StorageIdentity(const fs::path& path){
+    HANDLE handle=CreateFileW(path.c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,nullptr);
+    if(handle==INVALID_HANDLE_VALUE)winrt::throw_last_error();
+    BY_HANDLE_FILE_INFORMATION info{};bool ok=GetFileInformationByHandle(handle,&info)!=FALSE;CloseHandle(handle);
+    if(!ok)throw std::runtime_error("data identity unavailable");
+    if(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)throw std::runtime_error("redirected data");
+    return {info.dwVolumeSerialNumber,(uint64_t(info.nFileIndexHigh)<<32)|info.nFileIndexLow};
+}
+fs::path ConsolidateRuntime(const fs::path& folder,const fs::path& old,const fs::path& target){
+    std::lock_guard<std::recursive_mutex> lock(storageMutex);
+    auto key=fs::absolute(target).lexically_normal().wstring();
+    auto prior=runtimeLocations.find(key);if(prior!=runtimeLocations.end())return prior->second;
+    auto selected=target;
+    try{
+        StorageIdentity(folder);
+        SafeDirectory(folder/L"Data");
+        if(fs::exists(old)){
+            if(old.parent_path()!=folder)StorageIdentity(old.parent_path());
+            if(fs::exists(target))throw std::runtime_error("both old and new data locations exist");
+            auto before=StorageIdentity(old);
+            if(!MoveFileExW(old.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH))winrt::throw_last_error();
+            try{
+                if(StorageIdentity(target)!=before)throw std::runtime_error("data move identity mismatch");
+            }catch(...){
+                MoveFileExW(target.c_str(),old.c_str(),MOVEFILE_WRITE_THROUGH);throw;
+            }
+        }
+        if(fs::exists(target))StorageIdentity(target);
+    }catch(...){
+        selected=old;runtimeWarning=L"保存先の統合が完了していません。旧保存先を利用しています。競合・アクセス権・使用中のファイルを確認してください。";
+    }
+    runtimeLocations.emplace(key,selected);return selected;
+}
+}
+fs::path RuntimeDataDirectory(const fs::path& folder,const wchar_t* name){
+    if(wcscmp(name,L"MetadataDB")&&wcscmp(name,L"ThumbnailDiskCache"))throw std::runtime_error("unsupported data directory");
+    return ConsolidateRuntime(folder,folder/name,folder/L"Data"/name);
+}
+fs::path ObservationDataFile(const fs::path& folder){
+    auto path=ConsolidateRuntime(folder,folder/L"Observation"/L"events.txt",folder/L"Data"/L"observation-events.txt");
+    // Only an empty former observation directory can be removed.
+    std::error_code error;
+    auto old=folder/L"Observation";
+    if(path.parent_path()!=old&&fs::is_directory(old,error)&&fs::is_empty(old,error))fs::remove(old,error);
+    return path;
+}
+std::wstring RuntimeStorageWarning(){std::lock_guard<std::recursive_mutex> lock(storageMutex);return runtimeWarning;}

@@ -16,6 +16,7 @@ LRESULT CALLBACK SideProc(HWND h,UINT m,WPARAM wp,LPARAM lp){
     if(m==WM_MOUSEWHEEL){app.sideWheel+=GET_WHEEL_DELTA_WPARAM(wp);int delta=app.sideWheel/WHEEL_DELTA;app.sideWheel%=WHEEL_DELTA;ScrollSide(app.sideScroll-delta*std::max(36,UiLineHeight()*3));return 0;}
     if(m==WM_VSCROLL){SCROLLINFO info{sizeof(info),SIF_ALL};GetScrollInfo(h,SB_VERT,&info);int next=app.sideScroll;switch(LOWORD(wp)){case SB_TOP:next=0;break;case SB_BOTTOM:next=app.sideContent;break;case SB_LINEUP:next-=UiLineHeight()+4;break;case SB_LINEDOWN:next+=UiLineHeight()+4;break;case SB_PAGEUP:next-=int(info.nPage);break;case SB_PAGEDOWN:next+=int(info.nPage);break;case SB_THUMBTRACK:case SB_THUMBPOSITION:next=info.nTrackPos;break;}ScrollSide(next);return 0;}
     if(m==WM_APP+16){EnsureSideVisible(GetFocus());return 0;}
+    if(m==WM_COMMAND&&ObservationCommand(wp))return 0;
     if(m==WM_COMMAND&&LOWORD(wp)==2690&&HIWORD(wp)==CBN_SELCHANGE){TabCtrl_SetCurSel(app.metadataTabs,int(SendMessageW(app.sideSelector,CB_GETCURSEL,0,0)));LayoutSideView();return 0;}
     if(m==WM_COMMAND&&LOWORD(wp)>=TabBase&&LOWORD(wp)<TabBase+5&&HIWORD(wp)==BN_CLICKED){int index=LOWORD(wp)-TabBase;if(index<TabCtrl_GetItemCount(app.metadataTabs)){TabCtrl_SetCurSel(app.metadataTabs,index);LayoutSideView();}return 0;}
     if(m==WM_DRAWITEM){auto d=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(d->CtlID>=TabBase&&d->CtlID<TabBase+4){PaintVerticalTab(d);return TRUE;}}
