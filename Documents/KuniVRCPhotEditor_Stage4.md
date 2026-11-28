@@ -19,7 +19,7 @@ MDB操作結果の選択追従、狭いサイドビューのプルダウン選�
 | ID | 機能 | 状態 | 出典・目的 |
 |---|---|---|---|
 | S4-01 | モデル候補の採用／除外・手動確定UI | 一部実装（v0.4.14、手動確定UIは予定） | [Stage3仕様](KuniVRCPhotEditor_Stage3.txt)、[実装状況](STAGE3_IMPLEMENTATION.md)。自動候補と確定モデルを分けて管理 |
-| S4-02 | PNGの圧縮XMP読取り対応 | 検討 | [引継ぎ文書](../../work_logs/KuniVRCPhotEditor_work.md)の未対応事項。取得できるメタデータ範囲を拡張 |
+| S4-02 | PNGの圧縮XMP読取り対応 | 検討 | [引継ぎ文書](../work_logs/KuniVRCPhotEditor_work.md)の未対応事項。取得できるメタデータ範囲を拡張 |
 | S4-03 | EXIF回転情報を反映した表示 | 検討 | 現在の表示制約。原画像を書き換えず向きを反映 |
 | S4-04 | ICCカラープロファイルを考慮した表示 | 検討 | 現在の表示制約。サムネイル・プレビューの色表示を改善 |
 | S4-05 | DPI・表示倍率への対応 | 検討 | 現在の表示制約。高倍率・複数モニターでのレイアウトと可読性を改善 |
@@ -78,4 +78,4 @@ VRChatのオーディオ出力とマイク入力の取得方法は既に調査�
 3. 圧縮XMP・EXIF回転・ICC・DPIを必要性に応じて個別採用する。
 4. 保存復旧は安全性を先に検証し、音声認識は保留を維持する。
 
-進捗と次の作業は[work](../../work_logs/KuniVRCPhotEditor_work.md)、日付ごとの判断・結果は[history](../../work_logs/KuniVRCPhotEditor_history.md)へ記録する。機能一覧の採用・終了が変わった場合は本書を更新する。
+進捗と次の作業は[work](../work_logs/KuniVRCPhotEditor_work.md)、日付ごとの判断・結果は[history](../work_logs/KuniVRCPhotEditor_history.md)へ記録する。機能一覧の採用・終了が変わった場合は本書を更新する。
